@@ -1,6 +1,6 @@
 # ADR-0004: Free-first hosting, edge (Cloudflare) and phone-code delivery
 
-- **Status:** Proposed. ben-fatah's decisions of 2026-10-23, revised the same day for cost. Marked Accepted when committed in DEP#7.
+- **Status:** Accepted (2026-10-27, DEP#7). ben-fatah's decisions of 2026-10-23, revised the same day for cost.
 - **Deciders:** ben-fatah (deployment owner, account holder, pays by card), Omar-Nasri (backend).
 - **Repo:** iltiam-deployment, `docs/adr/0004-hosting.md`.
 - **Related:**
@@ -27,13 +27,13 @@ The data is identifiable health data (sensitive under the PDPL), so it stays in 
 |---|---|---|
 | Ampere A1 compute (`VM.Standard.A1.Flex`, ARM) | **1,500 OCPU-hours and 9,000 GB-hours a month, "equivalent to 2 OCPUs and 12 GB of memory"**; one VM or two 1-OCPU VMs | One VM, 2 OCPU / 12 GB, for staging **and** production |
 | AMD micro | 2 × VM.Standard.E2.1.Micro (1/8 OCPU, 1 GB) | Not used (too small) |
-| Block volume | **200 GB total** (boot + block) and **5 volume backups**, home region only | 50 GB boot + 150 GB data; 3 backups |
+| Block volume | **200 GB total** (boot + block) and **5 volume backups**, home region only | 100 GB boot + 100 GB data (`/srv/iltiam`); 3 backups |
 | Object storage | **20 GB**. A free-only account gets 20 GB across all tiers; an upgraded account gets 10 GB Standard + 10 GB Infrequent Access + 10 GB Archive. Plus 50,000 API requests a month. | Photos, masks, PDFs, exports, encrypted DB dumps |
 | Outbound data | 10 TB a month | Plenty |
 | Vault | **Software-protected master keys free**; 20 free HSM key versions; 150 secrets | Software keys: AES-256 and rotatable, which meets NFR-SEC-04 |
 | Monitoring / Notifications / Email | 500 M ingestion points; 1,000 email notifications; 3,000 emails a month | Instance-state alarms; optional transactional email |
 
-**Note on the A1 allowance:** Oracle's A1 pricing page still says "the first 3K OCPU-hrs and 18K GB-hrs each month is free" ([Ampere A1 pricing](https://www.oracle.com/cloud/compute/arm/pricing)), which is 4 OCPU / 24 GB. The Always Free documentation now says 2 OCPU / 12 GB. **We plan for 2 OCPU / 12 GB**, the documented figure. If the console offers more as Always Free-eligible, that is headroom.
+**Note on the A1 allowance:** Oracle's A1 pricing page still says "the first 3K OCPU-hrs and 18K GB-hrs each month is free" ([Ampere A1 pricing](https://www.oracle.com/cloud/compute/arm/pricing)), which is 4 OCPU / 24 GB. The Always Free documentation now says 2 OCPU / 12 GB. **We plan for 2 OCPU / 12 GB**, the documented figure. Do not create a larger A1 shape on the free account: the console accepts 4 OCPU / 24 GB, but usage above 1,500 OCPU-hours / 9,000 GB-hours is not Always Free, and when the 30-day trial ends an over-limit A1 instance is disabled. Runbook 1 (`docs/runbooks/01-oci-account-and-vm.md`) shows how to shrink one with Edit shape.
 
 **Is it available in Riyadh?**
 - "You must create the Always Free compute instances in your home region."
