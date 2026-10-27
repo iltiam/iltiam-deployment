@@ -1,3 +1,7 @@
 # Shell scripts run on Linux: keep LF even in a Windows checkout (core.autocrlf=true),
 # or bash on the VM fails with "$'\r': command not found".
 *.sh text eol=lf
+# Env templates and Compose/workflow files are read on Linux too; a stray \r would end up inside a value.
+*.example text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf

@@ -8,11 +8,22 @@ id_*
 *_oci
 .oci/
 
-# Environment files hold secrets; templates are committed as *.example.
+# Environment files hold secrets; templates are committed as *.example (env/*.env.example).
 .env
 .env.*
+*.env
+rendered/
 !.env.example
 !*.example
+
+# Secret files from third parties (docs/secrets.md): never in git, whatever the folder.
+google-services.json
+GoogleService-Info.plist
+*service-account*.json
+*.jks
+*.keystore
+key.properties
+*.age
 
 # Editors and OS
 .vscode/

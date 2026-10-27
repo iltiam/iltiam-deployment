@@ -1,0 +1,56 @@
+# Env templates and secret hygiene (issue #3, docs/runbooks/04-secrets.md):
+#   templates  shellcheck, then scripts/check-env.sh (lint, dummy render, docker compose config, negative cases)
+#   gitleaks   the whole git history, findings redacted
+#
+# THIS REPOSITORY IS PUBLIC, SO ITS ACTIONS LOGS ARE PUBLIC. In this and every later workflow, never print a secret:
+#   - no `set -x` / `bash -x` in a step that has a secret in its environment;
+#   - no `echo`, `cat` or `env` of a value or of a rendered env file;
+#   - `docker compose config` only with --quiet; `docker login` only with --password-stdin;
+#   - gitleaks only with --redact;
+#   - GitHub masks registered secrets in logs, but not values derived from them (base64, URLs): if a step must
+#     derive one, mask it first with `echo "::add-mask::$VALUE"`.
+name: env-check
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: env-check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  templates:
+    name: Env templates and scripts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: shellcheck
+        run: shellcheck scripts/*.sh
+
+      - name: Lint, dummy render, docker compose config
+        run: bash scripts/check-env.sh
+
+  gitleaks:
+    name: gitleaks (full history)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      # The pinned image, not gitleaks-action: that action needs a paid license for organisation repositories.
+      - name: gitleaks
+        run: |
+          docker run --rm -v "$PWD:/repo" ghcr.io/gitleaks/gitleaks:v8.30.1 \
+            git /repo --redact --no-banner --verbose
