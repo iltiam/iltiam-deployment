@@ -1,0 +1,21 @@
+# Never commit keys or credentials (SSH, OCI API, TLS).
+*.pem
+*.key
+*.p12
+*.pfx
+id_*
+!id_*.pub
+*_oci
+.oci/
+
+# Environment files hold secrets; templates are committed as *.example.
+.env
+.env.*
+!.env.example
+!*.example
+
+# Editors and OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
