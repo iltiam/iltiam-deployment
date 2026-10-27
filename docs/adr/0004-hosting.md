@@ -1,6 +1,6 @@
 # ADR-0004: Free-first hosting, edge (Cloudflare) and phone-code delivery
 
-- **Status:** Accepted (2026-10-27, DEP#7). ben-fatah's decisions of 2026-10-23, revised the same day for cost.
+- **Status:** Accepted (2026-10-27, DEP#7). AI-12 measured 2026-10-27: GO. ben-fatah's decisions of 2026-10-23, revised the same day for cost.
 - **Deciders:** ben-fatah (deployment owner, account holder, pays by card), Omar-Nasri (backend).
 - **Repo:** iltiam-deployment, `docs/adr/0004-hosting.md`.
 - **Related:**
@@ -16,6 +16,7 @@ The data is identifiable health data (sensitive under the PDPL), so it stays in 
 
 **Workloads, measured:**
 - AI compute per analysis on a 4-thread **x86** laptop CPU: 0.68 s p50 with ALG-03 off, 1.46 s with it on (`iltiam-ai-service/docs/benchmarks/tissue_classifier.md`).
+- AI compute on the **Ampere A1** VM (`iltiam-1`, 2 OCPU) with 2 threads, on an 8 MP synthetic scene, measured 2026-10-27 (AI-12, iltiam/iltiam-ai-service#142): whole analysis 1,548 / 1,560 ms p50 / p95 with ALG-03 off, 2,765 / 2,789 ms with it on; ALG-02 alone 1,133 / 1,166 ms (`iltiam-ai-service/docs/benchmarks/segmentation_latency.md`, "By host (issue #142, ARM go/no-go)").
 - Model load: 8–15 s per worker, about 1.2 GB of memory per worker process.
 - Budgets: the owner's 4 s target, and NFR-PERF-01's 10 s.
 
@@ -78,13 +79,9 @@ Riyadh has a single availability domain. **Our workaround, in order:**
 **No package in the service images lacks an ARM build.** The AI repo's `train` extras (onnxruntime, albumentations, timm) are not in the service image and were not checked.
 
 **Risks on ARM, and what we do:**
-1. **Speed on 2 Ampere cores is unknown.** The published numbers are from an x86 laptop with 4 threads. **AI-12 is the go/no-go before anything is built on the VM**, using `scripts/benchmark_segmentation.py --threads 2 --size 3264x2448 --full` and `scripts/benchmark_tissue.py --threads 2 --end-to-end`. If p95 is above 4 s with ALG-03 off:
-   - first tune threads and concurrency;
-   - then keep ALG-03 off;
-   - then add 2 A1 OCPUs (≈ $15 a month);
-   - then fall back to x86 (≈ $52 a month).
-
-   10 s is the hard limit.
+1. **Speed on 2 Ampere cores: GO, no mitigation step needed** (AI-12, 2026-10-27). The whole analysis at 8 MP with ALG-03 off has a p95 of 1.56 s against the 4 s target; 10 s is the hard limit. The fallback ladder (tune threads, keep ALG-03 off, add 2 A1 OCPUs, move to x86) is not needed.
+   - With ALG-03 on, the p95 is 2.79 s. That leaves about 1.2 s for upload, decode, Celery and Redis, so **ALG-03 stays off by default** until DEP#2 measures through the stack.
+   - Torch 2.14.1+cpu on aarch64 has oneDNN but no ACL. That did not affect the verdict.
 2. **Images must be built for linux/arm64.**
    - Under QEMU emulation on an x86 runner the torch layer builds slowly and burns free minutes.
    - GitHub's docs now list the `ubuntu-24.04-arm` runner for private repositories, using the account's free minutes ([GitHub docs](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)). The August 2025 changelog said it was public-only ([changelog](https://github.blog/changelog/2025-08-07-arm64-hosted-runners-for-public-repositories-are-now-generally-available/)).
@@ -92,8 +89,10 @@ Riyadh has a single availability domain. **Our workaround, in order:**
 3. **Memory:** 12 GB for two environments. DEP#2 sets the budget: about 3.8 GB per environment, about 1 GB for monitoring, about 9 GB in total, plus 4 GB swap, with `mem_limit` on every service. The staging AI worker is the first thing stopped under pressure.
 4. **Numbers can differ slightly from x86.** Floating-point order on ARM kernels can move a mask boundary pixel. NFR-MAI-03 (identical results) holds per deployment configuration, which is still true.
    - The golden regression suite and its baseline stay on x86 CI.
-   - AI-12 records the ARM-vs-x86 area difference on the fixtures, expected in the second decimal.
+   - AI-12 measured the area at 25.66 cm² on `good_marker.jpg` and 25.27 cm² on the 8 MP scene, identical on A1 and x86.
 5. **Capacity and reclamation:** see Decision 1.
+
+**Requirement for DEP#2 (from AI-12):** run the AI worker with **2 torch threads** (2 beat the shipped 4 by about 6 % on the 2-core VM), `OMP_NUM_THREADS=2`, and worker concurrency 1 per environment. The shipped config has `torch_threads: 4` (`segmentation.yaml`, `tissue.yaml`) and no environment override yet; the override is planned in iltiam/iltiam-ai-service#143.
 
 ## Decision 3: one VM for staging and production, split only when needed
 
@@ -156,7 +155,7 @@ Riyadh has a single availability domain. **Our workaround, in order:**
 
 | Situation | Change | Cost / month |
 |---|---|---|
-| ARM too slow (AI-12) | Add 2 A1 OCPUs (4 OCPU / 12 GB): 2 × $0.01 × 730 h ([Oracle A1 pricing](https://www.oracle.com/cloud/compute/arm/pricing)) | **≈ $15** |
+| ARM too slow (AI-12). **Not needed:** AI-12 GO, 2026-10-27 | Add 2 A1 OCPUs (4 OCPU / 12 GB): 2 × $0.01 × 730 h ([Oracle A1 pricing](https://www.oracle.com/cloud/compute/arm/pricing)) | **≈ $15** |
 | Also short of memory | 4 OCPU / 24 GB A1: + 12 GB × $0.0015 × 730 h | **≈ $28** |
 | No A1 capacity at all, even after PAYG | x86 `VM.Standard.E5.Flex` 1 OCPU (2 vCPU) / 12 GB: $0.039318 × 730 + 12 × $0.0026212 × 730 ([Oracle compute pricing](https://www.oracle.com/cloud/compute/pricing)); block storage stays inside the free 200 GB | **≈ $52** |
 | Object storage beyond 20 GB | ≈ $0.0255 / GB-month ([Oracle storage pricing](https://www.oracle.com/cloud/storage/pricing)) | e.g. +50 GB ≈ **$1.3** |
@@ -177,6 +176,6 @@ Riyadh has a single availability domain. **Our workaround, in order:**
 ## Consequences
 
 - The deployment issues are runbooks sized for the free VM: #7 (account, $10 budget, A1 VM), #2 (two Compose projects with a memory budget), #9 (two tunnels), #8 (free backups, restore on the VM), #10 (about 1 GB monitoring), DEP-02 (20 GB storage, software keys), DEP-03 (staging only), DEP-04 (production project and split triggers), DEP-08 (load tests that spare production), DEP-11.
-- AI-12 runs first on the VM and decides whether we stay on ARM.
+- AI-12 (2026-10-27) confirmed we stay on ARM.
 - Images are multi-arch (DEP#1, AI-07, BE-04, WEB-03).
 - **Revisit when money or load changes:** AWS or Azure Saudi regions, managed Postgres, Cloudflare Data Localization Suite, a production split.
