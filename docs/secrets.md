@@ -4,7 +4,7 @@
 - **Templates:** [`env/`](../env/): every variable name with a one-line comment, no values.
 - **Owner of every secret:** ben-fatah. **Backup:** Omar-Nasri. The exception is the Android upload keystore (section 3).
 
-> **This repository is public.** No secret value goes into it, into an issue, a PR, a commit message, a chat or an Actions log. Use placeholders (`<DOMAIN>`, `<NAMESPACE>`) and secret **names** only.
+> **This repository is public.** No secret value goes into it, into an issue, a PR, a commit message, a chat or an Actions log. Use placeholders (such as `<NAMESPACE>`) and secret **names** only.
 
 ## 1. Where secrets live
 
@@ -50,8 +50,8 @@ Each environment has **its own value** for every secret (run `scripts/bootstrap-
 | `STORAGE_ACCESS_KEY`, `STORAGE_SECRET_KEY` | backend.env | OCI Customer Secret Key of the environment's storage user (Runbook 8, DEP-02) | yearly, staff change | 6.4 | OCI console: delete the key (6.4 step 5) |
 | `CF_TUNNEL_TOKEN` | infra.env | Cloudflare Zero Trust, the environment's tunnel (Runbook 3, #9) | staff change, leak | Refresh the tunnel's token in Zero Trust (menu: Runbook 3), update the secret, redeploy | Refresh the token; the old one stops working |
 | `AUTHENTICA_API_KEY` | backend.env | Authentica dashboard (Runbook 12, DEP-14) | staff change, leak | Create a new key in the dashboard (menu: Runbook 12), update the secret, redeploy, delete the old key | Delete the key in the dashboard; check the balance for misuse |
-| `TURNSTILE_SECRET_KEY` | backend.env | Cloudflare dashboard → Turnstile → the environment's widget | staff change, leak | Turnstile → widget → **Rotate secret key** (keep the old key valid for a grace period), update the secret, redeploy | Rotate with immediate expiry |
-| `EMAIL_HOST_USER`, `EMAIL_HOST_PASSWORD` | backend.env | SMTP provider, **TO CONFIRM** (DEP-01) | yearly, staff change | New SMTP credential at the provider, update, redeploy, delete the old one | Delete the credential at the provider |
+| `TURNSTILE_SECRET_KEY` | backend.env | Cloudflare dashboard → Turnstile → the environment's widget, `iltiam-staging` / `iltiam-prod` (Runbook 2, DEP-01) | staff change, leak | Turnstile → widget → **Rotate secret key** (keep the old key valid for a grace period), update the secret, redeploy | Rotate with immediate expiry |
+| `EMAIL_HOST_USER`, `EMAIL_HOST_PASSWORD` | backend.env | OCI Email Delivery SMTP credentials of the environment's own user, `iltiam-smtp-staging` / `iltiam-smtp-prod` (Runbook 2, section 11.5; **pending SMTP provider**) | yearly, staff change | OCI console → the user → **SMTP credentials → Generate credentials** (the old one keeps working meanwhile), update both secrets, redeploy, delete the old credential | OCI console → the user → **SMTP credentials** → delete it |
 | `FCM_SERVICE_ACCOUNT_JSON` | file `fcm-service-account.json` (section 1) | Firebase → Project settings → Service accounts → Generate new private key (Runbook 11, DEP-13) | yearly, staff change | 6.5 | Google Cloud console → IAM & Admin → Service accounts → the Firebase account → **Keys** → delete the key |
 | `WEIGHTS_READ_TOKEN` | infra.env (→ weights-init's `GITHUB_TOKEN`) | Fine-grained PAT, one **per environment**: resource owner `iltiam`, only `iltiam-ai-service`, **Contents: Read-only**, expiry **1 year** | yearly (it expires) | 6.6 | github.com → Settings → Developer settings → Personal access tokens → Fine-grained tokens → the token → **Delete** |
 | `STAGING_TEST_PASSWORD` (staging only) | backend.env | Chosen by whoever runs `manage.py seed_staging`; must meet the password policy | staff change | Set a new one, update, run `seed_staging` again | Same |
@@ -69,7 +69,7 @@ Non-secret values (host names, bucket names, backends, `AUTHENTICA_SENDER_NAME`)
 | Android upload keystore, its store password, key alias and key password | iltiam-mobile repository secrets; names **TO CONFIRM** (MOB-03, MOB-28a). **Escrowed in Bitwarden** | **MYF25 (Mohammad), TO CONFIRM**; backup ben-fatah | never, unless lost or leaked | Lost or leaked: Play Console → the app → Setup → App signing → **Request upload key reset** (Play App Signing keeps the real signing key) |
 | age backup key (private half) | **Bitwarden only** (#8 decides whether the VM's restore test holds a copy) | ben-fatah | never | Without it no backup can be restored. Only the public recipient key goes to the VM |
 | OCI Vault master encryption key | OCI Vault `iltiam` (software-protected, DEP-02) | ben-fatah | **yearly** | OCI console → Vault → the key → **Rotate key**. Old versions stay for decryption, so nothing is lost |
-| OCI console logins, Cloudflare, Authentica, Firebase, Play Console accounts | each provider, with MFA | ben-fatah (Play Console: Mohammad) | — | Remove a person's access on staff change |
+| OCI console logins, Cloudflare, Authentica, Firebase, Play Console accounts | each provider, with MFA | ben-fatah (Play Console: Mohammad) | — | Remove a person's access on staff change. Cloudflare's second administrator is Omar-Nasri (Runbook 2); each person keeps their own 2FA recovery codes |
 
 ## 4. Rules
 
@@ -197,7 +197,7 @@ Found while writing the templates (issue #3). Each one belongs to the issue name
 
 **For the backend (Omar-Nasri):**
 
-7. **Health check vs `ALLOWED_HOSTS`, TO CONFIRM.** The image's health check calls `http://127.0.0.1:8000/api/health/`. If that path is not exempt from Django's host check, it gets 400 with `ALLOWED_HOSTS=api.<DOMAIN>`, and the container is marked unhealthy. Either exempt the probes or add `127.0.0.1` to `ALLOWED_HOSTS` in compose.
+7. **Health check vs `ALLOWED_HOSTS`, TO CONFIRM.** The image's health check calls `http://127.0.0.1:8000/api/health/`. If that path is not exempt from Django's host check, it gets 400 with `ALLOWED_HOSTS=api.iltiamcare.com`, and the container is marked unhealthy. Either exempt the probes or add `127.0.0.1` to `ALLOWED_HOSTS` in compose.
 8. **`FIELD_ENCRYPTION_KEY` rotation:** follow-up issue (MultiFernet plus a re-encrypt command), section 6.2.
 9. **`STAGING_TEST_PASSWORD`:** document the password policy, so the value can be generated.
 
@@ -205,7 +205,7 @@ Found while writing the templates (issue #3). Each one belongs to the issue name
 
 10. **Web runtime config names** (`API_BASE_URL`, `TURNSTILE_SITE_KEY`): WEB-03.
 11. **iltiam-mobile secret names** (google-services per flavor, upload keystore): MOB-02, MOB-03, MOB-28a. Keystore owner MYF25.
-12. **SMTP provider:** DEP-01.
+12. **SMTP provider:** decided, OCI Email Delivery (ADR-0004 Decision 6), pending confirmation that it is offered in Riyadh. Set up with Runbook 2, section 11; Resend is the fallback.
 13. **Values and menus:**
     - `NUM_PROXIES` (#9);
     - `ALLOW_SYNC=0` and `AI_MASK_UPLOAD_ENABLED=True`;

@@ -9,7 +9,6 @@
 
 | Placeholder | Meaning |
 |---|---|
-| `<DOMAIN>` | The domain registered in Runbook 2 (DEP-01) |
 | `<NAMESPACE>` | The OCI Object Storage namespace (Runbook 8, DEP-02; OCI console → Object Storage → Buckets, "Namespace") |
 | `<ENV>` | `staging` or `production` |
 
@@ -133,8 +132,8 @@ Each one comes from its own runbook. Add it to **both** Environments, each with 
 | `STORAGE_ACCESS_KEY`, `STORAGE_SECRET_KEY` | OCI Customer Secret Key of the environment's storage user | Runbook 8 (DEP-02) |
 | `CF_TUNNEL_TOKEN` | Cloudflare Zero Trust, tunnel `iltiam-staging` / `iltiam-prod` | Runbook 3 (#9) |
 | `AUTHENTICA_API_KEY` (plus the variable `AUTHENTICA_SENDER_NAME`) | Authentica dashboard | Runbook 12 (DEP-14) |
-| `TURNSTILE_SECRET_KEY` (plus the variable `TURNSTILE_SITE_KEY`) | Cloudflare → Turnstile, one widget per environment | Runbook 2 (DEP-01) |
-| `EMAIL_HOST_USER`, `EMAIL_HOST_PASSWORD` | SMTP provider (**TO CONFIRM**) | Runbook 2 (DEP-01) |
+| `TURNSTILE_SECRET_KEY` (plus the variable `TURNSTILE_SITE_KEY`) | Cloudflare → Turnstile, one widget per environment | [Runbook 2](02-cloudflare-dns-tls.md) (DEP-01), section 10 |
+| `EMAIL_HOST_USER`, `EMAIL_HOST_PASSWORD` | OCI Email Delivery SMTP credentials of the environment's own SMTP user (**pending SMTP provider**) | [Runbook 2](02-cloudflare-dns-tls.md) (DEP-01), section 11.5 |
 | `FCM_SERVICE_ACCOUNT_JSON` | Firebase → Project settings → Service accounts → Generate new private key | Runbook 11 (DEP-13) |
 | `WEIGHTS_READ_TOKEN` | Fine-grained PAT, **one per environment**: only `iltiam-ai-service`, Contents read-only, 1-year expiry | `docs/secrets.md`, section 6.6 |
 | `STAGING_TEST_PASSWORD` (staging only) | You choose it; it must meet the password policy | backend `docs/deployment.md` |
@@ -162,25 +161,25 @@ These are the values to set. Every other `var` in the templates is `optional`: l
 | Variable | staging | production |
 |---|---|---|
 | `ENVIRONMENT` | `staging` | `production` |
-| `ALLOWED_HOSTS` | `staging-api.<DOMAIN>` | `api.<DOMAIN>` |
-| `CORS_ALLOWED_ORIGINS`, `CSRF_TRUSTED_ORIGINS` | `https://staging-app.<DOMAIN>` | `https://app.<DOMAIN>` |
+| `ALLOWED_HOSTS` | `staging-api.iltiamcare.com` | `api.iltiamcare.com` |
+| `CORS_ALLOWED_ORIGINS`, `CSRF_TRUSTED_ORIGINS` | `https://staging-app.iltiamcare.com` | `https://app.iltiamcare.com` |
 | `NUM_PROXIES` | TO CONFIRM in Runbook 3 | same |
 | `STORAGE_ENDPOINT_URL` | `https://<NAMESPACE>.compat.objectstorage.me-riyadh-1.oraclecloud.com` | same |
 | `STORAGE_REGION` | `me-riyadh-1` | same |
 | `STORAGE_BUCKET_WOUND_IMAGES`, `…_WOUND_MASKS`, `…_REPORTS`, `…_PRESCRIPTIONS`, `…_PROFILE_PHOTOS` | `iltiam-staging-wound-images`, `-wound-masks`, `-reports`, `-prescriptions`, `-profile-photos` | `iltiam-prod-…` (names TO CONFIRM in Runbook 8) |
-| `ACTIVATION_LINK_BASE_URL` | `https://staging-app.<DOMAIN>/activate` | `https://app.<DOMAIN>/activate` (path TO CONFIRM) |
+| `ACTIVATION_LINK_BASE_URL` | `https://staging-app.iltiamcare.com/activate` | `https://app.iltiamcare.com/activate` (path TO CONFIRM) |
 | `SMS_BACKEND` | leave out until Runbook 12, then as production | `apps.notifications.sms.AuthenticaSMSBackend` |
 | `AUTHENTICA_SENDER_NAME` | the approved sender name | same |
 | `PUSH_BACKEND` | leave out until Runbook 11, then as production | `apps.notifications.push.FCMPushBackend` |
 | `EMAIL_BACKEND` | leave out until Runbook 2's SMTP, then as production | `django.core.mail.backends.smtp.EmailBackend` |
-| `EMAIL_HOST`, `EMAIL_PORT`, `DEFAULT_FROM_EMAIL` | the provider's host, `587`, `ILTIAM Staging <no-reply@<DOMAIN>>` | same host and port, `ILTIAM <no-reply@<DOMAIN>>` |
+| `EMAIL_HOST`, `EMAIL_PORT`, `DEFAULT_FROM_EMAIL` | OCI Email Delivery's Riyadh SMTP endpoint (Runbook 2, section 11.2), `587`, `ILTIAM Staging <no-reply@iltiamcare.com>` | same host and port, `ILTIAM <no-reply@iltiamcare.com>` |
 | `TOTP_ISSUER` | `ILTIAM Staging` | leave out (`ILTIAM`) |
 | `OTP_DEV_ECHO_NUMBERS` | the line `manage.py seed_staging` prints | **never** (production refuses it) |
 | `ALLOW_SYNC` | `0` | `0` |
 | `AI_API_WORKERS`, `AI_WORKER_CONCURRENCY` | `1`, `1` | `1`, `1` |
 | `ILTIAM_TISSUE_ENABLED` | `0` | `0` |
 | `MASK_UPLOAD_ALLOWED_HOSTS` | `<NAMESPACE>.compat.objectstorage.me-riyadh-1.oraclecloud.com` | same |
-| `API_BASE_URL` (name TO CONFIRM, WEB-03) | `https://staging-api.<DOMAIN>/api` | `https://api.<DOMAIN>/api` |
+| `API_BASE_URL` (name TO CONFIRM, WEB-03) | `https://staging-api.iltiamcare.com/api` | `https://api.iltiamcare.com/api` |
 | `TURNSTILE_SITE_KEY` (name TO CONFIRM, WEB-03) | the staging widget's site key | the production widget's site key |
 
 **Type values exactly**, with no quotes around them and no trailing spaces. A value must not contain a single quote `'` or a line break; the deploy refuses those.
@@ -322,7 +321,7 @@ Every row must match before an environment is used. Record the result on the iss
 
 ## 15. What comes next
 
-- **Runbook 2** (DEP-01): domain, TLS, SMTP and Turnstile values.
+- **[Runbook 2](02-cloudflare-dns-tls.md)** (DEP-01): the Turnstile keys now (section 10); the SMTP values once the provider is set up (section 11).
 - **Runbook 3** (#9): `CF_TUNNEL_TOKEN`.
 - **Runbook 5** (#2): `compose.yml` reads these env files; it replaces the CI stub `ci/env-check.compose.yml`.
 - **Runbook 8** (DEP-02): storage keys and bucket names.

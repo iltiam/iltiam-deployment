@@ -428,7 +428,7 @@ Oracle may **reclaim an Always Free instance that is idle for 7 days**: CPU p95,
 ## 15. What comes next
 
 - **AI-12** (iltiam/iltiam-ai-service#142): the ARM go/no-go benchmark runs on this VM next.
-- **Runbook 2:** Cloudflare account, DNS and TLS (DEP-01).
+- **[Runbook 2](02-cloudflare-dns-tls.md):** Cloudflare account, DNS and TLS (DEP-01).
 - **Runbook 3:** Cloudflare Tunnel, the only way web traffic reaches the VM (DEP#9).
 - **Runbook 5:** the staging and production Compose projects on `/srv/iltiam` (DEP#2).
 - **Runbook 8:** object storage and Vault keys (DEP-02).
