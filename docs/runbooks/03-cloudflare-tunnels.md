@@ -33,7 +33,7 @@ Filled in when the steps are done. Names only: never a token, ID, team name or I
 | `CF_TUNNEL_TOKEN` in GitHub | Set in the `staging` and `production` Environments |
 | Temporary test (section 5) | Staging test with stand-ins and production test (`cloudflared` only) run 2026-10-28 on the OCI VM, then torn down; Compose file removed from the VM; no containers left |
 | Cache settings and rules | Browser Cache TTL "Respect Existing Headers", Always Online Off; Cache Rules `api-bypass`, `app-bypass-shell`, `app-cache-assets` active |
-| Rate limiting rule | `auth-rate-limit` active; expression: 7-path list / `starts_with` fallback |
+| Rate limiting rule | `auth-rate-limit` active; expression: 7-path list (section 7.1); fallback not needed |
 | Custom rules | `block-scanners`, `app-read-only` active |
 | `under-attack-app` | Configuration Rule created and disabled; `api-no-rewrites` (Runbook 2) active |
 | Access login method and policy | Login method One-time PIN enabled. Reusable policy `team-only`: Allow, Include Emails `<ADMIN_EMAIL_1>`, `<ADMIN_EMAIL_2>`, session 24 h |
@@ -708,7 +708,7 @@ The **Verified** column records the date each row last passed.
 | 8 | Staging over HTTPS | `curl.exe -sI https://staging-app.iltiamcare.com/` (section 5.3) | `200`, `server: cloudflare` | today | PASS 2026-10-28: `200` |
 | 9 | Headers at the origin | the two `whoami` commands (section 5.3) | `Host` unchanged; one `X-Forwarded-For` entry, a fake one comes first; `X-Forwarded-Proto: https` | today | PASS 2026-10-28: one `X-Forwarded-For` entry, `X-Forwarded-Proto: https`, `Cf-Connecting-Ip` present; `NUM_PROXIES=1` confirmed. The behaviour check with a spoofed header stays for after #2 (row 27) |
 | 10 | API not cached (stand-in) | `1..2 \| % { curl.exe -sI https://staging-api.iltiamcare.com/api/health/ \| Select-String cf-cache-status }` | `DYNAMIC` or `BYPASS`, both times | today | PASS 2026-10-28: `staging-api` `/api/health/` `DYNAMIC` twice; `staging-app` `/` `DYNAMIC` |
-| 11 | Cache settings | **Caching → Configuration**; **Cache Rules** | Browser Cache TTL "Respect Existing Headers", Always Online Off; `api-bypass`, `app-bypass-shell`, `app-cache-assets` enabled | today | |
+| 11 | Cache settings | **Caching → Configuration**; **Cache Rules** | Browser Cache TTL "Respect Existing Headers", Always Online Off; `api-bypass`, `app-bypass-shell`, `app-cache-assets` enabled | today | PASS 2026-10-28 (dashboard): Browser Cache TTL "Respect Existing Headers", Always Online Off, the three Cache Rules active |
 | 12 | Custom rules | `curl.exe -s -o NUL -w "%{http_code}" https://staging-app.iltiamcare.com/.env` and `curl.exe -s -o NUL -w "%{http_code}" -X POST https://staging-app.iltiamcare.com/` | `403` and `403` | today | PASS 2026-10-28: `block-scanners` (`/.env`) `403`; `app-read-only` (POST to `staging-app`) `403` |
 | 13 | Rate limit | `1..14 \| % { curl.exe -s -o NUL -w "%{http_code} " -X POST https://staging-api.iltiamcare.com/api/auth/login/ }` | `200` about ten times (the stand-in), then `429`. Cloudflare counts approximately, so the first `429` may come a few requests later | today | |
 | 14 | Under Attack rule | **Rules → Configuration Rules** | `under-attack-app` exists and is **off**; `api-no-rewrites` on | today | |
