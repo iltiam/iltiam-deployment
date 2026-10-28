@@ -1,6 +1,6 @@
-# ADR-0004: Free-first hosting, edge (Cloudflare) and phone-code delivery
+# ADR-0004: Free-first hosting, edge (Cloudflare), phone-code and email delivery
 
-- **Status:** Accepted (2026-10-27, DEP#7). AI-12 measured 2026-10-27: GO. ben-fatah's decisions of 2026-10-23, revised the same day for cost.
+- **Status:** Accepted (2026-10-27, DEP#7). AI-12 measured 2026-10-27: GO. ben-fatah's decisions of 2026-10-23, revised the same day for cost. Decision 4 updated and Decision 6 added on 2026-10-28 (DEP-01); Decision 6 is pending confirmation that OCI Email Delivery is offered in Riyadh.
 - **Deciders:** ben-fatah (deployment owner, account holder, pays by card), Omar-Nasri (backend).
 - **Repo:** iltiam-deployment, `docs/adr/0004-hosting.md`.
 - **Related:**
@@ -32,7 +32,7 @@ The data is identifiable health data (sensitive under the PDPL), so it stays in 
 | Object storage | **20 GB**. A free-only account gets 20 GB across all tiers; an upgraded account gets 10 GB Standard + 10 GB Infrequent Access + 10 GB Archive. Plus 50,000 API requests a month. | Photos, masks, PDFs, exports, encrypted DB dumps |
 | Outbound data | 10 TB a month | Plenty |
 | Vault | **Software-protected master keys free**; 20 free HSM key versions; 150 secrets | Software keys: AES-256 and rotatable, which meets NFR-SEC-04 |
-| Monitoring / Notifications / Email | 500 M ingestion points; 1,000 email notifications; 3,000 emails a month | Instance-state alarms; optional transactional email |
+| Monitoring / Notifications / Email | 500 M ingestion points; 1,000 email notifications; 3,000 emails a month | Instance-state alarms; transactional email (Decision 6) |
 
 **Note on the A1 allowance:** Oracle's A1 pricing page still says "the first 3K OCPU-hrs and 18K GB-hrs each month is free" ([Ampere A1 pricing](https://www.oracle.com/cloud/compute/arm/pricing)), which is 4 OCPU / 24 GB. The Always Free documentation now says 2 OCPU / 12 GB. **We plan for 2 OCPU / 12 GB**, the documented figure. Do not create a larger A1 shape on the free account: the console accepts 4 OCPU / 24 GB, but usage above 1,500 OCPU-hours / 9,000 GB-hours is not Always Free, and when the 30-day trial ends an over-limit A1 instance is disabled. Runbook 1 (`docs/runbooks/01-oci-account-and-vm.md`) shows how to shrink one with Edit shape.
 
@@ -110,15 +110,18 @@ Riyadh has a single availability domain. **Our workaround, in order:**
 
 ## Decision 4: Cloudflare (free) for DNS, TLS, DDoS, connected by Cloudflare Tunnel
 
-- **Domain:** registered on Cloudflare, written `<DOMAIN>`.
-- **Tunnels:** one per environment (`staging-app.`/`staging-api.<DOMAIN>`, `app.`/`api.<DOMAIN>`).
+- **Domain:** `iltiamcare.com`, registered on Cloudflare Registrar on 2026-10-28 (auto-renew, WHOIS privacy, DNSSEC). Set up in Runbook 2 (`docs/runbooks/02-cloudflare-dns-tls.md`).
+- **Tunnels:** one per environment (`staging-app.`/`staging-api.iltiamcare.com`, `app.`/`api.iltiamcare.com`).
 - **Why Tunnel over Caddy:** no inbound web ports, no certificates on the VM, one container, free. Caddy remains the exit if we ever leave Cloudflare. The SRS (§17) names NGINX; DEP-12 records the divergence. nginx still serves the SPA inside the web image.
 - **What Cloudflare must not do:**
   - **Cache:** no cache for API hosts or any health data; only `/assets/*` on `app.` is cached.
   - **Files:** photos, masks and PDFs never pass through Cloudflare; clients use presigned OCI URLs (≤ 15 min).
   - **Uploads:** they stay under the Free plan's **100 MB** request limit ([Cloudflare limits](https://developers.cloudflare.com/workers/platform/limits/)); ours are capped at 25 MB.
-  - **Response rewriting:** Rocket Loader, Email Obfuscation and Bot Fight Mode are off on API hosts.
+  - **Response rewriting:** Rocket Loader and Email Obfuscation are off for the whole zone, because they inject inline scripts that the web app's content security policy forbids (WEB-33). A Configuration Rule keeps them off on the API hosts too.
+  - **Bot Fight Mode:** off. It may challenge API and mobile traffic, and on the Free plan it can't be skipped per hostname.
   - **AI service:** no route to it.
+- **Security Level:** Cloudflare no longer has graded levels (low, medium, high). The threat score they were based on is always 0. In the new dashboard, Security Level only turns Under Attack mode on or off ([Cloudflare](https://developers.cloudflare.com/waf/tools/security-level/), updated 2026-04-16). So DEP-01's "Security Level medium" has nothing to set.
+- **Under Attack mode** is the manual switch for an HTTP flood. Its challenge page stops the mobile app and API calls, so it is turned on with a Configuration Rule for the web hosts only. The whole zone is a last resort (Runbook 2, section 9.3).
 - **PDPL:** TLS is decrypted at Cloudflare's edge. In-Kingdom-only decryption (Regional Services, which includes Saudi Arabia) is part of the paid Data Localization Suite ([Cloudflare](https://developers.cloudflare.com/data-localization/region-support/)). This is recorded in the ROPA (DEP#6).
 
 ## Decision 5: phone codes through Authentica (recommended)
@@ -133,6 +136,34 @@ Riyadh has a single availability domain. **Our workaround, in order:**
 - It's a Saudi provider, 100 free credits, and about **0.12 SAR per code** on the smallest package ([pricing](https://authentica.sa/en/pricing-en/)). Email codes are free.
 - **Firebase Phone Auth is rejected:** it would rewrite sign-in in all apps, Google bills per SMS on the Blaze plan, and phone numbers would go to Google. Firebase stays for FCM push, which is free.
 
+## Decision 6: transactional email through OCI Email Delivery (Riyadh)
+
+- **Status: decided, pending confirmation** that Email Delivery is offered in Saudi Arabia Central (Riyadh) for our tenancy (Runbook 2, section 11.2). Not set up yet.
+- **What we send:**
+  - invitations and activation links;
+  - email sign-in codes (the fallback when an SMS doesn't arrive);
+  - breach notices (FR-P-7.1).
+
+  That is tens of emails a day at most. All go from `no-reply@iltiamcare.com`.
+
+**Why OCI Email Delivery:**
+- **Free:** 3,000 emails a month on Always Free ([Oracle](https://docs.oracle.com/iaas/Content/FreeTier/freetier_topic-Always_Free_Resources.htm)).
+- **In the Kingdom:** the same tenancy and region as everything else, so names, email addresses and codes are processed in Riyadh.
+- **Fits the backend:** SMTP on port 587 with STARTTLS, which the backend uses (`EMAIL_USE_TLS`).
+- **Separate credentials:** one SMTP user per environment, so staging and production never share a credential.
+- **Authentication:** DKIM by CNAME and a custom return path, so SPF and DKIM both align for DMARC.
+
+**Alternatives:**
+
+| Provider | Free tier | Why not first |
+|---|---|---|
+| Resend (**fallback**) | 3,000 a month, 100 a day, SMTP included ([pricing](https://resend.com/pricing)) | Processed outside the Kingdom; needs a PDPL record (DEP#6) before use |
+| Brevo | 300 a day | Processed in the EU; built for marketing email |
+
+**DMARC now:** `p=quarantine` is published before any mail is sent (Runbook 2, section 11.1). The domain sends nothing yet, so nothing legitimate can be quarantined, and spoofing is blocked from day one. Reports go to Cloudflare DMARC Management (free).
+
+**If Riyadh has no Email Delivery:** use Resend, after the DEP#6 record and the owner's approval, and update this decision.
+
 ## Cost table
 
 ### Monthly, free-first (expected)
@@ -145,6 +176,7 @@ Riyadh has a single availability domain. **Our workaround, in order:**
 | OCI Vault | software keys free | 1–2 keys | **$0** |
 | OCI egress | 10 TB | ≪ 1 TB | **$0** |
 | Cloudflare (DNS, TLS, DDoS, Tunnel, Access ≤ 50 users) | Free plan | 4 hostnames, 2 tunnels | **$0** |
+| OCI Email Delivery (Decision 6) | 3,000 emails a month | invitations, codes, notices | **$0** |
 | Firebase Cloud Messaging | free | Android push | **$0** |
 | GitHub Actions | account's free minutes | images only on `main` and tags | **$0** (watch minutes) |
 | Uptime probe | free tier of a hosted pinger | 2 checks | **$0** |
