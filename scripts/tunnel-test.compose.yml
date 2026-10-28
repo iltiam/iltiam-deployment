@@ -1,0 +1,43 @@
+# Temporary tunnel test for Runbook 3 (docs/runbooks/03-cloudflare-tunnels.md, section 5), before the real stack (#2).
+# Never left running: `down` it as soon as the checks are done.
+#
+#   staging, with stand-ins:  docker compose -f ~/tunnel-test.compose.yml --profile stand-ins up -d
+#   production, connector only: docker compose -f ~/tunnel-test.compose.yml up -d
+#   status:                    docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'
+#   logs:                      docker logs tunnel-test-cloudflared-1 2>&1 | grep -ci "registered tunnel connection"
+#   remove (both tests):       TUNNEL_TOKEN=unused docker compose -f ~/tunnel-test.compose.yml --profile stand-ins down
+#
+# Every `docker compose` command on this file needs TUNNEL_TOKEN set, so after `unset TUNNEL_TOKEN` use plain
+# `docker ps` / `docker logs`, and `TUNNEL_TOKEN=unused` for `down`.
+#
+# The stand-ins use the real service names and ports, so the tunnel's routes work unchanged:
+#   web          nginx's welcome page on :8080 (the web image's port, TO CONFIRM with WEB-03, iltiam-web#25)
+#   backend-web  traefik/whoami on :8000; it echoes the request and its headers (X-Forwarded-For, -Proto)
+#
+# TUNNEL_TOKEN comes from the shell (`read -rsp`, section 5). It is never written to a file or typed on a command
+# line. THIS REPOSITORY IS PUBLIC: never run `docker compose config` on this file without --quiet, because it
+# would print the token.
+# No `ports:` anywhere: nothing listens on the VM's public address. cloudflared only dials out.
+name: tunnel-test
+
+services:
+  cloudflared:
+    image: cloudflare/cloudflared:2026.10.0
+    command: ["tunnel", "--no-autoupdate", "run"]
+    environment:
+      TUNNEL_TOKEN: "${TUNNEL_TOKEN:?TUNNEL_TOKEN is not set in this shell (Runbook 3, section 5)}"
+    restart: "no"
+    mem_limit: 128m
+
+  web:
+    profiles: ["stand-ins"]
+    image: nginxinc/nginx-unprivileged:1.30.5-alpine
+    restart: "no"
+    mem_limit: 32m
+
+  backend-web:
+    profiles: ["stand-ins"]
+    image: traefik/whoami:v1.12.0
+    command: ["--port", "8000"]
+    restart: "no"
+    mem_limit: 32m

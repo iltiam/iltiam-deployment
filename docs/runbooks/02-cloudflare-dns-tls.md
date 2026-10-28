@@ -3,7 +3,7 @@
 - **Issue:** iltiam/iltiam-deployment#12 (DEP-01). **Decision record:** [ADR-0004](../adr/0004-hosting.md), Decisions 4 and 6.
 - **Who:** anyone on the team with Administrator rights on the Cloudflare account. No cloud experience needed; follow the steps in order.
 - **Time:** about 1.5 hours. DNSSEC then turns active by itself within 1–2 days. Two parts wait:
-  - **HSTS** (section 7) waits for Runbook 3 (#9).
+  - **HSTS** (section 7) waits for [Runbook 3](03-cloudflare-tunnels.md) (#9).
   - **The email provider** (sections 11.2 to 11.8) waits for the SMTP provider.
 - **Result:** the zone `iltiamcare.com` on Cloudflare with:
   - two administrators with 2FA, and DNSSEC on;
@@ -12,7 +12,7 @@
   - two Turnstile widgets;
   - a DMARC policy that blocks spoofing before we send any mail.
 
-  The hostnames (`app.`, `api.`, `staging-app.`, `staging-api.`, `grafana.`, `status.`) are added later by Runbook 3 (#9) and the monitoring runbook (#10), not here.
+  The hostnames (`app.`, `api.`, `staging-app.`, `staging-api.`, `grafana.`, `status.`) are added later by [Runbook 3](03-cloudflare-tunnels.md) (#9) and the monitoring runbook (#10), not here.
 
 > **This repository is public. Never paste a secret into this runbook, an issue, a PR, a commit or a chat.** That includes Turnstile secret keys, SMTP credentials, API tokens and 2FA recovery codes. Never write the Cloudflare account ID or zone ID either. **The dashboard's address bar contains the account ID, so never paste a dashboard URL.** The domain name itself is public and fine to write.
 
@@ -146,7 +146,7 @@ TLS 1.3 is what browsers and phones use when they can (SRS §17). TLS 1.2 stays 
 
 ## 7. HSTS: do this after Runbook 3 (#9)
 
-> **Do after #9.** Only turn HSTS on when all of these hold:
+> **Do after #9**, as part of [Runbook 3](03-cloudflare-tunnels.md), section 11.6. Only turn HSTS on when all of these hold:
 > - `https://app.iltiamcare.com`, `https://staging-app.iltiamcare.com` and both API hosts open with no certificate warning;
 > - every other subdomain that exists (`grafana.`, `status.`) also serves HTTPS.
 
@@ -214,7 +214,7 @@ Configuration Rules are Cloudflare's current way to change settings per hostname
 **Why off:**
 - Cloudflare's documentation says it "may challenge API or mobile app traffic".
 - It covers the whole zone, and on the Free plan it cannot be skipped for one hostname.
-- Brute force on sign-in is handled instead by the rate-limiting rule on `/api/auth/*` (Runbook 3, #9) and the backend's own lockout.
+- Brute force on sign-in is handled instead by the rate-limiting rule on the sign-in paths ([Runbook 3](03-cloudflare-tunnels.md), section 7.1) and the backend's own lockout.
 
 ### 9.2 Security Level: nothing to set
 
@@ -588,7 +588,7 @@ The **Verified** column records the date each row last passed. "DoH" means the D
 | The `_dmarc` record shows spaces before `v=DMARC1` | Receivers ignore a DMARC record that doesn't start with `v=DMARC1`. **DNS → Records → `_dmarc` → Edit**, delete everything before `v=`, **Save**, and check again (section 12.1) |
 | `dig: command not found` | Git Bash has no `dig`. Use PowerShell, or `ssh iltiam` (on the VM: `sudo apt install bind9-dnsutils` if it is missing) |
 | Universal certificate still **Pending** a day after Runbook 3 | Check that no CAA record exists (section 5). Then open a Cloudflare support ticket |
-| After Runbook 3: `ERR_TOO_MANY_REDIRECTS` | The encryption mode isn't Full (strict) (section 6.1), or the backend doesn't see `X-Forwarded-Proto: https` (Runbook 3) |
+| After Runbook 3: `ERR_TOO_MANY_REDIRECTS` | The encryption mode isn't Full (strict) (section 6.1), or the backend doesn't see `X-Forwarded-Proto: https` ([Runbook 3](03-cloudflare-tunnels.md), section 8) |
 | The mobile app gets HTML instead of JSON, or `403` with a challenge page | Under Attack is on for the API hosts, or Bot Fight Mode is on. Sections 9.3 and 9.1 |
 | The Configuration Rule's expression is refused | Straight double quotes `"`, hostnames separated by a space inside `{ }`, and the whole expression in parentheses |
 | The teammate got no invitation | Spam folder. **Members** → remove the pending invitation and invite again |
@@ -611,7 +611,7 @@ The **Verified** column records the date each row last passed. "DoH" means the D
 
 ## 15. What comes next
 
-- **Runbook 3** (#9): the tunnels, public hostnames, cache rules and the `/api/auth/*` rate limit. Bot Fight Mode, Rocket Loader and Email Obfuscation are already set here, so #9 only verifies them. After #9:
+- **[Runbook 3](03-cloudflare-tunnels.md)** (#9): the tunnels, public hostnames, cache rules and the sign-in rate limit. Bot Fight Mode, Rocket Loader and Email Obfuscation are already set here, so #9 only verifies them. After #9:
   - section 7 (HSTS);
   - checklist rows 11 and 19 to 21.
 - **SMTP provider:** sections 11.2 to 11.7, then checklist rows 22 to 25. These finish this issue.
