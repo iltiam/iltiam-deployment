@@ -130,7 +130,7 @@ Each one comes from its own runbook. Add it to **both** Environments, each with 
 | Secret (Environment secret) | From | Runbook / issue |
 |---|---|---|
 | `STORAGE_ACCESS_KEY`, `STORAGE_SECRET_KEY` | OCI Customer Secret Key of the environment's storage user | Runbook 8 (DEP-02) |
-| `CF_TUNNEL_TOKEN` | Cloudflare Zero Trust, tunnel `iltiam-staging` / `iltiam-prod` | Runbook 3 (#9) |
+| `CF_TUNNEL_TOKEN` | Cloudflare Zero Trust, tunnel `iltiam-staging` / `iltiam-prod` | [Runbook 3](03-cloudflare-tunnels.md) (#9), section 3 |
 | `AUTHENTICA_API_KEY` (plus the variable `AUTHENTICA_SENDER_NAME`) | Authentica dashboard | Runbook 12 (DEP-14) |
 | `TURNSTILE_SECRET_KEY` (plus the variable `TURNSTILE_SITE_KEY`) | Cloudflare → Turnstile, one widget per environment | [Runbook 2](02-cloudflare-dns-tls.md) (DEP-01), section 10 |
 | `EMAIL_HOST_USER`, `EMAIL_HOST_PASSWORD` | OCI Email Delivery SMTP credentials of the environment's own SMTP user (**pending SMTP provider**) | [Runbook 2](02-cloudflare-dns-tls.md) (DEP-01), section 11.5 |
@@ -163,7 +163,7 @@ These are the values to set. Every other `var` in the templates is `optional`: l
 | `ENVIRONMENT` | `staging` | `production` |
 | `ALLOWED_HOSTS` | `staging-api.iltiamcare.com` | `api.iltiamcare.com` |
 | `CORS_ALLOWED_ORIGINS`, `CSRF_TRUSTED_ORIGINS` | `https://staging-app.iltiamcare.com` | `https://app.iltiamcare.com` |
-| `NUM_PROXIES` | TO CONFIRM in Runbook 3 | same |
+| `NUM_PROXIES` | `1` (confirmed by the header test in [Runbook 3](03-cloudflare-tunnels.md), section 8) | `1` |
 | `STORAGE_ENDPOINT_URL` | `https://<NAMESPACE>.compat.objectstorage.me-riyadh-1.oraclecloud.com` | same |
 | `STORAGE_REGION` | `me-riyadh-1` | same |
 | `STORAGE_BUCKET_WOUND_IMAGES`, `…_WOUND_MASKS`, `…_REPORTS`, `…_PRESCRIPTIONS`, `…_PROFILE_PHOTOS` | `iltiam-staging-wound-images`, `-wound-masks`, `-reports`, `-prescriptions`, `-profile-photos` | `iltiam-prod-…` (names TO CONFIRM in Runbook 8) |
@@ -322,7 +322,7 @@ Every row must match before an environment is used. Record the result on the iss
 ## 15. What comes next
 
 - **[Runbook 2](02-cloudflare-dns-tls.md)** (DEP-01): the Turnstile keys now (section 10); the SMTP values once the provider is set up (section 11).
-- **Runbook 3** (#9): `CF_TUNNEL_TOKEN`.
+- **[Runbook 3](03-cloudflare-tunnels.md)** (#9): `CF_TUNNEL_TOKEN`, `NUM_PROXIES`, and later `SECURE_HSTS_SECONDS`.
 - **Runbook 5** (#2): `compose.yml` reads these env files; it replaces the CI stub `ci/env-check.compose.yml`.
 - **Runbook 8** (DEP-02): storage keys and bucket names.
 - **Runbook 9** (DEP-03): the staging deploy workflow that renders the files.

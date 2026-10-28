@@ -48,7 +48,7 @@ Each environment has **its own value** for every secret (run `scripts/bootstrap-
 | `BACKEND_DB_PASSWORD` | infra.env | `bootstrap-secrets.sh` | staff change, leak | 6.3, the backend's role | 6.3 |
 | `AI_DB_PASSWORD` | infra.env | `bootstrap-secrets.sh` | staff change, leak | 6.3, the AI service's role | 6.3 |
 | `STORAGE_ACCESS_KEY`, `STORAGE_SECRET_KEY` | backend.env | OCI Customer Secret Key of the environment's storage user (Runbook 8, DEP-02) | yearly, staff change | 6.4 | OCI console: delete the key (6.4 step 5) |
-| `CF_TUNNEL_TOKEN` | infra.env | Cloudflare Zero Trust, the environment's tunnel (Runbook 3, #9) | staff change, leak | Refresh the tunnel's token in Zero Trust (menu: Runbook 3), update the secret, redeploy | Refresh the token; the old one stops working |
+| `CF_TUNNEL_TOKEN` | infra.env | Cloudflare Zero Trust, the environment's tunnel `iltiam-staging` / `iltiam-prod` ([Runbook 3](runbooks/03-cloudflare-tunnels.md), section 3) | staff change, leak | **Networking → Tunnels →** the tunnel **→ Overview → Refresh token**, update the secret, redeploy (Runbook 3, section 12) | Refresh the token and redeploy at once: a refresh only blocks *new* connections, so the running connector must restart. Then check that the tunnel's only connector is ours |
 | `AUTHENTICA_API_KEY` | backend.env | Authentica dashboard (Runbook 12, DEP-14) | staff change, leak | Create a new key in the dashboard (menu: Runbook 12), update the secret, redeploy, delete the old key | Delete the key in the dashboard; check the balance for misuse |
 | `TURNSTILE_SECRET_KEY` | backend.env | Cloudflare dashboard → Turnstile → the environment's widget, `iltiam-staging` / `iltiam-prod` (Runbook 2, DEP-01) | staff change, leak | Turnstile → widget → **Rotate secret key** (keep the old key valid for a grace period), update the secret, redeploy | Rotate with immediate expiry |
 | `EMAIL_HOST_USER`, `EMAIL_HOST_PASSWORD` | backend.env | OCI Email Delivery SMTP credentials of the environment's own user, `iltiam-smtp-staging` / `iltiam-smtp-prod` (Runbook 2, section 11.5; **pending SMTP provider**) | yearly, staff change | OCI console → the user → **SMTP credentials → Generate credentials** (the old one keeps working meanwhile), update both secrets, redeploy, delete the old credential | OCI console → the user → **SMTP credentials** → delete it |
@@ -207,9 +207,10 @@ Found while writing the templates (issue #3). Each one belongs to the issue name
 11. **iltiam-mobile secret names** (google-services per flavor, upload keystore): MOB-02, MOB-03, MOB-28a. Keystore owner MYF25.
 12. **SMTP provider:** decided, OCI Email Delivery (ADR-0004 Decision 6), pending confirmation that it is offered in Riyadh. Set up with Runbook 2, section 11; Resend is the fallback.
 13. **Values and menus:**
-    - `NUM_PROXIES` (#9);
     - `ALLOW_SYNC=0` and `AI_MASK_UPLOAD_ENABLED=True`;
     - the activation link path (WEB-05);
     - the SSH deploy key's secret name (DEP-03);
-    - Cloudflare's and Authentica's exact menu names for token rotation (Runbooks 3 and 12).
+    - Authentica's exact menu names for key rotation (Runbook 12).
+
+    Settled by Runbook 3 (#9): `NUM_PROXIES=1` and the tunnel token rotation menu (section 2). For #2: `FORWARDED_ALLOW_IPS=*` (Runbook 3, section 8).
 14. **AI torch threads:** AI-12 asks for 2 torch threads, but there is no environment override yet (`torch_threads: 4` in the model YAMLs wins). Follow-up issue in iltiam-ai-service. Until then `ai.env` has no thread variable.

@@ -111,7 +111,7 @@ Riyadh has a single availability domain. **Our workaround, in order:**
 ## Decision 4: Cloudflare (free) for DNS, TLS, DDoS, connected by Cloudflare Tunnel
 
 - **Domain:** `iltiamcare.com`, registered on Cloudflare Registrar on 2026-10-28 (auto-renew, WHOIS privacy, DNSSEC). Set up in Runbook 2 (`docs/runbooks/02-cloudflare-dns-tls.md`).
-- **Tunnels:** one per environment (`staging-app.`/`staging-api.iltiamcare.com`, `app.`/`api.iltiamcare.com`).
+- **Tunnels:** one per environment (`staging-app.`/`staging-api.iltiamcare.com`, `app.`/`api.iltiamcare.com`), remotely managed, each run by the `cloudflared` container of its own Compose project. Set up in Runbook 3 (`docs/runbooks/03-cloudflare-tunnels.md`, DEP#9).
 - **Why Tunnel over Caddy:** no inbound web ports, no certificates on the VM, one container, free. Caddy remains the exit if we ever leave Cloudflare. The SRS (§17) names NGINX; DEP-12 records the divergence. nginx still serves the SPA inside the web image.
 - **What Cloudflare must not do:**
   - **Cache:** no cache for API hosts or any health data; only `/assets/*` on `app.` is cached.
@@ -121,6 +121,11 @@ Riyadh has a single availability domain. **Our workaround, in order:**
   - **Bot Fight Mode:** off. It may challenge API and mobile traffic, and on the Free plan it can't be skipped per hostname.
   - **AI service:** no route to it.
 - **Security Level:** Cloudflare no longer has graded levels (low, medium, high). The threat score they were based on is always 0. In the new dashboard, Security Level only turns Under Attack mode on or off ([Cloudflare](https://developers.cloudflare.com/waf/tools/security-level/), updated 2026-04-16). So DEP-01's "Security Level medium" has nothing to set.
+- **Cache design (Runbook 3):** three non-overlapping Cache Rules: bypass the API hosts entirely; on the app hosts, bypass everything except `/assets/*` (so `/index.html` and `/config.js` are never cached); cache `/assets/*` by the origin's `Cache-Control`. Nothing a signed-in user receives is cached, because every API call goes to an API host.
+- **Rate limit:** the Free plan's single rate limiting rule can only match the URL path, so one rule covers the sign-in and password paths of both environments (10 requests per 10 s per IP). It is a coarse outer limit; the backend keeps its own stricter per-IP limit. Two custom rules block scanner paths and any write method on the app hosts.
+- **Cloudflare Access (free, email one-time PIN)** in front of `grafana.` and the backend's `/admin` on both API hosts, for the named administrators only. The staging hosts stay open, because the mobile staging builds call them.
+- **Security headers:** the web image's nginx sends the content security policy and the other security headers (WEB-03); Cloudflare adds none and injects no scripts.
+- **SSH stays on public port 22 for v1.0** (key-only, no root, fail2ban). SSH through a tunnel would need a host-level `cloudflared` outside Compose and an Access service token for the deploy runners; it is a later hardening step.
 - **Under Attack mode** is the manual switch for an HTTP flood. Its challenge page stops the mobile app and API calls, so it is turned on with a Configuration Rule for the web hosts only. The whole zone is a last resort (Runbook 2, section 9.3).
 - **PDPL:** TLS is decrypted at Cloudflare's edge. In-Kingdom-only decryption (Regional Services, which includes Saudi Arabia) is part of the paid Data Localization Suite ([Cloudflare](https://developers.cloudflare.com/data-localization/region-support/)). This is recorded in the ROPA (DEP#6).
 
