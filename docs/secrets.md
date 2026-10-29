@@ -76,6 +76,7 @@ Non-secret values (host names, bucket names, backends, `AUTHENTICA_SENDER_NAME`)
 | age backup key (private half) | **Bitwarden only** (#8 decides whether the VM's restore test holds a copy) | ben-fatah | never | Without it no backup can be restored. Only the public recipient key goes to the VM |
 | OCI Vault master encryption key | OCI Vault `iltiam` (software-protected, DEP-02) | ben-fatah | **yearly** | OCI console → Vault → the key → **Rotate key**. Old versions stay for decryption, so nothing is lost |
 | OCI console logins, Cloudflare, Authentica, Firebase, Play Console accounts | each provider, with MFA | ben-fatah (Play Console: Mohammad) | — | Remove a person's access on staff change. Cloudflare's second administrator is Omar-Nasri (Runbook 2); each person keeps their own 2FA recovery codes |
+| Team mailbox behind `privacy@` and `security@iltiamcare.com`: its password and 2-Step Verification backup codes | Gmail, a dedicated team account with 2-Step Verification on. **Escrowed in Bitwarden** | ben-fatah (privacy contact); backup Omar-Nasri | staff change, leak | **Its address is never written in this repository**, an issue, a PR or a chat. To find it: Cloudflare → **Email Routing → Destination addresses** (both administrators see it). Patients' replies come from this address (Runbook 2, section 11.9). Leaked: change the password, sign out all sessions (**Google Account → Security → Your devices**), new backup codes, update the escrow item |
 
 ## 4. Rules
 
@@ -101,6 +102,7 @@ Bitwarden free organisation **"ILTIAM"**, collection **"ILTIAM escrow"**. Member
 | `FIELD_ENCRYPTION_KEY production` | the production value |
 | `Android upload keystore` | the keystore as base64 (`base64 -w0 upload-keystore.jks` in Git Bash; the free plan has no attachments), its store password, key alias and key password |
 | `age backup key` | the private `AGE-SECRET-KEY-…` line (#8) |
+| `Team mailbox (privacy@, security@)` | the Gmail login, its password and its 2-Step Verification backup codes, so the backup owner can read `privacy@` mail when the owner can't (Runbook 2, section 11.9) |
 
 Never put anything else there that GitHub can hold: two copies means two places to rotate.
 

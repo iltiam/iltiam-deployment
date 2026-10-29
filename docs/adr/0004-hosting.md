@@ -1,6 +1,6 @@
 # ADR-0004: Free-first hosting, edge (Cloudflare), phone-code and email delivery
 
-- **Status:** Accepted (2026-10-27, DEP#7). AI-12 measured 2026-10-27: GO. ben-fatah's decisions of 2026-10-23, revised the same day for cost. Decision 4 updated and Decision 6 added on 2026-10-28 (DEP-01); Decision 6 is pending confirmation that OCI Email Delivery is offered in Riyadh.
+- **Status:** Accepted (2026-10-27, DEP#7). AI-12 measured 2026-10-27: GO. ben-fatah's decisions of 2026-10-23, revised the same day for cost. Decision 4 updated and Decision 6 added on 2026-10-28 (DEP-01); Decision 6's receiving part added on 2026-10-29 (#28). Decision 6 is pending confirmation that OCI Email Delivery is offered in Riyadh.
 - **Deciders:** ben-fatah (deployment owner, account holder, pays by card), Omar-Nasri (backend).
 - **Repo:** iltiam-deployment, `docs/adr/0004-hosting.md`.
 - **Related:**
@@ -166,6 +166,11 @@ Riyadh has a single availability domain. **Our workaround, in order:**
 | Brevo | 300 a day | Processed in the EU; built for marketing email |
 
 **DMARC now:** `p=quarantine` is published before any mail is sent (Runbook 2, section 11.1). The domain sends nothing yet, so nothing legitimate can be quarantined, and spoofing is blocked from day one. Reports go to Cloudflare DMARC Management (free).
+
+**Receiving (iltiam/iltiam-deployment#28):** patients need an address to write to (the breach notice's contact, the privacy policy). `privacy@` and `security@iltiamcare.com` go through **Cloudflare Email Routing** (free) to a dedicated team Gmail mailbox (Runbook 2, section 11.9; owner in `docs/secrets.md`, section 3).
+- **Outside the Kingdom:** unlike sending, received mail is processed by Cloudflare and Google. Messages to `privacy@` can contain personal data, so both are recorded as processors in DEP#6.
+- **Receive only:** Email Routing can't send, so replies come from the team mailbox's own address. Nothing is sent as `privacy@`.
+- **One SPF record:** Cloudflare's include and OCI's include share the single `@` record.
 
 **If Riyadh has no Email Delivery:** use Resend, after the DEP#6 record and the owner's approval, and update this decision.
 
