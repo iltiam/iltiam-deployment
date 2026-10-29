@@ -16,8 +16,11 @@
 #        weights-init;
 #      - each secret of infra.env only in the containers that need it;
 #      - the health checks; 2 torch threads in the AI api and worker; FORWARDED_ALLOW_IPS in backend-web;
-#      - the FCM file mounted read-only into the four backend roles when it exists, nowhere when it doesn't.
-#   4. Negative cases: a published port and the AI api on edge are caught.
+#      - the FCM file mounted read-only into the four backend roles when it exists, nowhere when it doesn't, and
+#        never with a host path Docker would create (compared with how this Compose version renders an explicit
+#        create_host_path false and true: section 0 below).
+#   4. Negative cases: a published port, the AI api on edge, a secret in the wrong container, a latest tag, an FCM
+#      mount that would create the host path, and a writable FCM mount are all caught.
 #
 # Usage: bash scripts/check-compose.sh
 # Needs bash, jq and the Docker Compose plugin. No image is pulled and no container started.
@@ -125,7 +128,8 @@ def fcm_target: "/run/secrets/fcm-service-account.json";
     ($c.services | to_entries[] | .key as $s
       | ([.value.volumes // [] | .[] | select(.target == fcm_target)]) as $m
       | if $fcm and (backend | index($s)) != null then
-          (if ($m | length) != 1 or $m[0].read_only != true or $m[0].bind.create_host_path != false
+          (if ($m | length) != 1 or $m[0].read_only != true or $m[0].bind != $never_created
+              or $m[0].bind == $created
            then "\($s): the FCM file must be mounted read-only, never created" else empty end),
           (if .value.environment.FCM_CREDENTIALS_FILE != fcm_target then "\($s): FCM_CREDENTIALS_FILE not set"
            else empty end)
@@ -137,8 +141,35 @@ JQ
 broken() {
   local cfg="$1" expected="$2" fcm="$3"
   jq -r --arg root "$(native "$root")" --argjson expected "$expected" --argjson fcm "$fcm" \
-    --argjson dummies "$(cat "$work/dummies.json")" -f "$work/rules.jq" "$cfg" | tr -d '\r'
+    --argjson dummies "$(cat "$work/dummies.json")" \
+    --argjson never_created "$never_created" --argjson created "$created" \
+    -f "$work/rules.jq" "$cfg" | tr -d '\r'
 }
+
+# --- 0. How this Compose version renders "never create the host path" ------------------------------------------
+#
+# Compose prints a bind mount's create_host_path only when it differs from that version's own default, and the
+# defaults differ: 2.38 prints `"bind": {}` for an explicit false and `{"create_host_path": true}` for true (or the
+# short syntax); 5.x prints `{"create_host_path": false}` for false and `{}` for true. So `{}` means opposite things.
+# Instead of guessing, render one mount of each kind with the Compose that runs this check, and require the FCM
+# mount to look exactly like the explicit false and unlike the true.
+
+log "docker compose $(docker compose version --short)"
+cat >"$work/bind-probe.yml" <<'YAML'
+services:
+  probe:
+    image: busybox:1.37.0
+    volumes:
+      - {type: bind, source: /srv/iltiam/never, target: /never, read_only: true, bind: {create_host_path: false}}
+      - {type: bind, source: /srv/iltiam/created, target: /created, read_only: true, bind: {create_host_path: true}}
+YAML
+docker compose -p bind-probe -f "$(native "$work/bind-probe.yml")" config --format json >"$work/bind-probe.json" \
+  || fail "docker compose config failed on the bind-mount probe"
+never_created="$(jq -c '.services.probe.volumes[] | select(.target == "/never") | .bind' "$work/bind-probe.json" | tr -d '\r')"
+created="$(jq -c '.services.probe.volumes[] | select(.target == "/created") | .bind' "$work/bind-probe.json" | tr -d '\r')"
+[[ -n "$never_created" && -n "$created" && "$never_created" != "$created" ]] \
+  || fail "this Compose version renders create_host_path true and false alike; the FCM rule can't be checked"
+ok "create_host_path false renders as $never_created, true as $created"
 
 # --- 1. Versions files ----------------------------------------------------------------------------------------------
 
@@ -208,5 +239,15 @@ jq '.services.redis.image = "redis:latest"' "$work/staging-false.json" >"$work/n
 broken "$work/neg-latest.json" "$ALL_SERVICES" false | grep -q "redis: image 'redis:latest' is not pinned" \
   || fail "an image tagged latest was not caught"
 ok "caught: an image tagged latest"
+fcm_mount='.services["backend-web"].volumes |= map(if .target == "/run/secrets/fcm-service-account.json"'
+jq --argjson created "$created" "$fcm_mount then .bind = \$created else . end)" "$work/staging-true.json" \
+  >"$work/neg-fcm-created.json"
+broken "$work/neg-fcm-created.json" "$ALL_SERVICES" true | grep -q "backend-web: the FCM file must be mounted" \
+  || fail "an FCM mount that would create the host path was not caught"
+ok "caught: an FCM mount that would create the host path (create_host_path true or the short syntax)"
+jq "$fcm_mount then .read_only = false else . end)" "$work/staging-true.json" >"$work/neg-fcm-rw.json"
+broken "$work/neg-fcm-rw.json" "$ALL_SERVICES" true | grep -q "backend-web: the FCM file must be mounted" \
+  || fail "a writable FCM mount was not caught"
+ok "caught: a writable FCM mount"
 
 log "all compose checks passed"

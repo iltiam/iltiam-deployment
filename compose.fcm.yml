@@ -6,6 +6,10 @@
 # Mode 644, not 600: the backend runs as uid 10001, and a plain bind mount keeps the host's owner and mode. The
 # directory around it is 700, so no other user on the VM can reach it (docs/secrets.md, section 1).
 # The settings read the file at start-up in every role (migrate too), so all four mount it.
+#
+# Long syntax with read_only and bind.create_host_path: false, always: the short syntax (`src:dst:ro`) lets Docker
+# create a missing source as an empty directory. Compose versions print this differently in `config` (2.38 shows
+# `"bind": {}`, 5.x `{"create_host_path": false}`); scripts/check-compose.sh compares against the running version.
 
 x-fcm: &fcm
   environment:
