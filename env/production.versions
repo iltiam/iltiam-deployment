@@ -1,0 +1,19 @@
+# What the iltiam-prod project runs (Runbook 5, docs/runbooks/05-compose-stack.md). Public: tags only, no secrets.
+# Read by scripts/deploy.sh and scripts/compose.sh as a second --env-file. One NAME=value per line; comments on their
+# own lines. A tag is sha-<7> or X.Y.Z, never latest. `to-confirm` marks an image that isn't published yet:
+# scripts/deploy.sh refuses to deploy it.
+#
+# Roll back: put the previous tags back (git log -p env/production.versions), merge, and deploy again (Runbook 5, 9.4).
+
+# Empty: production runs postgres, redis, cloudflared, weights-init and the AI service only. Set it to `backend` once
+# DEP-13 (FCM), DEP-14 (Authentica) and SMTP are done: the production settings refuse to start without real delivery.
+COMPOSE_PROFILES=
+
+# TO CONFIRM: sha-0d1861e (the first build with ILTIAM_TORCH_THREADS, #158) once the image workflow on main has
+# published it. sha-42270dc (= 0.1.0) runs, but ignores ILTIAM_TORCH_THREADS and uses 4 torch threads.
+AI_API_IMAGE=ghcr.io/iltiam/iltiam-ai-api:sha-42270dc
+AI_WORKER_IMAGE=ghcr.io/iltiam/iltiam-ai-worker:sha-42270dc
+
+# TO CONFIRM: not published yet (iltiam-backend issue: publish the arm64 image to GHCR). Not started while
+# COMPOSE_PROFILES is empty, but Compose still needs a valid name here.
+BACKEND_IMAGE=ghcr.io/iltiam/iltiam-backend:to-confirm

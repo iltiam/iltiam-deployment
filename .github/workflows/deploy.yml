@@ -1,0 +1,80 @@
+# Deploy one environment's Compose project on iltiam-1, started by hand (Runbook 5, issue #2):
+#   Actions -> deploy -> Run workflow -> environment staging | production.
+# Production waits for its required reviewer (Runbook 4, section 5.2). Both environments deploy from main only.
+# Runbook 9 (DEP-03) adds the automatic staging trigger, the smoke test and rollback; Runbook 10 (DEP-04) releases.
+#
+# What it does: render the env files from the Environment's secrets and variables (scripts/render-deploy-env.sh),
+# then over SSH as deploy: check out this commit in /srv/iltiam/repo, copy the files into /srv/iltiam/env/<env>/,
+# log in to GHCR with this job's own token, run scripts/deploy.sh, log out (scripts/remote-deploy.sh).
+#
+# THIS REPOSITORY IS PUBLIC, SO THIS LOG IS PUBLIC. The rules of env-check.yml hold here: no `set -x`, no echo, cat or
+# env of a value or a rendered file, `docker compose config` only with --quiet, `docker login` only with
+# --password-stdin. DEPLOY_HOST and DEPLOY_SSH_KNOWN_HOSTS are secrets because they hold the VM's address.
+name: deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Compose project to deploy on iltiam-1
+        type: choice
+        options: [staging, production]
+        required: true
+
+permissions:
+  contents: read
+  packages: read
+
+# One deploy per environment at a time; a second one waits instead of cancelling the first.
+# scripts/deploy.sh also takes a lock on the VM, so staging and production never deploy at the same moment.
+concurrency:
+  group: deploy-${{ inputs.environment }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy ${{ inputs.environment }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    environment: ${{ inputs.environment }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Check env/<env>.versions
+        env:
+          DEPLOY_ENV: ${{ inputs.environment }}
+        run: bash scripts/deploy.sh --check-versions "$DEPLOY_ENV"
+
+      - name: Render the env files
+        env:
+          DEPLOY_ENV: ${{ inputs.environment }}
+          SECRETS_JSON: ${{ toJSON(secrets) }}
+          VARS_JSON: ${{ toJSON(vars) }}
+        run: bash scripts/render-deploy-env.sh "$DEPLOY_ENV" "$RUNNER_TEMP/rendered"
+
+      - name: SSH key and host key
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_SSH_KNOWN_HOSTS: ${{ secrets.DEPLOY_SSH_KNOWN_HOSTS }}
+        run: |
+          [ -n "$DEPLOY_SSH_KEY" ] && [ -n "$DEPLOY_SSH_KNOWN_HOSTS" ] \
+            || { echo "::error::DEPLOY_SSH_KEY or DEPLOY_SSH_KNOWN_HOSTS is not set (Runbook 5, section 5)"; exit 1; }
+          install -d -m 700 ~/.ssh
+          umask 077
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/iltiam_deploy
+          printf '%s\n' "$DEPLOY_SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+
+      - name: Deploy over SSH
+        env:
+          DEPLOY_ENV: ${{ inputs.environment }}
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_SHA: ${{ github.sha }}
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ github.token }}
+        run: bash scripts/remote-deploy.sh "$DEPLOY_ENV" "$RUNNER_TEMP/rendered"
+
+      - name: Clean up
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/rendered" ~/.ssh/iltiam_deploy

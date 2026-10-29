@@ -3,5 +3,6 @@
 *.sh text eol=lf
 # Env templates and Compose/workflow files are read on Linux too; a stray \r would end up inside a value.
 *.example text eol=lf
+*.versions text eol=lf
 *.yml text eol=lf
 *.yaml text eol=lf

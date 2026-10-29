@@ -4,12 +4,14 @@
 #
 #   1. Lint every env/*.env.example (scripts/render-env.sh refuses a malformed template).
 #   2. scripts/bootstrap-secrets.sh prints values of the right shape (they are checked, never shown).
-#   3. Render staging and production with dummy values, then `docker compose config --quiet` against
-#      ci/env-check.compose.yml (replaced by the real compose.yml in #2).
-#   4. Negative cases: what must be refused is refused.
+#   3. Render staging and production with dummy values, then `docker compose config --quiet` against compose.yml
+#      (Runbook 5, #2) with env/<env>.versions and the backend profile on.
+#   4. scripts/render-deploy-env.sh, as the deploy workflow runs it: from JSON, the files each environment needs.
+#   5. Negative cases: what must be refused is refused.
 #
 # Usage: bash scripts/check-env.sh
-# Needs bash, openssl and the Docker Compose plugin. No image is pulled and no container started.
+# Needs bash, openssl, jq and the Docker Compose plugin. No image is pulled and no container started.
+# The structural rules of compose.yml (networks, ports, limits) are scripts/check-compose.sh.
 # Prints names and results only, never a value: CI logs of this repository are public.
 
 set -euo pipefail
@@ -17,7 +19,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 RENDER=scripts/render-env.sh
-COMPOSE_FILE=ci/env-check.compose.yml
+COMPOSE_FILE=compose.yml
 TEMPLATES=(env/backend.env.example env/ai.env.example env/web.env.example env/infra.env.example)
 # A dummy with a `$` in it: Compose must keep it literal, not interpolate it.
 # shellcheck disable=SC2016  # the `$` is meant literally
@@ -63,11 +65,14 @@ render_all() {
   done
 }
 
+# The real compose.yml, with every profile on so each env file is read (production's versions file leaves the
+# backend off). ENV_DIR and DATA_DIR come from the shell; interpolation from infra.env and the versions file only.
 compose_config() {
   local env="$1" dir="$2"
   shift 2
-  ENV_DIR="$(native "$dir")" docker compose -f "$COMPOSE_FILE" -p "iltiam-check-$env" \
-    --env-file "$(native "$dir/infra.env")" config "$@"
+  COMPOSE_PROFILES=backend ENV_DIR="$(native "$dir")" DATA_DIR="$(native "$work/data-$env")" \
+    docker compose -f "$COMPOSE_FILE" -p "iltiam-check-$env" \
+    --env-file "$(native "$dir/infra.env")" --env-file "env/$env.versions" config "$@"
 }
 
 # Run a command that must fail; its own error output is hidden.
@@ -149,7 +154,40 @@ for env in staging production; do
   ok "a \$ inside a value stays literal"
 done
 
-# --- 4. Negative cases -----------------------------------------------------------------------------------------------
+# --- 4. render-deploy-env.sh -----------------------------------------------------------------------------------------
+
+# SECRETS_JSON or VARS_JSON as the deploy workflow gets them (toJSON(secrets), toJSON(vars)): every name of one kind
+# that the environment takes, with a dummy value.
+deploy_json() {
+  local env="$1" kind="$2" template k name args=()
+  for template in "${TEMPLATES[@]}"; do
+    while read -r k _ name; do
+      if [[ "$k" == "$kind" ]]; then args+=(--arg "$name" "dummy-$env-${name,,}"); fi
+    done < <(bash "$RENDER" --list "$env" "$template")
+  done
+  jq -cn '$ARGS.named' "${args[@]}" | tr -d '\r'
+}
+
+log "render-deploy-env.sh (the deploy workflow's renderer)"
+command -v jq >/dev/null 2>&1 || fail "jq not found"
+declare -A deploy_files=([staging]="ai.env backend.env infra.env" [production]="ai.env infra.env")
+for env in staging production; do
+  secrets_json="$(deploy_json "$env" secret)"
+  vars_json="$(deploy_json "$env" var)"
+  SECRETS_JSON="$secrets_json" VARS_JSON="$vars_json" \
+    bash scripts/render-deploy-env.sh "$env" "$work/deploy-$env" >/dev/null || fail "render-deploy-env.sh $env failed"
+  got="$(cd "$work/deploy-$env" && printf '%s ' *)"
+  [[ "${got% }" == "${deploy_files[$env]}" ]] || fail "render-deploy-env.sh $env wrote '$got', expected '${deploy_files[$env]}'"
+  ok "$env: ${deploy_files[$env]} (versions file: profiles '$(sed -n 's/^COMPOSE_PROFILES=//p' "env/$env.versions")')"
+done
+secrets_json="$(deploy_json staging secret | jq -c '. + {FCM_SERVICE_ACCOUNT_JSON: "{\"type\": \"service_account\"}"}' | tr -d '\r')"
+SECRETS_JSON="$secrets_json" VARS_JSON="$(deploy_json staging var)" \
+  bash scripts/render-deploy-env.sh staging "$work/deploy-fcm" >/dev/null || fail "render-deploy-env.sh with FCM failed"
+[[ -s "$work/deploy-fcm/fcm-service-account.json" ]] || fail "FCM_SERVICE_ACCOUNT_JSON did not become a file"
+ok "FCM_SERVICE_ACCOUNT_JSON becomes fcm-service-account.json"
+unset secrets_json vars_json
+
+# --- 5. Negative cases -----------------------------------------------------------------------------------------------
 
 log "negative cases"
 # expect_fail runs each of these in a subshell, so their exports don't leak into the checks after them.
@@ -180,6 +218,16 @@ cp "$work/staging"/*.env "$work/no-tunnel/"
 grep -v '^CF_TUNNEL_TOKEN=' "$work/staging/infra.env" >"$work/no-tunnel/infra.env"
 expect_fail "docker compose config with CF_TUNNEL_TOKEN missing from infra.env" \
   compose_config staging "$work/no-tunnel" --quiet
+deploy_without_secret_key() {
+  SECRETS_JSON="$(deploy_json staging secret | jq -c 'del(.SECRET_KEY)' | tr -d '\r')" \
+    VARS_JSON="$(deploy_json staging var)" bash scripts/render-deploy-env.sh staging "$work/neg-deploy"
+}
+expect_fail "render-deploy-env.sh with SECRET_KEY missing from the Environment" deploy_without_secret_key
+bad_fcm() {
+  SECRETS_JSON="$(deploy_json staging secret | jq -c '. + {FCM_SERVICE_ACCOUNT_JSON: "not json"}' | tr -d '\r')" \
+    VARS_JSON="$(deploy_json staging var)" bash scripts/render-deploy-env.sh staging "$work/neg-fcm"
+}
+expect_fail "render-deploy-env.sh with an FCM secret that is not JSON" bad_fcm
 [[ ! -e "$work/neg-1.env" && ! -e "$work/neg-2.env" && ! -e "$work/neg-3.env" ]] \
   || fail "a refused render still wrote its output file"
 ok "a refused render writes no file"

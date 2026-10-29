@@ -1,5 +1,7 @@
-# Env templates and secret hygiene (issue #3, docs/runbooks/04-secrets.md):
-#   templates  shellcheck, then scripts/check-env.sh (lint, dummy render, docker compose config, negative cases)
+# Env templates, the Compose stack and secret hygiene (issues #3 and #2; Runbooks 4 and 5):
+#   templates  shellcheck, scripts/check-env.sh (lint, dummy render, docker compose config of both projects,
+#              the deploy workflow's renderer, negative cases), then scripts/check-compose.sh (networks, no ports,
+#              limits, pinned images, where each secret may go)
 #   gitleaks   the whole git history, findings redacted
 #
 # THIS REPOSITORY IS PUBLIC, SO ITS ACTIONS LOGS ARE PUBLIC. In this and every later workflow, never print a secret:
@@ -25,7 +27,7 @@ concurrency:
 
 jobs:
   templates:
-    name: Env templates and scripts
+    name: Env templates, Compose stack and scripts
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -34,10 +36,15 @@ jobs:
           persist-credentials: false
 
       - name: shellcheck
-        run: shellcheck scripts/*.sh
+        run: shellcheck scripts/*.sh postgres/initdb/*.sh
 
       - name: Lint, dummy render, docker compose config
         run: bash scripts/check-env.sh
+
+      - name: Compose rules (networks, ports, limits, images, secrets)
+        run: |
+          docker compose version
+          bash scripts/check-compose.sh
 
   gitleaks:
     name: gitleaks (full history)

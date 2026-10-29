@@ -86,7 +86,7 @@ Riyadh has a single availability domain. **Our workaround, in order:**
    - Under QEMU emulation on an x86 runner the torch layer builds slowly and burns free minutes.
    - GitHub's docs now list the `ubuntu-24.04-arm` runner for private repositories, using the account's free minutes ([GitHub docs](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)). The August 2025 changelog said it was public-only ([changelog](https://github.blog/changelog/2025-08-07-arm64-hosted-runners-for-public-repositories-are-now-generally-available/)).
    - **Fallback: build on the VM.** Images are published only on merges to `main` and tags (DEP#1).
-3. **Memory:** 12 GB for two environments. DEP#2 sets the budget: about 3.8 GB per environment, about 1 GB for monitoring, about 9 GB in total, plus 4 GB swap, with `mem_limit` on every service. The staging AI worker is the first thing stopped under pressure.
+3. **Memory:** 12 GB for two environments. DEP#2 sets the budget: about 3.8 GB per environment, about 1 GB for monitoring, about 9 GB in total, plus 4 GB swap, with `mem_limit` on every service. The staging AI worker is the first thing stopped under pressure. The limits as set, with the measured idle figures: [Runbook 5](../runbooks/05-compose-stack.md), section 2.
 4. **Numbers can differ slightly from x86.** Floating-point order on ARM kernels can move a mask boundary pixel. NFR-MAI-03 (identical results) holds per deployment configuration, which is still true.
    - The golden regression suite and its baseline stay on x86 CI.
    - AI-12 measured the area at 25.66 cm² on `good_marker.jpg` and 25.27 cm² on the 8 MP scene, identical on A1 and x86.
