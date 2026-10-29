@@ -51,7 +51,8 @@ Each environment has **its own value** for every secret (run `scripts/bootstrap-
 | `POSTGRES_PASSWORD` | infra.env | `bootstrap-secrets.sh` | staff change, leak | 6.3, role `postgres` | 6.3 |
 | `BACKEND_DB_PASSWORD` | infra.env | `bootstrap-secrets.sh` | staff change, leak | 6.3, the backend's role | 6.3 |
 | `AI_DB_PASSWORD` | infra.env | `bootstrap-secrets.sh` | staff change, leak | 6.3, the AI service's role | 6.3 |
-| `STORAGE_ACCESS_KEY`, `STORAGE_SECRET_KEY` | backend.env | OCI Customer Secret Key of the environment's storage user (Runbook 8, DEP-02) | yearly, staff change | 6.4 | OCI console: delete the key (6.4 step 5) |
+| `STORAGE_ACCESS_KEY`, `STORAGE_SECRET_KEY` | backend.env | OCI Customer Secret Key of the environment's storage user `iltiam-staging-storage` / `iltiam-prod-storage` ([Runbook 8](runbooks/08-object-storage.md), section 9.5) | yearly, staff change | 6.4 | OCI console: delete the key (6.4 step 6) |
+| `STORAGE_ENDPOINT_URL` (backend.env), `MASK_UPLOAD_ALLOWED_HOSTS` (ai.env) | backend.env, ai.env | Built from the Object Storage namespace ([Runbook 8](runbooks/08-object-storage.md), section 11) | never (the namespace doesn't change) | — | Not a credential; a secret only so this public repository's logs never show the namespace |
 | `CF_TUNNEL_TOKEN` | infra.env | Cloudflare Zero Trust, the environment's tunnel `iltiam-staging` / `iltiam-prod` ([Runbook 3](runbooks/03-cloudflare-tunnels.md), section 3) | staff change, leak | **Networking → Tunnels →** the tunnel **→ Overview → Refresh token**, update the secret, redeploy (Runbook 3, section 12) | Refresh the token and redeploy at once: a refresh only blocks *new* connections, so the running connector must restart. Then check that the tunnel's only connector is ours |
 | `AUTHENTICA_API_KEY` | backend.env | Authentica dashboard (Runbook 12, DEP-14) | staff change, leak | Create a new key in the dashboard (menu: Runbook 12), update the secret, redeploy, delete the old key | Delete the key in the dashboard; check the balance for misuse |
 | `TURNSTILE_SECRET_KEY` | backend.env | Cloudflare dashboard → Turnstile → the environment's widget, `iltiam-staging` / `iltiam-prod` (Runbook 2, DEP-01) | staff change, leak | Turnstile → widget → **Rotate secret key** (keep the old key valid for a grace period), update the secret, redeploy | Rotate with immediate expiry |
@@ -63,7 +64,7 @@ Each environment has **its own value** for every secret (run `scripts/bootstrap-
 | `DEPLOY_SSH_KNOWN_HOSTS` | the deploy workflow only | the VM's host key line, checked against the VM's own fingerprint (Runbook 5, section 5.2) | when the VM is rebuilt | Runbook 5, section 5.2 | Not secret by itself; a secret only because it contains the VM's address |
 | `DEPLOY_HOST` | the deploy workflow only | the VM's public IPv4 address (Runbook 1) | when the VM's address changes | Set the new address | Not a credential; a secret only so this public repository never shows the address |
 
-Non-secret values (host names, bucket names, backends, `AUTHENTICA_SENDER_NAME`) are **Environment variables**, not secrets. The templates mark each one `var`.
+Non-secret values (host names, bucket names, backends, `AUTHENTICA_SENDER_NAME`) are **Environment variables**, not secrets. The templates mark each one `var`. The exceptions are values that would reveal the tenancy in a public log: `DEPLOY_HOST` and `DEPLOY_SSH_KNOWN_HOSTS` (the VM's address), and `STORAGE_ENDPOINT_URL` and `MASK_UPLOAD_ALLOWED_HOSTS` (the storage namespace).
 
 **No registry token is stored.** The deploy job pulls images with its own short-lived `GITHUB_TOKEN` (`permissions: packages: read`): `docker login ghcr.io --password-stdin` on the VM, pull, `docker logout ghcr.io`, all inside the job. The token dies when the job ends. Each GHCR package must grant this repository read access once (Runbook 4, section 8).
 
@@ -74,7 +75,7 @@ Non-secret values (host names, bucket names, backends, `AUTHENTICA_SENDER_NAME`)
 | `google-services.json`, one per Android flavor (dev, staging, prod) | iltiam-mobile **repository secrets**, base64; names **TO CONFIRM** (MOB-02, MOB-03) | ben-fatah | not needed | Low sensitivity (the API key in it is restricted to the app), but never committed (DEP-13) |
 | Android upload keystore, its store password, key alias and key password | iltiam-mobile repository secrets; names **TO CONFIRM** (MOB-03, MOB-28a). **Escrowed in Bitwarden** | **MYF25 (Mohammad), TO CONFIRM**; backup ben-fatah | never, unless lost or leaked | Lost or leaked: Play Console → the app → Setup → App signing → **Request upload key reset** (Play App Signing keeps the real signing key) |
 | age backup key (private half) | **Bitwarden only** (#8 decides whether the VM's restore test holds a copy) | ben-fatah | never | Without it no backup can be restored. Only the public recipient key goes to the VM |
-| OCI Vault master encryption key | OCI Vault `iltiam` (software-protected, DEP-02) | ben-fatah | **yearly** | OCI console → Vault → the key → **Rotate key**. Old versions stay for decryption, so nothing is lost |
+| OCI Vault master encryption keys `iltiam-staging-objects`, `iltiam-prod-objects` (they encrypt each environment's buckets) | OCI Vault `iltiam` (software-protected, [Runbook 8](runbooks/08-object-storage.md), section 5) | ben-fatah | **yearly** | Runbook 8, section 15.1: the key → **Rotate Key**. Old versions stay for decryption, so nothing is lost. **Never disable or delete one**: every object it protects becomes unreadable |
 | OCI console logins, Cloudflare, Authentica, Firebase, Play Console accounts | each provider, with MFA | ben-fatah (Play Console: Mohammad) | — | Remove a person's access on staff change. Cloudflare's second administrator is Omar-Nasri (Runbook 2); each person keeps their own 2FA recovery codes |
 | Team mailbox behind `privacy@` and `security@iltiamcare.com`: its password and 2-Step Verification backup codes | Gmail, a dedicated team account with 2-Step Verification on. **Escrowed in Bitwarden** | ben-fatah (privacy contact); backup Omar-Nasri | staff change, leak | **Its address is never written in this repository**, an issue, a PR or a chat. To find it: Cloudflare → **Email Routing → Destination addresses** (both administrators see it). Patients' replies come from this address (Runbook 2, section 11.9). Leaked: change the password, sign out all sessions (**Google Account → Security → Your devices**), new backup codes, update the escrow item |
 
@@ -152,11 +153,12 @@ Postgres reads `POSTGRES_PASSWORD` and the init scripts only when the data direc
 
 OCI allows two Customer Secret Keys per user, so the old one keeps working until the new one is in place.
 
-1. OCI console → **Identity & Security → Domains → Default domain → User management** → the environment's storage user → **Customer secret keys → Generate secret key**. Name it with the date.
-2. Copy the **secret** (shown only once) into the GitHub secret `STORAGE_SECRET_KEY`, and the **Access key** into `STORAGE_ACCESS_KEY`.
-3. Redeploy.
-4. Check: open a wound photo in the web app (it is served by a presigned link).
-5. Delete the old key on the same page.
+1. OCI console → **Identity & Security → Domains → Default domain → User management → Users** → the environment's storage user (`iltiam-staging-storage` / `iltiam-prod-storage`) → **Customer secret keys → Generate secret key**. Name it with the date (`staging-2027-10`).
+2. In Git Bash, take the **secret** (shown only once) and the **Access key** with hidden input, and probe them: [Runbook 8](runbooks/08-object-storage.md), section 10. A new key can take about 10 minutes to work everywhere (`KEY` lines).
+3. From the same window, put both into GitHub: Runbook 8, section 11 (the two `STORAGE_*_KEY` lines are enough), then `unset` and `clear`.
+4. Redeploy.
+5. Check: open a wound photo in the web app (it is served by a presigned link).
+6. Delete the old key on the same page.
 
 ### 6.5 Firebase service account (`FCM_SERVICE_ACCOUNT_JSON`)
 
@@ -196,12 +198,16 @@ Found while writing the templates (issue #3). Each one belongs to the issue name
 4. ~~The FCM file.~~ **Resolved:** `compose.fcm.yml` mounts it read-only into the four backend roles, added only when the file exists.
 5. ~~Replace the CI stub.~~ **Resolved:** `scripts/check-env.sh` uses `compose.yml`; `ci/env-check.compose.yml` is gone.
 
-**For DEP-02 (Runbook 8, object storage). The backend's bucket settings are the source of truth:**
+**For DEP-02 (Runbook 8, object storage):**
 
-6. **Bucket names.** The backend reads `STORAGE_BUCKET_WOUND_IMAGES`, `_WOUND_MASKS`, `_REPORTS`, `_PRESCRIPTIONS` and `_PROFILE_PHOTOS`. Create `iltiam-<env>-wound-images`, `-wound-masks`, `-reports`, `-prescriptions`, `-profile-photos` (`<env>` = `staging` / `prod`, TO CONFIRM).
-   - DEP-02's `-masks` becomes `-wound-masks`.
-   - The backend has no `exports` bucket setting. Drop it, or add the setting in the backend first (BE-13).
-   - `-backups` is #8's, not the backend's.
+6. ~~Bucket names.~~ **Resolved by Runbook 8:** `iltiam-staging-…` and `iltiam-prod-…`, each with `wound-images`, `wound-masks`, `reports`, `prescriptions`, `profile-photos` (the backend's `STORAGE_BUCKET_*`) and `backups` (#8's). No `exports` bucket until the backend has a setting for it (BE-13).
+
+**For the backend (iltiam-backend#80, BE-21), found by Runbook 8's probe on 2026-10-29:**
+
+6a. **Blocker: boto3 checksums.** boto3 1.36 and later add a CRC32 checksum to every upload, and OCI answers `501 NotImplemented`. The backend's botocore `Config` needs `request_checksum_calculation` and `response_checksum_validation` set to `when_required` (or the two `AWS_*_CHECKSUM_*` environment variables). Until then no upload works.
+6b. **`check_storage`:** OCI reports `aws:kms` (not `AES256`) and answers 404 (not 403) to an anonymous read. The AES256 upload header itself is accepted, so no change is needed there.
+6c. **`/api/ready/`** costs 5 storage requests a call (of 50,000 free a month): uptime checks use `/api/health/` (Runbook 8, section 2).
+6d. **Retention jobs (BE-22)** will need `OBJECT_DELETE` in the storage policy (Runbook 8, section 9.4).
 
 **For the backend (Omar-Nasri):**
 
@@ -215,7 +221,7 @@ Found while writing the templates (issue #3). Each one belongs to the issue name
 11. **iltiam-mobile secret names** (google-services per flavor, upload keystore): MOB-02, MOB-03, MOB-28a. Keystore owner MYF25.
 12. **SMTP provider:** decided, OCI Email Delivery (ADR-0004 Decision 6), pending confirmation that it is offered in Riyadh. Set up with Runbook 2, section 11; Resend is the fallback.
 13. **Values and menus:**
-    - `ALLOW_SYNC=0` and `AI_MASK_UPLOAD_ENABLED=True`;
+    - `ALLOW_SYNC=0` (`AI_MASK_UPLOAD_ENABLED=True` is settled by Runbook 8's probe: the AI service's presigned mask upload works on OCI);
     - the activation link path (WEB-05);
     - the SSH deploy key's secret name (DEP-03);
     - Authentica's exact menu names for key rotation (Runbook 12).

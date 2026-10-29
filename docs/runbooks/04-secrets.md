@@ -9,7 +9,7 @@
 
 | Placeholder | Meaning |
 |---|---|
-| `<NAMESPACE>` | The OCI Object Storage namespace (Runbook 8, DEP-02; OCI console → Object Storage → Buckets, "Namespace") |
+| `<NAMESPACE>` | The OCI Object Storage namespace ([Runbook 8](08-object-storage.md), section 4.1: Governance & Administration → Tenancy details → Object storage namespace) |
 | `<ENV>` | `staging` or `production` |
 
 GitHub moves menus between releases. If a menu below is not where this says, look for its name on the same page.
@@ -129,7 +129,8 @@ Each one comes from its own runbook. Add it to **both** Environments, each with 
 
 | Secret (Environment secret) | From | Runbook / issue |
 |---|---|---|
-| `STORAGE_ACCESS_KEY`, `STORAGE_SECRET_KEY` | OCI Customer Secret Key of the environment's storage user | Runbook 8 (DEP-02) |
+| `STORAGE_ACCESS_KEY`, `STORAGE_SECRET_KEY` | OCI Customer Secret Key of the environment's storage user | [Runbook 8](08-object-storage.md) (DEP-02), sections 9.5 and 11 |
+| `STORAGE_ENDPOINT_URL`, `MASK_UPLOAD_ALLOWED_HOSTS` | Built from the Object Storage namespace; secrets only so the namespace never shows in this public repository's logs | [Runbook 8](08-object-storage.md), section 11 |
 | `CF_TUNNEL_TOKEN` | Cloudflare Zero Trust, tunnel `iltiam-staging` / `iltiam-prod` | [Runbook 3](03-cloudflare-tunnels.md) (#9), section 3 |
 | `AUTHENTICA_API_KEY` (plus the variable `AUTHENTICA_SENDER_NAME`) | Authentica dashboard | Runbook 12 (DEP-14) |
 | `TURNSTILE_SECRET_KEY` (plus the variable `TURNSTILE_SITE_KEY`) | Cloudflare → Turnstile, one widget per environment | [Runbook 2](02-cloudflare-dns-tls.md) (DEP-01), section 10 |
@@ -165,9 +166,9 @@ These are the values to set. Every other `var` in the templates is `optional`: l
 | `ALLOWED_HOSTS` | `staging-api.iltiamcare.com` | `api.iltiamcare.com` |
 | `CORS_ALLOWED_ORIGINS`, `CSRF_TRUSTED_ORIGINS` | `https://staging-app.iltiamcare.com` | `https://app.iltiamcare.com` |
 | `NUM_PROXIES` | `1` (confirmed by the header test in [Runbook 3](03-cloudflare-tunnels.md), section 8) | `1` |
-| `STORAGE_ENDPOINT_URL` | `https://<NAMESPACE>.compat.objectstorage.me-riyadh-1.oraclecloud.com` | same |
 | `STORAGE_REGION` | `me-riyadh-1` | same |
-| `STORAGE_BUCKET_WOUND_IMAGES`, `…_WOUND_MASKS`, `…_REPORTS`, `…_PRESCRIPTIONS`, `…_PROFILE_PHOTOS` | `iltiam-staging-wound-images`, `-wound-masks`, `-reports`, `-prescriptions`, `-profile-photos` | `iltiam-prod-…` (names TO CONFIRM in Runbook 8) |
+| `STORAGE_BUCKET_WOUND_IMAGES`, `…_WOUND_MASKS`, `…_REPORTS`, `…_PRESCRIPTIONS`, `…_PROFILE_PHOTOS` | `iltiam-staging-wound-images`, `-wound-masks`, `-reports`, `-prescriptions`, `-profile-photos` | `iltiam-prod-wound-images`, `-wound-masks`, `-reports`, `-prescriptions`, `-profile-photos` ([Runbook 8](08-object-storage.md), section 7) |
+| `AI_MASK_UPLOAD_ENABLED` | `True` | `True` |
 | `ACTIVATION_LINK_BASE_URL` | `https://staging-app.iltiamcare.com/activate` | `https://app.iltiamcare.com/activate` (path TO CONFIRM) |
 | `SMS_BACKEND` | leave out until Runbook 12, then as production | `apps.notifications.sms.AuthenticaSMSBackend` |
 | `AUTHENTICA_SENDER_NAME` | the approved sender name | same |
@@ -179,9 +180,10 @@ These are the values to set. Every other `var` in the templates is `optional`: l
 | `ALLOW_SYNC` | `0` | `0` |
 | `AI_API_WORKERS`, `AI_WORKER_CONCURRENCY` | `1`, `1` | `1`, `1` |
 | `ILTIAM_TISSUE_ENABLED` | `0` | `0` |
-| `MASK_UPLOAD_ALLOWED_HOSTS` | `<NAMESPACE>.compat.objectstorage.me-riyadh-1.oraclecloud.com` | same |
 | `API_BASE_URL` (name TO CONFIRM, WEB-03) | `https://staging-api.iltiamcare.com/api` | `https://api.iltiamcare.com/api` |
 | `TURNSTILE_SITE_KEY` (name TO CONFIRM, WEB-03) | the staging widget's site key | the production widget's site key |
+
+`STORAGE_ENDPOINT_URL` and `MASK_UPLOAD_ALLOWED_HOSTS` are **secrets**, not variables, because they contain the storage namespace: [Runbook 8](08-object-storage.md), section 11 sets them.
 
 **Type values exactly**, with no quotes around them and no trailing spaces. A value must not contain a single quote `'` or a line break; the deploy refuses those.
 
@@ -276,7 +278,7 @@ The short version:
 - **Yearly:**
   - OCI storage keys, the Firebase key, SMTP;
   - the weights tokens (they expire after a year; set a reminder two weeks before);
-  - the OCI Vault key (Runbook 8).
+  - the OCI Vault keys ([Runbook 8](08-object-storage.md), section 15.1).
 - **When someone leaves the team:**
   - `SECRET_KEY`, `JWT_SECRET_KEY`, `AI_SERVICE_TOKEN`, the AI `DJANGO_SECRET_KEY`;
   - the three DB passwords (change the role in Postgres **first**, section 6.3);
@@ -327,7 +329,7 @@ Every row must match before an environment is used. Record the result on the iss
 - **[Runbook 2](02-cloudflare-dns-tls.md)** (DEP-01): the Turnstile keys now (section 10); the SMTP values once the provider is set up (section 11).
 - **[Runbook 3](03-cloudflare-tunnels.md)** (#9): `CF_TUNNEL_TOKEN`, `NUM_PROXIES`, and later `SECURE_HSTS_SECONDS`.
 - **[Runbook 5](05-compose-stack.md)** (#2): `compose.yml` reads these env files, and the deploy workflow (by hand) writes them to the VM.
-- **Runbook 8** (DEP-02): storage keys and bucket names.
+- **[Runbook 8](08-object-storage.md)** (DEP-02): storage keys, the storage endpoint and bucket names.
 - **Runbook 9** (DEP-03): starts the deploy workflow on its own for staging, then runs the smoke test.
 - **Runbook 10** (DEP-04): the same for production, behind the reviewer.
 - **Runbooks 11 and 12** (DEP-13, DEP-14): Firebase and Authentica.

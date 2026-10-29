@@ -136,7 +136,7 @@ Running a deploy again with the same tags changes nothing: no running container 
 ## 3. Before you start
 
 1. **Done already:** [Runbook 1](01-oci-account-and-vm.md) (the VM, `ssh iltiam` works, the data volume at `/srv/iltiam`), [Runbook 2](02-cloudflare-dns-tls.md), [Runbook 3](03-cloudflare-tunnels.md) (the two tunnels and `CF_TUNNEL_TOKEN`) and [Runbook 4](04-secrets.md) (the GitHub Environments and the generated secrets).
-2. **Runbook 8 (#13, object storage) before the first staging deploy.** The staging backend needs its storage keys and bucket names: the deploy refuses to write `backend.env` without `STORAGE_ACCESS_KEY` and `STORAGE_SECRET_KEY`, and the backend's `/api/ready/` checks every bucket.
+2. **[Runbook 8](08-object-storage.md) (#13, object storage) before the first staging deploy.** The staging backend needs its storage key, endpoint and bucket names (Runbook 8, section 11): the deploy refuses to write `backend.env` without them, and the backend's `/api/ready/` checks every bucket. The backend image must also include iltiam-backend#80's boto3 checksum setting, or every upload fails with `501` (Runbook 8, section 13).
 3. **Every required secret and variable is in GitHub.** Set the variables of [Runbook 4](04-secrets.md), section 9, including `NUM_PROXIES=1`, and the secret `WEIGHTS_READ_TOKEN` (`docs/secrets.md`, section 6.6). Then run the two `comm` commands of Runbook 4, section 10.2, for `staging` and for `production`. **Both must print nothing.** `web.env`'s two variables can wait for WEB-03.
 4. **The images are published, and their tags are in this repository:**
    - **AI service:** iltiam-ai-service → **Actions → image → Run workflow**, branch `main`, ref `main`. It publishes `sha-0d1861e` (or the newer `sha-<7>` of `main`), the first build that honours `ILTIAM_TORCH_THREADS`. The versions files hold `sha-42270dc` (0.1.0) until then.
@@ -377,7 +377,7 @@ curl.exe -s https://staging-api.iltiamcare.com/api/health/
 curl.exe -s https://staging-api.iltiamcare.com/api/ready/
 ```
 
-**What you should see:** `{"status": "ok"}`, then `"status": "ready"` with `db`, `redis`, `storage` and `ai` all `ok`. A `503` names what is failing: `storage` means Runbook 8's keys or buckets, `ai` means the AI service isn't ready yet (section 7.4).
+**What you should see:** `{"status": "ok"}`, then `"status": "ready"` with `db`, `redis`, `storage` and `ai` all `ok`. A `503` names what is failing: `storage` means Runbook 8's keys, endpoint or buckets ([Runbook 8](08-object-storage.md), sections 13 and 16), `ai` means the AI service isn't ready yet (section 7.4).
 
 ### 7.4 The AI service, from inside the project
 
@@ -648,7 +648,7 @@ sudo -iu deploy bash -c 'iltiam() { bash /srv/iltiam/repo/scripts/compose.sh "$@
 | Redis (queued jobs, cache) | `/srv/iltiam/<ENV>/redis` | nothing: it is rebuilt by itself |
 | Model weights | `/srv/iltiam/weights` | nothing: `weights-init` downloads them again |
 | Env files | `/srv/iltiam/env/<ENV>/` | nothing: the next deploy writes them from GitHub |
-| Photos, masks, PDFs | OCI Object Storage (Runbook 8, #13), never on the VM | #8 and #13 |
+| Photos, masks, PDFs | OCI Object Storage ([Runbook 8](08-object-storage.md), #13), never on the VM | versioning keeps overwritten or deleted files for 30 days (Runbook 8, section 8); nothing else |
 | The whole data volume | `iltiam-data` | **#8**: weekly block volume backups |
 
 **Rule until #8 is done:** staging holds only test data, and **production takes no real patient data before #8's restore test has passed** (DEP-11, the go-live checklist).
@@ -742,7 +742,7 @@ The **Verified** column records the date each row last passed.
 
 ## 16. What comes next
 
-- **The backend image** (iltiam-backend issue: publish the arm64 image to GHCR), then its tag in `env/staging.versions`, then section 6.
+- **The backend image** (iltiam-backend issue: publish the arm64 image to GHCR), with iltiam-backend#80's checksum setting, then its tag in `env/staging.versions`, then section 6. Then [Runbook 8](08-object-storage.md), section 13.
 - **WEB-03** (iltiam/iltiam-web#25): a small pull request adds the `web` service (on `edge`, 64 MB, port 8080, `web.env`), its tag in the versions files, and its rules in `scripts/check-compose.sh`; `scripts/render-deploy-env.sh` then writes `web.env`. Then section 10 rows 7 and 8 (with HSTS).
 - **DEP-13, DEP-14 and SMTP:** production's backend (section 8, "later").
 - **Runbook 6** (#8): backups and the weekly restore test (section 12).

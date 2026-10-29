@@ -1,6 +1,6 @@
 # ADR-0004: Free-first hosting, edge (Cloudflare), phone-code and email delivery
 
-- **Status:** Accepted (2026-10-27, DEP#7). AI-12 measured 2026-10-27: GO. ben-fatah's decisions of 2026-10-23, revised the same day for cost. Decision 4 updated and Decision 6 added on 2026-10-28 (DEP-01); Decision 6's receiving part added on 2026-10-29 (#28). Decision 6 is pending confirmation that OCI Email Delivery is offered in Riyadh.
+- **Status:** Accepted (2026-10-27, DEP#7). AI-12 measured 2026-10-27: GO. ben-fatah's decisions of 2026-10-23, revised the same day for cost. Decision 4 updated and Decision 6 added on 2026-10-28 (DEP-01); Decision 6's receiving part added on 2026-10-29 (#28). Decision 1's object storage and Vault rows filled in on 2026-10-29 (DEP-02, Runbook 8). Decision 6 is pending confirmation that OCI Email Delivery is offered in Riyadh.
 - **Deciders:** ben-fatah (deployment owner, account holder, pays by card), Omar-Nasri (backend).
 - **Repo:** iltiam-deployment, `docs/adr/0004-hosting.md`.
 - **Related:**
@@ -29,9 +29,9 @@ The data is identifiable health data (sensitive under the PDPL), so it stays in 
 | Ampere A1 compute (`VM.Standard.A1.Flex`, ARM) | **1,500 OCPU-hours and 9,000 GB-hours a month, "equivalent to 2 OCPUs and 12 GB of memory"**; one VM or two 1-OCPU VMs | One VM, 2 OCPU / 12 GB, for staging **and** production |
 | AMD micro | 2 × VM.Standard.E2.1.Micro (1/8 OCPU, 1 GB) | Not used (too small) |
 | Block volume | **200 GB total** (boot + block) and **5 volume backups**, home region only | 100 GB boot + 100 GB data (`/srv/iltiam`); 3 backups |
-| Object storage | **20 GB**. A free-only account gets 20 GB across all tiers; an upgraded account gets 10 GB Standard + 10 GB Infrequent Access + 10 GB Archive. Plus 50,000 API requests a month. | Photos, masks, PDFs, exports, encrypted DB dumps |
+| Object storage | **20 GB**. A free-only account gets 20 GB across all tiers; an upgraded account gets 10 GB Standard + 10 GB Infrequent Access + 10 GB Archive. Plus 50,000 API requests a month. | Photos, masks, PDFs and encrypted DB dumps: six private buckets per environment, Standard tier only, budget production 14 GB, staging 3 GB, backups 3 GB ([Runbook 8](../runbooks/08-object-storage.md), DEP-02). The account is free-only (not upgraded) |
 | Outbound data | 10 TB a month | Plenty |
-| Vault | **Software-protected master keys free**; 20 free HSM key versions; 150 secrets | Software keys: AES-256 and rotatable, which meets NFR-SEC-04 |
+| Vault | **Software-protected master keys free**; 20 free HSM key versions; 150 secrets | Two software keys, one per environment, encrypting its buckets: AES-256 and rotated yearly, which meets NFR-SEC-04 (Runbook 8) |
 | Monitoring / Notifications / Email | 500 M ingestion points; 1,000 email notifications; 3,000 emails a month | Instance-state alarms; transactional email (Decision 6) |
 
 **Note on the A1 allowance:** Oracle's A1 pricing page still says "the first 3K OCPU-hrs and 18K GB-hrs each month is free" ([Ampere A1 pricing](https://www.oracle.com/cloud/compute/arm/pricing)), which is 4 OCPU / 24 GB. The Always Free documentation now says 2 OCPU / 12 GB. **We plan for 2 OCPU / 12 GB**, the documented figure. Do not create a larger A1 shape on the free account: the console accepts 4 OCPU / 24 GB, but usage above 1,500 OCPU-hours / 9,000 GB-hours is not Always Free, and when the 30-day trial ends an over-limit A1 instance is disabled. Runbook 1 (`docs/runbooks/01-oci-account-and-vm.md`) shows how to shrink one with Edit shape.
@@ -183,7 +183,7 @@ Riyadh has a single availability domain. **Our workaround, in order:**
 | OCI A1 VM | 2 OCPU / 12 GB | 2 OCPU / 12 GB, both environments | **$0** |
 | OCI block storage | 200 GB, 5 backups | 200 GB, 3 backups | **$0** |
 | OCI object storage | 20 GB (10 Std + 10 IA + 10 Archive after upgrade) | < 15 GB at launch | **$0** |
-| OCI Vault | software keys free | 1–2 keys | **$0** |
+| OCI Vault | software keys free | 2 keys | **$0** |
 | OCI egress | 10 TB | ≪ 1 TB | **$0** |
 | Cloudflare (DNS, TLS, DDoS, Tunnel, Access ≤ 50 users) | Free plan | 4 hostnames, 2 tunnels | **$0** |
 | OCI Email Delivery (Decision 6) | 3,000 emails a month | invitations, codes, notices | **$0** |
