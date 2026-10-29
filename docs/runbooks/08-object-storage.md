@@ -504,7 +504,7 @@ The **Verified** column records the date each row last passed.
 | 4 | Service policy | section 6 | both lines in `iltiam-objectstorage-key-policy` | console | 2026-10-29 |
 | 5 | Buckets | section 7 | 12; Private; the environment's key; versioning as in the table; no pre-authenticated requests | console | 2026-10-29 |
 | 6 | Lifecycle rules | section 8 | both rules Enabled on the 10 versioned buckets | console | 2026-10-29 |
-| 7 | Staging user | sections 9.2, 9.3 | in `iltiam-staging-storage` only; capabilities: Customer secret keys only | console | |
+| 7 | Staging user | sections 9.2, 9.3 | in `iltiam-staging-storage` only; capabilities: Customer secret keys only | console | 2026-10-29 |
 | 8 | Staging policy | section 9.4 | exact names, no pattern | console | 2026-10-29 |
 | 9 | Probe, staging | section 10 | `47 passed, 0 failed, 0 key not accepted, 0 skipped` | console | 2026-10-29 |
 | 10 | AES256 header | section 10, part 3 | `OCI ACCEPTS the AES256 header`, twice | console | 2026-10-29 |
