@@ -1,0 +1,25 @@
+# Push through Firebase (FCM) for the backend: on top of compose.yml, once the environment's service-account file
+# exists (Runbook 11, DEP-13). scripts/compose.sh and scripts/deploy.sh add this file by themselves when
+# /srv/iltiam/env/<env>/fcm-service-account.json is there, and leave it out otherwise: a bind mount of a missing file
+# would make Docker create an empty directory in its place.
+#
+# Mode 644, not 600: the backend runs as uid 10001, and a plain bind mount keeps the host's owner and mode. The
+# directory around it is 700, so no other user on the VM can reach it (docs/secrets.md, section 1).
+# The settings read the file at start-up in every role (migrate too), so all four mount it.
+
+x-fcm: &fcm
+  environment:
+    FCM_CREDENTIALS_FILE: /run/secrets/fcm-service-account.json
+  volumes:
+    - type: bind
+      source: ${ENV_DIR:?set ENV_DIR to /srv/iltiam/env/<env>}/fcm-service-account.json
+      target: /run/secrets/fcm-service-account.json
+      read_only: true
+      bind:
+        create_host_path: false
+
+services:
+  backend-migrate: *fcm
+  backend-web: *fcm
+  backend-worker: *fcm
+  backend-beat: *fcm

@@ -439,7 +439,7 @@ So:
   gh variable set NUM_PROXIES --env production --body 1 -R iltiam/iltiam-deployment
   ```
 
-- **`FORWARDED_ALLOW_IPS`** (a constant in `compose.yml`, Runbook 5, #2): gunicorn trusts `X-Forwarded-Proto` only from these addresses, and its default is `127.0.0.1`. `cloudflared` reaches the backend from its own container address, which Docker picks. **For #2:** set it to `*`. That is safe because nothing but `cloudflared` and `web` can reach `backend-web`: there are no published ports, and the AI and database containers are not on the `edge` network. Django already trusts the header (`SECURE_PROXY_SSL_HEADER`), so this only keeps gunicorn's own view of the scheme the same.
+- **`FORWARDED_ALLOW_IPS`** (a constant in `compose.yml`, Runbook 5, #2): gunicorn trusts `X-Forwarded-Proto` only from these addresses, and its default is `127.0.0.1`. `cloudflared` reaches the backend from its own container address, which Docker picks. Runbook 5 sets it to `*` in `compose.yml`. That is safe because nothing but `cloudflared` and `web` can reach `backend-web`: there are no published ports, and the AI and database containers are not on the `edge` network. Django already trusts the header (`SECURE_PROXY_SSL_HEADER`), so this only keeps gunicorn's own view of the scheme the same.
 
 ## 9. Cloudflare Access (email one-time code)
 
@@ -660,7 +660,7 @@ Only when all four hostnames serve the real app over HTTPS with no certificate w
    gh variable set SECURE_HSTS_SECONDS --env production --body 15552000 -R iltiam/iltiam-deployment
    ```
 
-3. Redeploy both environments (Runbook 5's deploy script; later the deploy workflows, Runbooks 9 and 10).
+3. Redeploy both environments ([Runbook 5](05-compose-stack.md), section 6: **Actions → deploy**).
 4. Check:
 
    ```powershell
@@ -766,7 +766,7 @@ The **Verified** column records the date each row last passed.
 
 ## 16. What comes next
 
-- **Runbook 5** (#2): the two Compose projects, each with its `cloudflared` (`TUNNEL_TOKEN` from `CF_TUNNEL_TOKEN`), the `edge` and `internal` networks, `FORWARDED_ALLOW_IPS` (section 8) and no `ports:`. Then section 11 and rows 20 to 28.
+- **[Runbook 5](05-compose-stack.md)** (#2): the two Compose projects, each with its `cloudflared` (`TUNNEL_TOKEN` from `CF_TUNNEL_TOKEN`), the `edge`, `internal` and `egress` networks, `FORWARDED_ALLOW_IPS` (section 8) and no `ports:`. Then section 11 and rows 20 to 28, in the order of Runbook 5, section 10.
 - **[Runbook 2](02-cloudflare-dns-tls.md)** (#12): after section 11, its section 7 (HSTS) and rows 11 and 19 to 21.
 - **[Runbook 4](04-secrets.md)** (#3): `NUM_PROXIES` (section 8) and `SECURE_HSTS_SECONDS` (section 11.6) in both Environments.
 - **WEB-03** (iltiam/iltiam-web#25): the web image's port (8080, TO CONFIRM), its content security policy and security headers, and its `Cache-Control` headers (section 6.2).

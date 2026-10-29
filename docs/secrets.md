@@ -10,15 +10,19 @@
 
 ```
 GitHub Environment "staging" / "production"        (Settings > Environments; write-only, can't be read back)
-        │  deploy workflow (DEP-03 staging, DEP-04 production; production waits for a reviewer)
+        │  deploy workflow .github/workflows/deploy.yml (by hand, Runbook 5; production waits for a reviewer;
+        │  DEP-03 adds the automatic staging trigger, DEP-04 releases)
         ▼
-scripts/render-env.sh, on the runner               (names from env/*.env.example, values from the Environment)
-        │  SSH as deploy
+scripts/render-deploy-env.sh → render-env.sh,      (names from env/*.env.example, values from the Environment)
+on the runner
+        │  scripts/remote-deploy.sh: SSH as deploy, files on stdin
         ▼
-/srv/iltiam/env/<staging|production>/*.env         (on iltiam-1, read by docker compose)
+/srv/iltiam/env/<staging|production>/*.env         (on iltiam-1, read by docker compose through scripts/compose.sh)
         ▼
 containers of the iltiam-staging / iltiam-prod Compose project
 ```
+
+The workflow is the only way a value gets from GitHub to the VM: GitHub can't show a secret again, so nobody types one onto the VM. `backend.env` is written only while `env/<env>.versions` enables the backend; `web.env` joins with the web service (WEB-03).
 
 **Bitwarden** (free organisation "ILTIAM", collection "ILTIAM escrow", members ben-fatah and Omar-Nasri) keeps a copy of what can never be regenerated: see section 5.
 
@@ -55,7 +59,9 @@ Each environment has **its own value** for every secret (run `scripts/bootstrap-
 | `FCM_SERVICE_ACCOUNT_JSON` | file `fcm-service-account.json` (section 1) | Firebase → Project settings → Service accounts → Generate new private key (Runbook 11, DEP-13) | yearly, staff change | 6.5 | Google Cloud console → IAM & Admin → Service accounts → the Firebase account → **Keys** → delete the key |
 | `WEIGHTS_READ_TOKEN` | infra.env (→ weights-init's `GITHUB_TOKEN`) | Fine-grained PAT, one **per environment**: resource owner `iltiam`, only `iltiam-ai-service`, **Contents: Read-only**, expiry **1 year** | yearly (it expires) | 6.6 | github.com → Settings → Developer settings → Personal access tokens → Fine-grained tokens → the token → **Delete** |
 | `STAGING_TEST_PASSWORD` (staging only) | backend.env | Chosen by whoever runs `manage.py seed_staging`; must meet the password policy | staff change | Set a new one, update, run `seed_staging` again | Same |
-| SSH deploy key (DEP-03; name **TO CONFIRM**) | the deploy workflow only | `ssh-keygen` (DEP-03) | staff change, leak | DEP-03 runbook | Remove its line from `/home/deploy/.ssh/authorized_keys` |
+| `DEPLOY_SSH_KEY` | the deploy workflow only (`~/.ssh/iltiam_deploy` on the runner) | `ssh-keygen -t ed25519`, **one key per environment**, no passphrase ([Runbook 5](runbooks/05-compose-stack.md), section 5.1) | staff change, leak | Runbook 5, section 5.1 with a new key, then delete the old line from `authorized_keys` | Remove its line from `/home/deploy/.ssh/authorized_keys` on the VM. A deploy key reaches Docker on the VM, which is as good as root: treat a leak as an incident (DEP-09) |
+| `DEPLOY_SSH_KNOWN_HOSTS` | the deploy workflow only | the VM's host key line, checked against the VM's own fingerprint (Runbook 5, section 5.2) | when the VM is rebuilt | Runbook 5, section 5.2 | Not secret by itself; a secret only because it contains the VM's address |
+| `DEPLOY_HOST` | the deploy workflow only | the VM's public IPv4 address (Runbook 1) | when the VM's address changes | Set the new address | Not a credential; a secret only so this public repository never shows the address |
 
 Non-secret values (host names, bucket names, backends, `AUTHENTICA_SENDER_NAME`) are **Environment variables**, not secrets. The templates mark each one `var`.
 
@@ -100,7 +106,7 @@ Never put anything else there that GitHub can hold: two copies means two places 
 
 ## 6. Rotation procedures
 
-Rotate during a quiet hour, staging first. "Redeploy" means running the environment's deploy workflow (DEP-03 / DEP-04), which renders the env files again and recreates the containers.
+Rotate during a quiet hour, staging first. "Redeploy" means running the environment's deploy workflow ([Runbook 5](runbooks/05-compose-stack.md), section 6), which writes the env files again; Compose recreates every container whose environment changed.
 
 ### 6.1 A generated value (`SECRET_KEY`, `JWT_SECRET_KEY`, `AI_SERVICE_TOKEN`, `DJANGO_SECRET_KEY`)
 
@@ -134,9 +140,9 @@ Postgres reads `POSTGRES_PASSWORD` and the init scripts only when the data direc
 1. Make a new value and keep it on screen only while you need it: `openssl rand -hex 24`.
 2. On the VM, as `deploy`, set it on the role. `\password` asks for it without echo and keeps it out of the shell history:
    ```bash
-   docker compose -p iltiam-staging exec postgres psql -U postgres -c '\password <ROLE>'
+   bash /srv/iltiam/repo/scripts/compose.sh staging exec postgres psql -U postgres -c '\password <ROLE>'
    ```
-   `<ROLE>`: `postgres` for `POSTGRES_PASSWORD`, otherwise the backend's or the AI service's role (names set by #2).
+   `<ROLE>`: `postgres` for `POSTGRES_PASSWORD`, `iltiam` for `BACKEND_DB_PASSWORD`, `iltiam_ai` for `AI_DB_PASSWORD` (`postgres/initdb/10-iltiam.sh`).
 3. **Right away**, update the GitHub secret (`gh secret set BACKEND_DB_PASSWORD --env staging -R iltiam/iltiam-deployment`, paste, Enter) and redeploy. Open connections keep working; new ones fail until the redeploy.
 4. Check: `/api/ready/` 200 and the AI `/ready` 200. Then run `clear`.
 
@@ -181,12 +187,12 @@ OCI allows two Customer Secret Keys per user, so the old one keeps working until
 
 Found while writing the templates (issue #3). Each one belongs to the issue named.
 
-**For #2 (Runbook 5, compose.yml):**
-1. **Redis databases collide.** Backend and AI share one Redis per environment, and both default their Celery broker to database 0 (backend `REDIS_URL`, AI `.env.example`). Proposal: backend `0` (broker and results) and `2` (cache); AI `3` (broker), `4` (results), `5` (cache).
-2. **Database roles.** The AI service's production default is `PGUSER=iltiam`, the same as the backend's role name. Set separate roles (proposal: `iltiam` for the backend, `iltiam_ai` for the AI service), so `BACKEND_DB_PASSWORD` and `AI_DB_PASSWORD` really are two credentials.
-3. **Constants compose.yml sets** (not in the env files): `DATABASE_URL` (from `BACKEND_DB_PASSWORD`), `REDIS_URL`, `CELERY_BROKER_URL`, `CELERY_RESULT_BACKEND`, `CACHE_URL`, `AI_SERVICE_URL`, `FCM_CREDENTIALS_FILE`, `WEB_CONCURRENCY`, `CELERY_CONCURRENCY`, `FORWARDED_ALLOW_IPS` for the backend; `CELERY_*`, `AI_CACHE_URL`, `PG*` for the AI service; `TUNNEL_TOKEN` (from `CF_TUNNEL_TOKEN`) for cloudflared; weights-init's `GITHUB_TOKEN` (from `WEIGHTS_READ_TOKEN`).
-4. **The FCM file:** mount `<env>/fcm-service-account.json` read-only at `/run/secrets/fcm-service-account.json` (section 1).
-5. Replace `ci/env-check.compose.yml` with `compose.yml` in `scripts/check-env.sh` and delete the stub.
+**For #2 (Runbook 5, compose.yml): all resolved by #2.**
+1. ~~Redis databases collide.~~ **Resolved:** backend `0` (broker and results) and `2` (cache); AI `3` (broker), `4` (results), `5` (cache), set in `compose.yml`.
+2. ~~Database roles.~~ **Resolved:** role and database `iltiam` for the backend, `iltiam_ai` for the AI service (`postgres/initdb/10-iltiam.sh`); neither role can connect to the other's database.
+3. ~~Constants compose.yml sets.~~ **Resolved:** all of them are in `compose.yml`; `scripts/check-compose.sh` checks that each secret of `infra.env` reaches only the containers that need it.
+4. ~~The FCM file.~~ **Resolved:** `compose.fcm.yml` mounts it read-only into the four backend roles, added only when the file exists.
+5. ~~Replace the CI stub.~~ **Resolved:** `scripts/check-env.sh` uses `compose.yml`; `ci/env-check.compose.yml` is gone.
 
 **For DEP-02 (Runbook 8, object storage). The backend's bucket settings are the source of truth:**
 
@@ -197,7 +203,7 @@ Found while writing the templates (issue #3). Each one belongs to the issue name
 
 **For the backend (Omar-Nasri):**
 
-7. **Health check vs `ALLOWED_HOSTS`, TO CONFIRM.** The image's health check calls `http://127.0.0.1:8000/api/health/`. If that path is not exempt from Django's host check, it gets 400 with `ALLOWED_HOSTS=api.iltiamcare.com`, and the container is marked unhealthy. Either exempt the probes or add `127.0.0.1` to `ALLOWED_HOSTS` in compose.
+7. ~~Health check vs `ALLOWED_HOSTS`.~~ **Worked around in #2, confirmed:** the image's own check gets `400` under production settings (and would get a redirect to https after that). `compose.yml` overrides the `backend-web` health check to send the first `ALLOWED_HOSTS` name as `Host` and `X-Forwarded-Proto: https`, which answers `200`. No backend change is needed; exempting the probe in the backend would let compose drop the override.
 8. **`FIELD_ENCRYPTION_KEY` rotation:** follow-up issue (MultiFernet plus a re-encrypt command), section 6.2.
 9. **`STAGING_TEST_PASSWORD`:** document the password policy, so the value can be generated.
 
@@ -212,5 +218,5 @@ Found while writing the templates (issue #3). Each one belongs to the issue name
     - the SSH deploy key's secret name (DEP-03);
     - Authentica's exact menu names for key rotation (Runbook 12).
 
-    Settled by Runbook 3 (#9): `NUM_PROXIES=1` and the tunnel token rotation menu (section 2). For #2: `FORWARDED_ALLOW_IPS=*` (Runbook 3, section 8).
-14. **AI torch threads:** AI-12 asks for 2 torch threads, but there is no environment override yet (`torch_threads: 4` in the model YAMLs wins). Follow-up issue in iltiam-ai-service. Until then `ai.env` has no thread variable.
+    Settled by Runbook 3 (#9): `NUM_PROXIES=1` and the tunnel token rotation menu (section 2). Settled by #2: `FORWARDED_ALLOW_IPS=*` in `compose.yml` (Runbook 3, section 8), and the SSH deploy key's secret names (`DEPLOY_SSH_KEY`, `DEPLOY_SSH_KNOWN_HOSTS`, `DEPLOY_HOST`, section 2).
+14. ~~AI torch threads.~~ **Resolved:** iltiam-ai-service#158 added `ILTIAM_TORCH_THREADS`; `compose.yml` sets it and `OMP_NUM_THREADS` to `2` as constants (not in `ai.env`). It takes effect with an AI image built from that change (`sha-0d1861e` or later; `env/<env>.versions`).

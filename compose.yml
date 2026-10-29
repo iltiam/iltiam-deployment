@@ -1,0 +1,269 @@
+# Staging and production on iltiam-1: two Compose projects from this one file (Runbook 5, issue #2).
+#   docs/runbooks/05-compose-stack.md explains every choice below; ADR-0004 (Decisions 2 and 3) the reasons.
+#
+# Never run `docker compose` on this file by hand: use scripts/compose.sh <staging|production> (day to day) and
+# scripts/deploy.sh <staging|production> (a deploy). They pass the project name, the env files and the paths:
+#   -p iltiam-staging | iltiam-prod
+#   --env-file /srv/iltiam/env/<env>/infra.env   secrets for interpolation (DB passwords, tunnel and weights tokens)
+#   --env-file env/<env>.versions                 image tags and COMPOSE_PROFILES (public, in this repository)
+#   ENV_DIR=/srv/iltiam/env/<env>  DATA_DIR=/srv/iltiam/<env>
+#   compose.fcm.yml on top, once <env>/fcm-service-account.json exists (Runbook 11, DEP-13)
+#
+# THIS REPOSITORY IS PUBLIC, and `docker compose config` prints every secret this file interpolates: only ever run
+# it with --quiet (scripts/compose.sh refuses it otherwise).
+#
+# Networks (no `ports:` anywhere; nothing listens on the VM's public address):
+#   edge      cloudflared and backend-web (web joins with WEB-03). The tunnel reaches only what is here.
+#   internal  internal: true, no route out of the VM. Postgres, Redis, the AI service and the backend.
+#   egress    outbound only, for what must call the internet: weights-init (GitHub), ai-worker (mask upload to
+#             object storage), backend-worker (storage, Authentica, FCM, SMTP). backend-web goes out through edge.
+#
+# Profiles: `backend` (migrate, web, worker, beat). env/staging.versions enables it; production leaves it off until
+# DEP-13, DEP-14 and SMTP exist, because the production settings refuse to start without real delivery (Runbook 5).
+
+x-logging: &logging
+  # Capped, or the logs of two environments fill the disk. Runbook 7 (#10) reads these files.
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+x-app: &app
+  # Our own images run as a non-root user and need no Linux capability.
+  logging: *logging
+  restart: unless-stopped
+  security_opt: ["no-new-privileges:true"]
+  cap_drop: [ALL]
+
+# --- Backend (one image, four roles; iltiam-backend docker/entrypoint.sh) ----------------------------------------
+x-backend: &backend
+  <<: *app
+  image: ${BACKEND_IMAGE:?BACKEND_IMAGE is missing from env/<env>.versions}
+  profiles: [backend]
+  env_file: ["${ENV_DIR:?set ENV_DIR to /srv/iltiam/env/<env>}/backend.env"]
+  environment:
+    DATABASE_URL: postgres://iltiam:${BACKEND_DB_PASSWORD:?BACKEND_DB_PASSWORD is missing from infra.env}@postgres:5432/iltiam
+    # Redis databases: backend 0 (Celery broker and results) and 2 (cache, throttle counters); the AI service 3-5.
+    REDIS_URL: redis://redis:6379/0
+    CELERY_BROKER_URL: redis://redis:6379/0
+    CELERY_RESULT_BACKEND: redis://redis:6379/0
+    CACHE_URL: redis://redis:6379/2
+    AI_SERVICE_URL: http://ai-api:8000
+    WEB_CONCURRENCY: "2"
+    CELERY_CONCURRENCY: "2"
+    # gunicorn trusts X-Forwarded-Proto only from these addresses. cloudflared's address is picked by Docker, and
+    # only cloudflared (and later web) can reach backend-web (Runbook 3, section 8).
+    FORWARDED_ALLOW_IPS: "*"
+
+# --- AI service (iltiam-ai-service docs/production-image.md) ---------------------------------------------------
+x-ai: &ai
+  <<: *app
+  env_file: ["${ENV_DIR:?set ENV_DIR to /srv/iltiam/env/<env>}/ai.env"]
+  environment:
+    PGHOST: postgres
+    PGPORT: "5432"
+    PGDATABASE: iltiam_ai
+    PGUSER: iltiam_ai
+    PGPASSWORD: ${AI_DB_PASSWORD:?AI_DB_PASSWORD is missing from infra.env}
+    CELERY_BROKER_URL: redis://redis:6379/3
+    CELERY_RESULT_BACKEND: redis://redis:6379/4
+    AI_CACHE_URL: redis://redis:6379/5
+    # Two threads per process on the 2-OCPU VM (ADR-0004, Decision 2; AI-12 measured 2 faster than 4).
+    ILTIAM_TORCH_THREADS: "2"
+    OMP_NUM_THREADS: "2"
+  volumes:
+    - /srv/iltiam/weights:/app/models/weights:ro
+
+services:
+  # --- Edge ----------------------------------------------------------------------------------------------------
+  cloudflared:
+    <<: *app
+    image: cloudflare/cloudflared:2026.10.0
+    # The image's entrypoint is `cloudflared --no-autoupdate`. The metrics server listens inside the container
+    # only; `tunnel ready` asks its /ready, which is 200 once at least one connection to Cloudflare is up.
+    command: ["tunnel", "--metrics", "127.0.0.1:20241", "run"]
+    environment:
+      TUNNEL_TOKEN: ${CF_TUNNEL_TOKEN:?CF_TUNNEL_TOKEN is missing from infra.env}
+    networks: [edge]
+    healthcheck:
+      test: ["CMD", "cloudflared", "tunnel", "--metrics", "127.0.0.1:20241", "ready"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+    mem_limit: 128m
+
+  # --- Data ----------------------------------------------------------------------------------------------------
+  postgres:
+    image: postgres:16.15-alpine
+    command: ["postgres", "-c", "shared_buffers=128MB", "-c", "max_connections=50"]
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is missing from infra.env}
+      # Read only by postgres/initdb/10-iltiam.sh, on the first start with an empty data directory.
+      BACKEND_DB_PASSWORD: ${BACKEND_DB_PASSWORD:?BACKEND_DB_PASSWORD is missing from infra.env}
+      AI_DB_PASSWORD: ${AI_DB_PASSWORD:?AI_DB_PASSWORD is missing from infra.env}
+    volumes:
+      - ${DATA_DIR:?set DATA_DIR to /srv/iltiam/<env>}/postgres:/var/lib/postgresql/data
+      - ./postgres/initdb:/docker-entrypoint-initdb.d:ro
+    networks: [internal]
+    # Over TCP: during the first start the init scripts run on a server that listens on the socket only, so a
+    # socket check would call it ready before the roles exist.
+    healthcheck:
+      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "postgres", "-d", "postgres"]
+      interval: 10s
+      timeout: 5s
+      start_period: 30s
+      retries: 6
+    # Postgres' "fast" shutdown; the default SIGTERM waits for every client to leave.
+    stop_signal: SIGINT
+    stop_grace_period: 60s
+    logging: *logging
+    restart: unless-stopped
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 384m
+
+  redis:
+    image: redis:7.4.12-alpine
+    # Append-only file: queued jobs survive a restart. noeviction: a full Redis refuses writes instead of silently
+    # dropping queued jobs (Runbook 7, #10, alerts on its memory).
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "128mb", "--maxmemory-policy", "noeviction"]
+    volumes:
+      - ${DATA_DIR:?set DATA_DIR to /srv/iltiam/<env>}/redis:/data
+    networks: [internal]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+    logging: *logging
+    restart: unless-stopped
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 192m
+
+  # --- AI service: never on edge, so the tunnel can't even resolve its name -------------------------------------
+  weights-init:
+    # One-shot: downloads what this tag's registry lists into the weights directory both environments share, and
+    # skips files whose SHA-256 already matches. The api and worker mount it read-only.
+    <<: *app
+    image: ${AI_WORKER_IMAGE:?AI_WORKER_IMAGE is missing from env/<env>.versions}
+    command: ["python", "scripts/download_weights.py"]
+    environment:
+      GITHUB_TOKEN: ${WEIGHTS_READ_TOKEN:?WEIGHTS_READ_TOKEN is missing from infra.env}
+    volumes:
+      - /srv/iltiam/weights:/app/models/weights
+    networks: [egress]
+    restart: "no"
+    mem_limit: 512m
+
+  ai-api:
+    # The image's command runs the migrations, then gunicorn with AI_API_WORKERS (1, from ai.env) processes.
+    <<: *ai
+    image: ${AI_API_IMAGE:?AI_API_IMAGE is missing from env/<env>.versions}
+    networks: [internal]
+    healthcheck:
+      # The image's own check: 200 once the models are loaded and Redis answers.
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:8000/ready', timeout=4)"]
+      interval: 10s
+      timeout: 5s
+      start_period: 60s
+      retries: 12
+    stop_grace_period: 30s
+    mem_limit: 1g
+    depends_on:
+      weights-init: {condition: service_completed_successfully}
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+
+  ai-worker:
+    # AI_WORKER_CONCURRENCY (1, from ai.env) Celery processes, each loading its own models.
+    <<: *ai
+    image: ${AI_WORKER_IMAGE:?AI_WORKER_IMAGE is missing from env/<env>.versions}
+    networks: [internal, egress]
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A workers.celery_app inspect ping -d celery@$$HOSTNAME -t 5"]
+      interval: 30s
+      timeout: 10s
+      start_period: 60s
+      retries: 3
+    # Lets an analysis in progress finish (its soft limit is 30 s).
+    stop_grace_period: 60s
+    mem_limit: 1536m
+    depends_on:
+      weights-init: {condition: service_completed_successfully}
+      ai-api: {condition: service_healthy}
+
+  ai-beat:
+    # Exactly one per environment. Loads no model.
+    <<: *ai
+    image: ${AI_WORKER_IMAGE:?AI_WORKER_IMAGE is missing from env/<env>.versions}
+    command: ["celery", "-A", "workers.celery_app", "beat", "-l", "info", "-s", "/tmp/celerybeat-schedule"]
+    networks: [internal]
+    mem_limit: 384m
+    depends_on:
+      ai-api: {condition: service_healthy}
+
+  # --- Backend (profile "backend") ---------------------------------------------------------------------------
+  backend-migrate:
+    # One-shot, before web, worker and beat start.
+    <<: *backend
+    command: ["migrate"]
+    networks: [internal]
+    restart: "no"
+    healthcheck: {disable: true}
+    mem_limit: 384m
+    depends_on:
+      postgres: {condition: service_healthy}
+
+  backend-web:
+    <<: *backend
+    command: ["web"]
+    networks: [edge, internal]
+    # The image's own check asks http://127.0.0.1:8000/api/health/, which production settings answer with 400
+    # (127.0.0.1 is not in ALLOWED_HOSTS) or a redirect to https. So send the real host name and the header
+    # Cloudflare sends.
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - >-
+          import os, urllib.request as u;
+          host = os.environ['ALLOWED_HOSTS'].split(',')[0].strip();
+          u.urlopen(u.Request('http://127.0.0.1:8000/api/health/',
+          headers={'Host': host, 'X-Forwarded-Proto': 'https'}), timeout=5)
+      interval: 30s
+      timeout: 10s
+      start_period: 30s
+      retries: 3
+    stop_grace_period: 30s
+    mem_limit: 512m
+    depends_on:
+      backend-migrate: {condition: service_completed_successfully}
+      redis: {condition: service_healthy}
+
+  backend-worker:
+    # The image's health check: this worker answers a Celery ping.
+    <<: *backend
+    command: ["worker"]
+    networks: [internal, egress]
+    stop_grace_period: 60s
+    mem_limit: 640m
+    depends_on:
+      backend-migrate: {condition: service_completed_successfully}
+      redis: {condition: service_healthy}
+
+  backend-beat:
+    # Exactly one per environment: it schedules the reminders.
+    <<: *backend
+    command: ["beat"]
+    networks: [internal]
+    mem_limit: 192m
+    depends_on:
+      backend-migrate: {condition: service_completed_successfully}
+      redis: {condition: service_healthy}
+
+networks:
+  edge: {}
+  internal:
+    internal: true
+  egress: {}

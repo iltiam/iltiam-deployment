@@ -3,7 +3,7 @@
 - **Issue:** iltiam/iltiam-deployment#3 (DEP#3). **Inventory, owners, rotation, revocation:** [`docs/secrets.md`](../secrets.md).
 - **Who:** anyone on the team with admin rights on `iltiam/iltiam-deployment`. No cloud experience needed; follow the steps in order.
 - **Time:** about 1.5 hours the first time, then a few minutes for each third-party secret as its runbook is done.
-- **Result:** two GitHub Environments, `staging` and `production` (production waits for a reviewer before any deploy). They hold every secret and setting the env templates in [`env/`](../../env/) name, plus an escrow copy in Bitwarden of what can't be regenerated. The deploy workflows (Runbooks 9 and 10) turn them into `/srv/iltiam/env/<staging|production>/*.env` on `iltiam-1`.
+- **Result:** two GitHub Environments, `staging` and `production` (production waits for a reviewer before any deploy). They hold every secret and setting the env templates in [`env/`](../../env/) name, plus an escrow copy in Bitwarden of what can't be regenerated. The deploy workflow ([Runbook 5](05-compose-stack.md); automated later by Runbooks 9 and 10) turns them into `/srv/iltiam/env/<staging|production>/*.env` on `iltiam-1`.
 
 > **This repository is public. Never paste a secret into this runbook, an issue, a PR, a commit, a chat or a workflow log.** Use the placeholders below. A secret pasted anywhere public counts as leaked: rotate it (`docs/secrets.md`, section 7). Deleting the text doesn't help.
 
@@ -17,8 +17,8 @@ GitHub moves menus between releases. If a menu below is not where this says, loo
 ## 1. How it works
 
 ```
-GitHub Environment  ──deploy workflow──▶  scripts/render-env.sh  ──SSH──▶  /srv/iltiam/env/<ENV>/*.env  ──▶  docker compose
-(secrets + variables)    (Runbooks 9, 10)    (on the runner)               (700 dir, 600 files, deploy)
+GitHub Environment  ──deploy workflow──▶  scripts/render-deploy-env.sh  ──SSH──▶  /srv/iltiam/env/<ENV>/*.env  ──▶  docker compose
+(secrets + variables)    (Runbook 5)         (on the runner)                       (700 dir, 600 files, deploy)
 ```
 
 - **Four templates** in `env/` list every variable by name, each with a one-line comment and **no values**:
@@ -137,6 +137,7 @@ Each one comes from its own runbook. Add it to **both** Environments, each with 
 | `FCM_SERVICE_ACCOUNT_JSON` | Firebase → Project settings → Service accounts → Generate new private key | Runbook 11 (DEP-13) |
 | `WEIGHTS_READ_TOKEN` | Fine-grained PAT, **one per environment**: only `iltiam-ai-service`, Contents read-only, 1-year expiry | `docs/secrets.md`, section 6.6 |
 | `STAGING_TEST_PASSWORD` (staging only) | You choose it; it must meet the password policy | backend `docs/deployment.md` |
+| `DEPLOY_SSH_KEY`, `DEPLOY_SSH_KNOWN_HOSTS`, `DEPLOY_HOST` | The environment's own deploy key, the VM's host key line, the VM's address | [Runbook 5](05-compose-stack.md) (#2), section 5 |
 
 **A JSON key file** (Firebase): don't paste it by hand. Use `gh secret set FCM_SERVICE_ACCOUNT_JSON --env staging -R iltiam/iltiam-deployment < <FILE>.json`, then delete the file from Downloads and empty the recycle bin.
 
@@ -144,9 +145,9 @@ Each one comes from its own runbook. Add it to **both** Environments, each with 
 
 ## 8. Let the deploy job pull images from GHCR
 
-No registry token is stored. The deploy job uses its own `GITHUB_TOKEN`, which only lives as long as the job. It logs in on the VM with `--password-stdin`, pulls, and logs out. For that, each image package must allow this repository to read it. Do this **once per package**, and again whenever a new image is published (backend and web images arrive with BE-04 and WEB-03; their names are TO CONFIRM):
+No registry token is stored. The deploy job uses its own `GITHUB_TOKEN`, which only lives as long as the job. It logs in on the VM with `--password-stdin`, pulls, and logs out. For that, each image package must allow this repository to read it. Do this **once per package**, and again whenever a new image is published (the backend's `iltiam-backend` once its publish workflow exists; the web image with WEB-03, name TO CONFIRM):
 
-1. github.com → **iltiam** organisation → **Packages** → the package (today: `iltiam-ai-api` and `iltiam-ai-worker`).
+1. github.com → **iltiam** organisation → **Packages** → the package (today: `iltiam-ai-api` and `iltiam-ai-worker`; next `iltiam-backend`).
 2. **Package settings → Manage Actions access → Add Repository** → `iltiam-deployment` → role **Read.**
 3. **What you should see:** `iltiam-deployment` listed with role **Read**.
 
@@ -183,6 +184,8 @@ These are the values to set. Every other `var` in the templates is `optional`: l
 | `TURNSTILE_SITE_KEY` (name TO CONFIRM, WEB-03) | the staging widget's site key | the production widget's site key |
 
 **Type values exactly**, with no quotes around them and no trailing spaces. A value must not contain a single quote `'` or a line break; the deploy refuses those.
+
+**What a deploy needs today** ([Runbook 5](05-compose-stack.md)): `infra.env` and `ai.env` always; `backend.env` only while `env/<ENV>.versions` turns the backend on (staging now, production after DEP-13, DEP-14 and SMTP). `web.env` (`API_BASE_URL`, `TURNSTILE_SITE_KEY`) is written once the web service exists (WEB-03), so its variables can wait until then.
 
 ## 10. Check your work
 
@@ -224,7 +227,7 @@ Run it again with `ENV=production`. Both commands print names only; neither can 
 
 ### 10.3 On the VM
 
-**Once, before the first deploy** (Runbook 9), log in as `ubuntu` (`ssh iltiam`, Runbook 1) and create the directories:
+**Once, before the first deploy:** [Runbook 5](05-compose-stack.md), section 4 creates the directories, with this command among others (as `ubuntu`):
 
 ```bash
 sudo install -d -m 700 -o deploy -g deploy /srv/iltiam/env /srv/iltiam/env/staging /srv/iltiam/env/production
@@ -323,9 +326,9 @@ Every row must match before an environment is used. Record the result on the iss
 
 - **[Runbook 2](02-cloudflare-dns-tls.md)** (DEP-01): the Turnstile keys now (section 10); the SMTP values once the provider is set up (section 11).
 - **[Runbook 3](03-cloudflare-tunnels.md)** (#9): `CF_TUNNEL_TOKEN`, `NUM_PROXIES`, and later `SECURE_HSTS_SECONDS`.
-- **Runbook 5** (#2): `compose.yml` reads these env files; it replaces the CI stub `ci/env-check.compose.yml`.
+- **[Runbook 5](05-compose-stack.md)** (#2): `compose.yml` reads these env files, and the deploy workflow (by hand) writes them to the VM.
 - **Runbook 8** (DEP-02): storage keys and bucket names.
-- **Runbook 9** (DEP-03): the staging deploy workflow that renders the files.
+- **Runbook 9** (DEP-03): starts the deploy workflow on its own for staging, then runs the smoke test.
 - **Runbook 10** (DEP-04): the same for production, behind the reviewer.
 - **Runbooks 11 and 12** (DEP-13, DEP-14): Firebase and Authentica.
 - **Open items found here:** `docs/secrets.md`, section 8.
