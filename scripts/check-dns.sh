@@ -93,6 +93,7 @@ query() {
 
 # data TYPE: the answer records of that type (1 A, 2 NS, 5 CNAME, 15 MX, 43 DS), one per line.
 data() {
+  # shellcheck disable=SC2016  # $t is a jq variable (--argjson), not a shell one
   jqr --argjson t "$1" '.Answer // [] | .[] | select(.type == $t) | .data' <<<"$json"
 }
 

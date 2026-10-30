@@ -4,7 +4,7 @@
 - **Who:** anyone on the team with Administrator rights on the Cloudflare account. No cloud experience needed; follow the steps in order.
 - **Time:** about 1.5 hours, plus 30 minutes for receiving mail (section 11.9). DNSSEC then turns active by itself within 1–2 days. Two parts wait:
   - **HSTS** (section 7) waits for #2 ([Runbook 3](03-cloudflare-tunnels.md), section 11).
-  - **The email provider** (sections 11.2 to 11.8) waits for the SMTP provider.
+  - **The email provider** (sections 11.3 to 11.8) waits for the SMTP provider.
 - **Result:** the zone `iltiamcare.com` on Cloudflare with:
   - two administrators with 2FA, and DNSSEC on;
   - Full (strict) TLS;
@@ -725,7 +725,7 @@ foreach ($q in @(@("iltiamcare.com","NS"),@("iltiamcare.com","TXT"),@("_dmarc.il
 The **When** column says when a row can pass:
 - **today**: now. DNSSEC (rows 6 to 8) can take 1–2 days on a new domain (section 4); ours was active on the day of registration;
 - **after 11.9**: once receiving mail (section 11.9) is set up. That can be done now;
-- **after #9**: once Runbook 3's hostnames answer;
+- **after #2 (Runbook 3, section 11)**: once staging is deployed and Runbook 3's hostnames answer;
 - **after SMTP provider**: once sections 11.2 to 11.7 are done.
 
 The **Verified** column records the date each row last passed. "DoH" means the DNS-over-HTTPS check in section 12.1.
@@ -770,13 +770,13 @@ The **Verified** column records the date each row last passed. "DoH" means the D
 | 16 | Turnstile | **Turnstile**; `gh secret list` / `gh variable list` per environment | `iltiam-staging` and `iltiam-prod`; `TURNSTILE_SECRET_KEY` and `TURNSTILE_SITE_KEY` in both environments | today | 2026-10-28 |
 | 17 | SPF, before the provider | `Resolve-DnsName iltiamcare.com -Type TXT` / `dig TXT` / DoH; the SPF count (12.1) | Exactly one `v=spf1` record: `v=spf1 include:_spf.mx.cloudflare.net -all` (it was `v=spf1 -all`, verified 2026-10-28, until section 11.9) | after 11.9 | 2026-10-29 |
 | 18 | DMARC | `Resolve-DnsName _dmarc.iltiamcare.com -Type TXT` / `dig TXT _dmarc…` / DoH; **Email → DMARC Management** | Starts exactly with `v=DMARC1; p=quarantine; sp=quarantine; …; rua=mailto:…` (nothing before `v=`); shown as valid | today | 2026-10-28 (DoH) |
-| 19 | HSTS | Section 7, `curl.exe -sI` on `staging-app` and `staging-api` | `max-age=15552000; includeSubDomains` on both | after #9 | |
-| 20 | API not rewritten | `curl.exe -s https://staging-api.iltiamcare.com/api/health/` | The backend's JSON, unchanged; no `rocket-loader` or `email-decode` script anywhere | after #9 | |
-| 21 | SSL Labs | `https://www.ssllabs.com/ssltest/analyze.html?d=staging-app.iltiamcare.com` | Grade **A** or better (A+ once HSTS is on) | after #9 | |
+| 19 | HSTS | Section 7, `curl.exe -sI` on `staging-app` and `staging-api` | `max-age=15552000; includeSubDomains` on both | after #2 | |
+| 20 | API not rewritten | `curl.exe -s https://staging-api.iltiamcare.com/api/health/` | The backend's JSON, unchanged; no `rocket-loader` or `email-decode` script anywhere | after #2 | |
+| 21 | SSL Labs | `https://www.ssllabs.com/ssltest/analyze.html?d=staging-app.iltiamcare.com` | Grade **A** or better (A+ once HSTS is on) | after #2 | |
 | 22 | DKIM | `Resolve-DnsName <DKIM_SELECTOR>._domainkey.iltiamcare.com -Type CNAME -Server 1.1.1.1` / `dig CNAME … +short`; OCI email domain | The OCI target; DKIM **Active** in OCI | after SMTP provider | |
 | 23 | SPF with the provider | as row 17; OCI email domain page | Exactly one `v=spf1` record: `v=spf1 include:_spf.mx.cloudflare.net include:ap.rp.oracleemaildelivery.com -all`, or the "All Commercial Regions" fallback (section 11.4); OCI shows SPF as configured | after SMTP provider | |
 | 24 | mail-tester | Section 11.6 | **9/10 or more**; SPF, DKIM and DMARC pass | after SMTP provider | |
-| 25 | A real email | An invitation from staging (section 11.7) | Arrives in the inbox, not in spam | after SMTP provider and #9 | |
+| 25 | A real email | An invitation from staging (section 11.7) | Arrives in the inbox, not in spam | after email setup (section 11.3 onward) and #2 | |
 | 26 | MX records | `Resolve-DnsName iltiamcare.com -Type MX` / `dig MX` / DoH | Exactly three: `route1`, `route2` and `route3.mx.cloudflare.net` | after 11.9 | 2026-10-29 (DoH) |
 | 27 | Email Routing DKIM | `Resolve-DnsName cf2024-1._domainkey.iltiamcare.com -Type TXT` / `dig TXT …` / DoH | One TXT record containing `p=` | after 11.9 | 2026-10-29 (DoH) |
 | 28 | Destination | **Email Routing → Destination addresses** | The team mailbox, **Verified** | after 11.9 | 2026-10-29 |
@@ -842,7 +842,7 @@ The **Verified** column records the date each row last passed. "DoH" means the D
 - **[Runbook 3](03-cloudflare-tunnels.md)** (#9): the tunnels, public hostnames, cache rules and the sign-in rate limit. Bot Fight Mode, Rocket Loader and Email Obfuscation are already set here, so #9 only verifies them. After #2 (Runbook 3, section 11):
   - section 7 (HSTS);
   - checklist rows 11 and 19 to 21.
-- **SMTP provider:** sections 11.2 to 11.7, then checklist rows 22 to 25 and 33 to 34. These finish #12 and #28.
+- **SMTP provider:** sections 11.3 to 11.7, then checklist rows 22 to 25 and 33 to 34. These finish #12 and #28.
 - **Runbook 4** (#3): the Turnstile keys (section 10) and later the SMTP credentials (section 11.5) fill its sections 7 and 9.
 - **Receiving mail** (#28): section 11.9 now, then checklist rows 17 and 26 to 32. Follow-ups:
   - the backend names `privacy@iltiamcare.com` in its breach-notice docs and adds `Reply-To: privacy@` to breach notices;
