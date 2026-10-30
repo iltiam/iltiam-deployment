@@ -12,6 +12,7 @@ Infrastructure for ILTIAM: hosting decisions, runbooks, environment templates an
 - **The stack:** [`compose.yml`](compose.yml) (both environments), image tags in [`env/<env>.versions`](env/),
   deployed by **Actions → deploy** ([`.github/workflows/deploy.yml`](.github/workflows/deploy.yml),
   [`scripts/deploy.sh`](scripts/deploy.sh)). Day to day on the VM: [`scripts/compose.sh`](scripts/compose.sh).
+- **Domain check:** [`scripts/check-dns.sh`](scripts/check-dns.sh) checks the DNS, email records and HTTPS headers of `iltiamcare.com` (Runbook 2, section 12).
 - **Secrets:** [`docs/secrets.md`](docs/secrets.md) lists every secret, its owner, rotation and revocation. Secrets
   live only in GitHub Environments and on the VM, **never in this repository**: it is public.
 - **Environment templates:** [`env/`](env/), names and comments only, no values.

@@ -3,8 +3,8 @@
 - **Issue:** iltiam/iltiam-deployment#12 (DEP-01); section 11.9 (receiving mail): iltiam/iltiam-deployment#28. **Decision record:** [ADR-0004](../adr/0004-hosting.md), Decisions 4 and 6.
 - **Who:** anyone on the team with Administrator rights on the Cloudflare account. No cloud experience needed; follow the steps in order.
 - **Time:** about 1.5 hours, plus 30 minutes for receiving mail (section 11.9). DNSSEC then turns active by itself within 1–2 days. Two parts wait:
-  - **HSTS** (section 7) waits for [Runbook 3](03-cloudflare-tunnels.md) (#9).
-  - **The email provider** (sections 11.2 to 11.8) waits for the SMTP provider.
+  - **HSTS** (section 7) waits for #2 ([Runbook 3](03-cloudflare-tunnels.md), section 11).
+  - **The email provider** (sections 11.3 to 11.8) waits for the SMTP provider.
 - **Result:** the zone `iltiamcare.com` on Cloudflare with:
   - two administrators with 2FA, and DNSSEC on;
   - Full (strict) TLS;
@@ -22,7 +22,6 @@
 | `<TEAMMATE_EMAIL>` | Email address of the second administrator (Omar-Nasri) |
 | `<CF_DMARC_RUA>` | The report address Cloudflare DMARC Management creates (section 11.1) |
 | `<DKIM_SELECTOR>`, `<OCI_DKIM_TARGET>` | DKIM record name and target that OCI shows (section 11.3) |
-| `<SMTP_ENDPOINT>` | OCI Email Delivery's SMTP endpoint for Riyadh (section 11.2) |
 | `<TEAM_MAILBOX>` | The team Gmail mailbox behind `privacy@` and `security@` (section 11.9). **Never write its address anywhere**; look it up in **Email Routing → Destination addresses** |
 
 Cloudflare redesigned its dashboard in 2025 and still moves menus. If a menu below is not where this says, type its name into the dashboard's search box.
@@ -35,7 +34,7 @@ Cloudflare redesigned its dashboard in 2025 and still moves menus. If a menu bel
 | Registrar | Cloudflare Registrar, registered 2026-10-28 |
 | Account owner | ben-fatah |
 | Owner 2FA | On |
-| Second administrator | Omar-Nasri, Administrator (invited 2026-10-28) |
+| Second administrator | Omar-Nasri, Administrator (invited 2026-10-28; accepted, checked 2026-10-30); 2FA not yet confirmed |
 | Auto-renew | On |
 | WHOIS privacy | On |
 | Registrar lock | On |
@@ -43,15 +42,16 @@ Cloudflare redesigned its dashboard in 2025 and still moves menus. If a menu bel
 | DNSSEC | Active (2026-10-28): DS record in `.com` (algorithm 13, digest type 2), answers validated |
 | SSL/TLS encryption mode | Custom, Full (strict) |
 | Edge certificates | Always Use HTTPS On, Minimum TLS 1.2, TLS 1.3 On, Automatic HTTPS Rewrites On |
-| Universal SSL | Enabled; certificate status not yet Active |
-| HSTS | Not yet (after #9, section 7) |
+| Universal SSL | Active for `iltiamcare.com, *.iltiamcare.com`, backup certificate issued (2026-10-30) |
+| HSTS | Not yet (after #2, section 7) |
 | Rocket Loader / Email Obfuscation (zone) | Off / Off |
 | Configuration rule `api-no-rewrites` | Deployed: Email Obfuscation Off, Rocket Loader Off on `api.` and `staging-api.iltiamcare.com` |
 | Bot Fight Mode | Off |
 | Under Attack mode | Off |
 | Turnstile widgets | `iltiam-staging` (`staging-app.iltiamcare.com`), `iltiam-prod` (`app.iltiamcare.com`); keys in both GitHub Environments |
 | SPF / DMARC | SPF: `v=spf1 -all` until 2026-10-29, then the row "SPF after section 11.9"; DMARC Management enabled, `_dmarc` with `p=quarantine` (unchanged by #28, checked 2026-10-29) |
-| SMTP provider | Pending (OCI Email Delivery, ADR-0004 Decision 6) |
+| SMTP provider | OCI Email Delivery (ADR-0004 Decision 6): available in `me-riyadh-1`, checked 2026-10-30 (section 11.2); sections 11.3 to 11.7 pending |
+| SMTP endpoint | `smtp.email.me-riyadh-1.oci.oraclecloud.com`, port 587, TLS required (STARTTLS) |
 | Email Routing (#28) | Enabled 2026-10-29; the SPF record was edited before onboarding (section 11.9, step 1) |
 | SPF after section 11.9 | One record: `v=spf1 include:_spf.mx.cloudflare.net -all` (2026-10-29) |
 | MX records (Email Routing) | `route1.mx.cloudflare.net` (27), `route2.mx.cloudflare.net` (95), `route3.mx.cloudflare.net` (47) |
@@ -152,9 +152,9 @@ TLS 1.3 is what browsers and phones use when they can (SRS §17). TLS 1.2 stays 
 
 **What you should see:** at the top of the page, a **Universal** certificate for `iltiamcare.com, *.iltiamcare.com`. Its status may stay **Pending** until Runbook 3 adds the first proxied hostname. That is fine.
 
-## 7. HSTS: do this after Runbook 3 (#9)
+## 7. HSTS: do this after #2 (Runbook 3, section 11)
 
-> **Do after #9**, as part of [Runbook 3](03-cloudflare-tunnels.md), section 11.6. Only turn HSTS on when all of these hold:
+> **Do after #2**, as part of [Runbook 3](03-cloudflare-tunnels.md), section 11.6. Only turn HSTS on when all of these hold:
 > - `https://app.iltiamcare.com`, `https://staging-app.iltiamcare.com` and both API hosts open with no certificate warning;
 > - every other subdomain that exists (`grafana.`, `status.`) also serves HTTPS.
 
@@ -352,14 +352,26 @@ Until a provider is set up, nobody may send mail as `@iltiamcare.com`. Two recor
 
 ### 11.2 Pending SMTP provider: check that Riyadh has Email Delivery (do this first)
 
-> **Status: pending SMTP provider.** Sections 11.2 to 11.8 are not done yet. Until they are:
+> **Status: the Riyadh check (this section) passed on 2026-10-30.** Sections 11.3 to 11.7 are not done yet. Until they are:
 > - **staging** prints email to its log (Runbook 4, section 7);
 > - **production** refuses to start, because the email settings are `prod-required`.
+
+**This check is the only gate.**
+- **The backend is ready.** iltiam/iltiam-backend#74 (BE-20) shipped plain SMTP settings that work with any provider: `EMAIL_BACKEND`, `EMAIL_HOST`, `EMAIL_PORT`, `EMAIL_HOST_USER`, `EMAIL_HOST_PASSWORD`, `DEFAULT_FROM_EMAIL`, and STARTTLS on by default.
+- **The provider is decided:** OCI Email Delivery ([ADR-0004](../adr/0004-hosting.md), Decision 6).
+
+So whether Riyadh offers Email Delivery decides everything in sections 11.3 to 11.7.
 
 1. OCI console (Runbook 1). Region menu at the top: **Saudi Arabia Central (Riyadh).**
 2. **☰ → Developer Services → Email Delivery → Configuration.**
 
-**What you should see:** **SMTP sending information**, with a **Public endpoint**: that is `<SMTP_ENDPOINT>`. It should also show port **587** with STARTTLS.
+**What you should see:** **SMTP sending information**, with the **Public endpoint** `smtp.email.me-riyadh-1.oci.oraclecloud.com`. It should also show port **587** with STARTTLS.
+
+**Result (2026-10-30): passed.**
+- OCI Email Delivery is available in `me-riyadh-1`.
+- SMTP endpoint `smtp.email.me-riyadh-1.oci.oraclecloud.com`, port **587**, TLS required (STARTTLS).
+
+The endpoint isn't a secret. Go on to section 11.3; the fallback (section 11.8) isn't needed.
 
 **If Riyadh has no Email Delivery, or the page asks you to upgrade:** stop. Tell the owner, and use the fallback (section 11.8) only after the owner agrees. ADR-0004 Decision 6 changes then.
 
@@ -449,7 +461,7 @@ Staging and production never share a credential (Runbook 4, section 3). OCI ties
    | Variable | staging | production |
    |---|---|---|
    | `EMAIL_BACKEND` | `django.core.mail.backends.smtp.EmailBackend` | same |
-   | `EMAIL_HOST` | `<SMTP_ENDPOINT>` | same |
+   | `EMAIL_HOST` | `smtp.email.me-riyadh-1.oci.oraclecloud.com` | same |
    | `EMAIL_PORT` | `587` | `587` |
    | `DEFAULT_FROM_EMAIL` | `ILTIAM Staging <no-reply@iltiamcare.com>` | `ILTIAM <no-reply@iltiamcare.com>` |
 
@@ -623,7 +635,20 @@ Patients need an address that answers:
 
 ### 12.1 Commands
 
-Use Cloudflare's resolver (`1.1.1.1`) so an old answer cached by your provider doesn't mislead you.
+**The quick way: one script.** In Git Bash, from the repository root (or on the VM):
+
+```bash
+bash scripts/check-dns.sh
+```
+
+- **What it does:** it asks Cloudflare's resolver over HTTPS, so it works without `dig`, and fetches the staging hosts' headers.
+- **What it prints:** one `PASS`, `FAIL` or `PENDING` line per checklist row it can decide (section 12.2 lists them), then a count.
+- **Exit code:** `0` when nothing failed. `PENDING` only means "not possible yet".
+- **Row 22:** after section 11.3, set the DKIM selector first: `DKIM_SELECTOR=<DKIM_SELECTOR> bash scripts/check-dns.sh`.
+
+**Its output is the one to paste into the issue.** It redacts the DMARC report address and the DS digest, and prints no IP, ID or URL. The commands below print both, so never paste their raw output.
+
+The commands below do the same checks by hand. Use Cloudflare's resolver (`1.1.1.1`) so an old answer cached by your provider doesn't mislead you.
 
 **Windows (PowerShell):**
 
@@ -700,24 +725,44 @@ foreach ($q in @(@("iltiamcare.com","NS"),@("iltiamcare.com","TXT"),@("_dmarc.il
 The **When** column says when a row can pass:
 - **today**: now. DNSSEC (rows 6 to 8) can take 1–2 days on a new domain (section 4); ours was active on the day of registration;
 - **after 11.9**: once receiving mail (section 11.9) is set up. That can be done now;
-- **after #9**: once Runbook 3's hostnames answer;
+- **after #2 (Runbook 3, section 11)**: once staging is deployed and Runbook 3's hostnames answer;
 - **after SMTP provider**: once sections 11.2 to 11.7 are done.
 
 The **Verified** column records the date each row last passed. "DoH" means the DNS-over-HTTPS check in section 12.1.
 
+**What `scripts/check-dns.sh` decides** (section 12.1). Each output line starts with its row number:
+
+| Script line | Row | It checks |
+|---|---|---|
+| `nameservers` | 5 | Two names ending in `.ns.cloudflare.com` |
+| `DS record in .com` | 7 | One DS record, algorithm 13, digest type 2 |
+| `DNSSEC validates` | 8 | Every DNS answer the script got has the AD flag; no SERVFAIL |
+| `SPF, one record` | 17 | Exactly one `v=spf1` record, with the expected content |
+| `DMARC` | 18 | One record, starting `v=DMARC1; p=quarantine;`, with `sp=quarantine` |
+| `HSTS` | 19 | `max-age=15552000; includeSubDomains` on `staging-app` and `staging-api` |
+| `API not rewritten` | 20 | `staging-api`'s health answer is JSON, with no `rocket-loader` or `email-decode` script |
+| `OCI DKIM` | 22 | The `<DKIM_SELECTOR>._domainkey` CNAME exists and is DNS only. DKIM **Active** in OCI is checked by hand |
+| `SPF with the provider` | 23 | The SPF record has OCI's include, or the "All Commercial Regions" fallback. The OCI page is checked by hand |
+| `MX (Email Routing)` | 26 | Exactly `route1`, `route2` and `route3.mx.cloudflare.net` |
+| `Email Routing DKIM` | 27 | `cf2024-1._domainkey` has a public key (`p=`) |
+| `return path ruh.rp` | 33 | MX `10 bmta.email.me-riyadh-1.oci.oraclecloud.com` and one `v=spf1` TXT. The OCI page is checked by hand |
+| `API never cached` | Runbook 3, row 23 | `cf-cache-status` `DYNAMIC` or `BYPASS` on two requests to `staging-api` |
+
+**Checked by hand:** every other row (1 to 4, 6, 9 to 16, 21, 24, 25, 28 to 32 and 34). They need the dashboard, a mailbox, OCI or SSL Labs.
+
 | # | Check | How | Expected | When | Verified |
 |---|---|---|---|---|---|
 | 1 | Owner 2FA | **My Profile → Authentication**; sign out and in | 2FA enabled; sign-in asks for the code | today | 2026-10-28 |
-| 2 | Second administrator | **Manage Account → Members** | Omar-Nasri, **Administrator**, accepted; Omar-Nasri confirms 2FA on | today | Pending: invited 2026-10-28; acceptance and 2FA not yet confirmed |
+| 2 | Second administrator | **Manage Account → Members** | Omar-Nasri, **Administrator**, accepted; Omar-Nasri confirms 2FA on | today | Pending: accepted as Administrator (checked 2026-10-30); 2FA not yet confirmed |
 | 3 | Registrar settings | **Manage Domains → iltiamcare.com → Configuration** | Auto-renew On, privacy On, lock On, DNSSEC enabled | today | 2026-10-28 |
-| 4 | WHOIS | ICANN lookup (12.1) | Contact details redacted; status includes `clientTransferProhibited` | today | Pending: ICANN Lookup and Verisign RDAP timed out from our network (2026-10-28) |
+| 4 | WHOIS | ICANN lookup (12.1) | Contact details redacted; status includes `clientTransferProhibited` | today | 2026-10-30 (ICANN lookup: contacts redacted, `clientTransferProhibited` present) |
 | 5 | Nameservers | `Resolve-DnsName … -Type NS` / `dig NS` / DoH | Two names ending in `.ns.cloudflare.com` | today | 2026-10-28 (DoH) |
 | 6 | DNSSEC in the dashboard | **DNS → Settings → DNSSEC** | Active (no longer Pending) | today | 2026-10-28 |
 | 7 | DS record in `.com` | `Resolve-DnsName … -Type DS` / `dig DS` / DoH | One DS record, algorithm `13`, digest type `2`. Empty means still pending | today | 2026-10-28 (DoH) |
 | 8 | DNSSEC validates | `Resolve-DnsName … -Type SOA -DnssecOk` / `dig @1.1.1.1 … +dnssec` / DoH; DNSViz | PowerShell lists an `RRSIG` record; `dig`'s `flags:` line contains `ad`; DoH prints `DNSSEC-validated=True`; DNSViz shows no errors | today | 2026-10-28 (DoH, AD true) |
 | 9 | Encryption mode | **SSL/TLS → Overview** | Custom, **Full (strict)** | today | 2026-10-28 |
 | 10 | Edge certificates | **SSL/TLS → Edge Certificates** | Always Use HTTPS On, Minimum TLS 1.2, TLS 1.3 On, Automatic HTTPS Rewrites On, HSTS off | today | 2026-10-28 |
-| 11 | Universal certificate | **SSL/TLS → Edge Certificates** | Covers `iltiamcare.com, *.iltiamcare.com`; **Active** (may stay Pending until #9) | today / after #9 | Pending: Universal SSL enabled (2026-10-28); certificate not yet shown Active |
+| 11 | Universal certificate | **SSL/TLS → Edge Certificates** | Covers `iltiamcare.com, *.iltiamcare.com`; **Active** (may stay Pending until #9) | today / after #9 | 2026-10-30: Active for `iltiamcare.com, *.iltiamcare.com`; backup certificate issued |
 | 12 | Zone rewriting off | Rocket Loader and Email Obfuscation pages (8.1) | Both Off | today | 2026-10-28 |
 | 13 | API rule | **Rules → Configuration Rules** | `api-no-rewrites` enabled: Email Obfuscation Off, Rocket Loader Off | today | 2026-10-28 |
 | 14 | Bot Fight Mode | **Security → Settings → Bot traffic** | Off | today | 2026-10-28 |
@@ -725,13 +770,13 @@ The **Verified** column records the date each row last passed. "DoH" means the D
 | 16 | Turnstile | **Turnstile**; `gh secret list` / `gh variable list` per environment | `iltiam-staging` and `iltiam-prod`; `TURNSTILE_SECRET_KEY` and `TURNSTILE_SITE_KEY` in both environments | today | 2026-10-28 |
 | 17 | SPF, before the provider | `Resolve-DnsName iltiamcare.com -Type TXT` / `dig TXT` / DoH; the SPF count (12.1) | Exactly one `v=spf1` record: `v=spf1 include:_spf.mx.cloudflare.net -all` (it was `v=spf1 -all`, verified 2026-10-28, until section 11.9) | after 11.9 | 2026-10-29 |
 | 18 | DMARC | `Resolve-DnsName _dmarc.iltiamcare.com -Type TXT` / `dig TXT _dmarc…` / DoH; **Email → DMARC Management** | Starts exactly with `v=DMARC1; p=quarantine; sp=quarantine; …; rua=mailto:…` (nothing before `v=`); shown as valid | today | 2026-10-28 (DoH) |
-| 19 | HSTS | Section 7, `curl.exe -sI` on `staging-app` and `staging-api` | `max-age=15552000; includeSubDomains` on both | after #9 | |
-| 20 | API not rewritten | `curl.exe -s https://staging-api.iltiamcare.com/api/health/` | The backend's JSON, unchanged; no `rocket-loader` or `email-decode` script anywhere | after #9 | |
-| 21 | SSL Labs | `https://www.ssllabs.com/ssltest/analyze.html?d=staging-app.iltiamcare.com` | Grade **A** or better (A+ once HSTS is on) | after #9 | |
+| 19 | HSTS | Section 7, `curl.exe -sI` on `staging-app` and `staging-api` | `max-age=15552000; includeSubDomains` on both | after #2 | |
+| 20 | API not rewritten | `curl.exe -s https://staging-api.iltiamcare.com/api/health/` | The backend's JSON, unchanged; no `rocket-loader` or `email-decode` script anywhere | after #2 | |
+| 21 | SSL Labs | `https://www.ssllabs.com/ssltest/analyze.html?d=staging-app.iltiamcare.com` | Grade **A** or better (A+ once HSTS is on) | after #2 | |
 | 22 | DKIM | `Resolve-DnsName <DKIM_SELECTOR>._domainkey.iltiamcare.com -Type CNAME -Server 1.1.1.1` / `dig CNAME … +short`; OCI email domain | The OCI target; DKIM **Active** in OCI | after SMTP provider | |
 | 23 | SPF with the provider | as row 17; OCI email domain page | Exactly one `v=spf1` record: `v=spf1 include:_spf.mx.cloudflare.net include:ap.rp.oracleemaildelivery.com -all`, or the "All Commercial Regions" fallback (section 11.4); OCI shows SPF as configured | after SMTP provider | |
 | 24 | mail-tester | Section 11.6 | **9/10 or more**; SPF, DKIM and DMARC pass | after SMTP provider | |
-| 25 | A real email | An invitation from staging (section 11.7) | Arrives in the inbox, not in spam | after SMTP provider and #9 | |
+| 25 | A real email | An invitation from staging (section 11.7) | Arrives in the inbox, not in spam | after email setup (section 11.3 onward) and #2 | |
 | 26 | MX records | `Resolve-DnsName iltiamcare.com -Type MX` / `dig MX` / DoH | Exactly three: `route1`, `route2` and `route3.mx.cloudflare.net` | after 11.9 | 2026-10-29 (DoH) |
 | 27 | Email Routing DKIM | `Resolve-DnsName cf2024-1._domainkey.iltiamcare.com -Type TXT` / `dig TXT …` / DoH | One TXT record containing `p=` | after 11.9 | 2026-10-29 (DoH) |
 | 28 | Destination | **Email Routing → Destination addresses** | The team mailbox, **Verified** | after 11.9 | 2026-10-29 |
@@ -770,7 +815,7 @@ The **Verified** column records the date each row last passed. "DoH" means the D
 | OCI's return path check stays unconfigured | The `ruh.rp` records are missing or misnamed. **Name** must be only `ruh.rp`, not `ruh.rp.iltiamcare.com` (Cloudflare adds the domain itself); check with the `ruh.rp` commands in section 12.1 |
 | OCI DKIM never turns Active | The CNAME is proxied (orange cloud): set **DNS only**. Or its name ends in `.iltiamcare.com.iltiamcare.com`: type only the part before the domain |
 | `SMTPAuthenticationError` from `mailcheck.py` | Wrong username or password, or the user isn't in `iltiam-smtp-senders`, or the policy is missing (section 11.5) |
-| `mailcheck.py` times out | Wrong endpoint or port: use `<SMTP_ENDPOINT>` from section 11.2, port 587 |
+| `mailcheck.py` times out | Wrong endpoint or port: use `smtp.email.me-riyadh-1.oci.oraclecloud.com` (section 11.2), port 587 |
 | mail-tester below 9/10 | Read its authentication section first. A failed DKIM means the email was sent before DKIM was Active |
 | Real email lands in spam | DKIM not Active when it was sent, or the From address isn't the approved sender `no-reply@iltiamcare.com` |
 
@@ -794,10 +839,10 @@ The **Verified** column records the date each row last passed. "DoH" means the D
 
 ## 15. What comes next
 
-- **[Runbook 3](03-cloudflare-tunnels.md)** (#9): the tunnels, public hostnames, cache rules and the sign-in rate limit. Bot Fight Mode, Rocket Loader and Email Obfuscation are already set here, so #9 only verifies them. After #9:
+- **[Runbook 3](03-cloudflare-tunnels.md)** (#9): the tunnels, public hostnames, cache rules and the sign-in rate limit. Bot Fight Mode, Rocket Loader and Email Obfuscation are already set here, so #9 only verifies them. After #2 (Runbook 3, section 11):
   - section 7 (HSTS);
   - checklist rows 11 and 19 to 21.
-- **SMTP provider:** sections 11.2 to 11.7, then checklist rows 22 to 25 and 33 to 34. These finish #12 and #28.
+- **SMTP provider:** sections 11.3 to 11.7, then checklist rows 22 to 25 and 33 to 34. These finish #12 and #28.
 - **Runbook 4** (#3): the Turnstile keys (section 10) and later the SMTP credentials (section 11.5) fill its sections 7 and 9.
 - **Receiving mail** (#28): section 11.9 now, then checklist rows 17 and 26 to 32. Follow-ups:
   - the backend names `privacy@iltiamcare.com` in its breach-notice docs and adds `Reply-To: privacy@` to breach notices;
