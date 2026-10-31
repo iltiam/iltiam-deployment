@@ -32,10 +32,10 @@ Filled in when the steps are done. Names, versions and dates only: never an IP, 
 | Docker and Compose versions on the VM (section 4.4) | Docker 29.9.2, Docker Compose v5.6.1 (2026-10-31) |
 | Deploy keys, one per environment (section 5.1) | |
 | `DEPLOY_SSH_KNOWN_HOSTS`, `DEPLOY_HOST` (sections 5.2, 5.3) | |
-| GHCR access for `iltiam-deployment` (Runbook 4, section 8) | `iltiam-ai-api`, `iltiam-ai-worker`: Read, proven by the 2026-10-31 pull. `iltiam-backend`: Read (Manage Actions access), granted 2026-10-31; proven at the first backend deploy |
-| Images deployed on staging (`env/staging.versions`) | 2026-10-31: `iltiam-ai-api` and `iltiam-ai-worker` `sha-0d1861e`, AI-only (`COMPOSE_PROFILES=` empty). Next: `iltiam-backend` `sha-4b5251d` with `COMPOSE_PROFILES=backend` |
+| GHCR access for `iltiam-deployment` (Runbook 4, section 8) | `iltiam-ai-api`, `iltiam-ai-worker`: Read, proven by the 2026-10-31 pull. `iltiam-backend`: Read under **Manage Actions access**, proven by the 2026-10-31 backend deploy (a first grant under Codespaces access gave `denied`; Runbook 4, section 8) |
+| Images deployed on staging (`env/staging.versions`) | 2026-10-31: `iltiam-ai-api` and `iltiam-ai-worker` `sha-0d1861e`; `iltiam-backend` `sha-4b5251d`, `COMPOSE_PROFILES=backend` |
 | Images deployed on production (`env/production.versions`) | |
-| Idle memory, both projects (section 9.5) | Staging AI-only, 2026-10-31, before any analysis: **1615 MiB** (`ai-api` 608, `ai-worker` 663, `ai-beat` 297, `postgres` 26, `redis` 5, `cloudflared` 16); `free -h`: 2.2 GiB used, 9.4 GiB available |
+| Idle memory, both projects (section 9.5) | Staging complete, 2026-10-31, before any analysis: **2173 MiB** (`ai-api` 608, `ai-worker` 663, `ai-beat` 297, `backend-web` 234, `backend-worker` 204, `backend-beat` 114, `postgres` 32, `redis` 5, `cloudflared` 16); `free -h`: 2.9 GiB used, 8.7 GiB available. Earlier the same day, AI-only: 1615 MiB, 2.2 GiB used. Production isn't running yet (#36) |
 | AI worker peak during one analysis (section 11.4) | |
 
 ## 1. How it works
@@ -137,7 +137,7 @@ All figures in MiB and GiB, the units `docker stats` shows. **Idle** is measured
 | **One environment, complete** | **5056 MiB (4.9 GiB)** | **2713 MiB (2.65 GiB)** | **3.2 GiB** |
 | **Staging AI-only** (section 1, until the backend deploy) | **3648 MiB (3.6 GiB)** | **2053 MiB (2.0 GiB)**; **1615 MiB** measured on the VM | **2.4 GiB** |
 
-The measured figures are from iltiam-ai-service#154 (native arm64, after `/ready` and one analysis, 1 process each); section 9.5 measures them on the VM. **On the VM, 2026-10-31** (staging AI-only, before any analysis): `ai-api` 608 MiB, `ai-worker` 663 MiB, `ai-beat` 297 MiB, `postgres` 26 MiB, `redis` 5 MiB, `cloudflared` 16 MiB, **1615 MiB** in all. The worker loads its models at its first analysis, so it is still below #154's 1004 MiB. `ai-beat` already uses 77 % of its 384 MiB limit: watch it in section 9.5, and raise its `mem_limit` by a pull request if it nears 350 MiB.
+The measured figures are from iltiam-ai-service#154 (native arm64, after `/ready` and one analysis, 1 process each); section 9.5 measures them on the VM. **On the VM, 2026-10-31** (staging AI-only, before any analysis): `ai-api` 608 MiB, `ai-worker` 663 MiB, `ai-beat` 297 MiB, `postgres` 26 MiB, `redis` 5 MiB, `cloudflared` 16 MiB, **1615 MiB** in all. The worker loads its models at its first analysis, so it is still below #154's 1004 MiB. With the backend on (same day): `backend-web` 234 MiB, `backend-worker` 204 MiB, `backend-beat` 114 MiB, `postgres` 32 MiB, **2173 MiB** for the whole staging project, under the 2713 MiB expected for a complete environment. `ai-beat` already uses 77 % of its 384 MiB limit: watch it in section 9.5, and raise its `mem_limit` by a pull request if it nears 350 MiB.
 
 - **Budget, both environments complete:** 2 × 3.2 GiB, plus monitoring (about 1 GiB, #10) and the system (about 0.5 GiB): **about 7.9 GiB** of 11.2. Issue #2's first budget said 3.8 per environment and about 9 in total, with 1.2 for the AI api, 1.3 for the worker and no line for the beat; the measurements came in lower.
 - **Peak:** the AI worker's peak during an analysis isn't measured yet (section 11.4). Its `mem_limit` caps it at 1.5 GiB, so both workers analysing at once add at most about 1 GiB: **about 8.9 GiB**.
@@ -729,6 +729,7 @@ sudo -iu deploy bash -c 'iltiam() { bash /srv/iltiam/repo/scripts/compose.sh "$@
 | `backend-web` stays `(unhealthy)` | Its health check sends the **first** name in `ALLOWED_HOSTS` as the host. That must be `staging-api.iltiamcare.com` / `api.iltiamcare.com` ([Runbook 4](04-secrets.md), section 9). Then `iltiam <ENV> logs backend-web` |
 | `cloudflared` stays `(unhealthy)` | No connection to Cloudflare: wrong or refreshed `CF_TUNNEL_TOKEN` ([Runbook 3](03-cloudflare-tunnels.md), section 12), or outbound traffic is blocked (Runbook 3, section 14) |
 | `staging-api` or `api` answers **502** | `cloudflared` runs, but `backend-web` doesn't. Expected on staging while it is AI-only (section 1), and on production until its backend is turned on (section 8). Otherwise `iltiam <ENV> ps` and its logs |
+| `staging-api` times out on port 443 from your laptop, but answers from the VM (`curl -s https://staging-api.iltiamcare.com/api/health/`) and over a phone hotspot | The laptop's network, not the stack (seen 2026-10-31). Run section 7.3 over the hotspot or from the VM |
 | `400 Bad Request` or `ERR_TOO_MANY_REDIRECTS` from the API | [Runbook 3](03-cloudflare-tunnels.md), section 14 |
 | `'config …' would print secrets into this terminal` | `scripts/compose.sh` protects you: use `iltiam <ENV> config --quiet` |
 | `infra.env not found or not readable` | You are not `deploy`: run `sudo -iu deploy` first. Or the environment was never deployed |
@@ -755,21 +756,21 @@ The **Verified** column records the date each row last passed.
 | 4 | Repository clone | section 4.3 | `/srv/iltiam/repo` at `main` | on the VM | staging, via the green deploy 2026-10-31 |
 | 5 | Deploy keys | section 5.1 | one key per environment, each with `restrict`; each test prints the Compose version | on the VM | staging, via the green deploy 2026-10-31 |
 | 6 | Host key | section 5.2 | the two fingerprints are the same | on the VM | staging, via the green deploy 2026-10-31 |
-| 7 | Environments complete | section 5.4; Runbook 4, section 10.2 | the three `DEPLOY_*` names in both; the `comm` commands print nothing | on the VM | staging, via the green deploy 2026-10-31 (AI-only values; the backend's are set, proven at its deploy) |
-| 8 | Staging deploy | section 6 | green run, `==> deployed staging` | on the VM | 2026-10-31, AI-only |
-| 9 | Staging containers | section 7.1 | 9 services, 8 `(healthy)`, `ai-beat` `Up` (AI-only: 6, 5 `(healthy)`) | on the VM | 2026-10-31, AI-only: 6, 5 `(healthy)`, `ai-beat` `Up` |
+| 7 | Environments complete | section 5.4; Runbook 4, section 10.2 | the three `DEPLOY_*` names in both; the `comm` commands print nothing | on the VM | staging, via the green deploys 2026-10-31 (AI-only, then with the backend's values) |
+| 8 | Staging deploy | section 6 | green run, `==> deployed staging` | on the VM | 2026-10-31, `COMPOSE_PROFILES=backend`, backend `sha-4b5251d` (AI-only earlier the same day) |
+| 9 | Staging containers | section 7.1 | 9 services, 8 `(healthy)`, `ai-beat` `Up` (AI-only: 6, 5 `(healthy)`) | on the VM | 2026-10-31: 9, 8 `(healthy)`, `ai-beat` `Up` |
 | 10 | Env files and ports | section 7.2 | `700`/`600`; no `0.0.0.0:` | on the VM | staging, via the green deploy 2026-10-31: `700`/`600` only; the port check is still open |
-| 11 | Backend through the tunnel | section 7.3 | `{"status": "ok"}`; `/api/ready/` all `ok` | after #99 | |
-| 12 | AI service | section 7.4 | `/ready` ready; checksum `382ce77d…`; weights present (also ai-service#143) | on the VM | partial, 2026-10-31: AI containers healthy, weights downloaded (ai-service#143 closed on these). `/ready` and the checksum come after the backend deploy |
+| 11 | Backend through the tunnel | section 7.3 | `{"status": "ok"}`; `/api/ready/` all `ok` | after #99 | 2026-10-31: `{"status":"ok"}`; `/api/ready/` ready, `db`, `redis`, `storage`, `ai` all `ok` (through the public hostname, from the VM) |
+| 12 | AI service | section 7.4 | `/ready` ready; checksum `382ce77d…`; weights present (also ai-service#143) | on the VM | partial, 2026-10-31: AI containers healthy, weights downloaded (ai-service#143 closed on these); `/ready` ready, seen as `ai` `ok` in `/api/ready/` (the backend asks the AI service's `/ready`). The checksum is still open |
 | 13 | Two torch threads | section 7.5 | `torch intra-op threads: 2` | on the VM, with `sha-0d1861e` or newer | |
 | 14 | Production deploy | section 8 | approval asked; green run; 7 services; `iltiam-prod` Healthy | production issue | |
-| 15 | Same tags, no change (AC 3) | section 11.1 | `no container was recreated` | on the VM | |
+| 15 | Same tags, no change (AC 3) | section 11.1 | `no container was recreated` | on the VM | 2026-10-31: a second green run with the same tags; every backend and AI container kept its `Up` time |
 | 16 | Staging broken, production untouched (AC 2) | section 11.2 | `production untouched`; `200` | production issue | |
 | 17 | Reboot | section 11.3 | volume mounted; both projects back (for now staging) | on the VM | |
-| 18 | Idle memory (AC 1, part) | section 9.5 | `all containers:` under 10240 MiB, both projects running (for now staging: about 2053 MiB, section 2) | on the VM | partial, 2026-10-31: staging AI-only 1615 MiB |
+| 18 | Idle memory (AC 1, part) | section 9.5 | `all containers:` under 10240 MiB, both projects running (for now staging: about 2713 MiB, section 2) | on the VM | partial, 2026-10-31: staging complete 2173 MiB (AI-only earlier: 1615 MiB); production not running yet |
 | 19 | AI worker peak | section 11.4 | under 1.5 GiB with room to spare | on the VM | |
 | 20 | Production first | section 9.6 | staging `ai-worker` stops and starts; production unchanged | production issue | |
-| 21 | Runbook 3, rows 20, 21, 22 (API), 23, 25 (API), 26, 27 | section 10 | as in Runbook 3, section 13 | on the VM: 20, 21, 26; after #99: the rest | |
+| 21 | Runbook 3, rows 20, 21, 22 (API), 23, 25 (API), 26, 27 | section 10 | as in Runbook 3, section 13 | on the VM: 20, 21, 26; after #99: the rest | partial, 2026-10-31: 22 (API) `{"status":"ok"}`; 23 `cf-cache-status: DYNAMIC`; 25 (API) not rewritten. 20, 21, 26 and 27 still open |
 | 22 | Runbook 3, rows 22 (app), 24, 25 (app) | section 10 | as in Runbook 3, section 13 | after WEB-03 | |
 | 23 | HSTS, Runbook 3 row 28 | section 10; Runbook 3, section 11.6 | `max-age=15552000; includeSubDomains` | after WEB-03 | |
 | 24 | Production backend | section 8, "later"; section 7 with `production` | `api.iltiamcare.com/api/health/` `{"status": "ok"}` | after DEP-13/14/SMTP | |

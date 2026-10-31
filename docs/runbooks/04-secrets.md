@@ -149,8 +149,8 @@ Each one comes from its own runbook. Add it to **both** Environments, each with 
 No registry token is stored. The deploy job uses its own `GITHUB_TOKEN`, which only lives as long as the job. It logs in on the VM with `--password-stdin`, pulls, and logs out. For that, each image package must allow this repository to read it. Do this **once per package**, and again whenever a new package appears (the web image with WEB-03, name TO CONFIRM):
 
 1. github.com → **iltiam** organisation → **Packages** → the package (`iltiam-ai-api`, `iltiam-ai-worker` and `iltiam-backend`; all three have it since 2026-10-31).
-2. **Package settings → Manage Actions access → Add Repository** → `iltiam-deployment` → role **Read.**
-3. **What you should see:** `iltiam-deployment` listed with role **Read**.
+2. **Package settings → Manage Actions access → Add Repository** → `iltiam-deployment` → role **Read.** **Not under Codespaces access:** that list looks the same, but it doesn't let the deploy job pull (the first backend deploy failed with `denied` that way, 2026-10-31).
+3. **What you should see:** `iltiam-deployment` listed with role **Read** under **Manage Actions access**.
 
 **If you skip it:** the deploy fails at the pull with `denied` or `unauthorized`.
 
@@ -312,7 +312,8 @@ The short version:
 | AI service stops: `AI_SERVICE_TOKEN must be set` | The secret is missing from that Environment |
 | Production deploy sits on "Waiting" | It needs approval: the run page in **Actions → Review deployments → production → Approve and deploy** |
 | `gh secret set …`: `HTTP 404` | Wrong environment name (`staging` / `production`, lower case), or you are not a repository admin |
-| Pull fails with `denied` / `unauthorized` | The package doesn't grant this repository read access (section 8) |
+| Pull fails with `denied` / `unauthorized` | The package doesn't grant this repository read access, or grants it under **Codespaces access** instead of **Manage Actions access**. Add it under Manage Actions access (section 8) |
+| Backend `/api/ready/` fails on `storage`, and its log says `Invalid endpoint: https://.compat.objectstorage…` | The `STORAGE_ENDPOINT_URL` secret was saved with an empty namespace, for example from a shell variable that was empty when it was set. Set it again with the full value ([Runbook 8](08-object-storage.md), section 11), set `MASK_UPLOAD_ALLOWED_HOSTS` again the same way, and deploy |
 | weights-init fails with 401 or 404 | `WEIGHTS_READ_TOKEN` expired, was never approved by the organisation, or lacks access to `iltiam-ai-service` (`docs/secrets.md`, section 6.6) |
 | Authenticator codes or old messages stop working after a deploy | `FIELD_ENCRYPTION_KEY` was changed or unset. Put the Bitwarden value back and redeploy |
 
