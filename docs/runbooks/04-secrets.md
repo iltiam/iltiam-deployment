@@ -146,9 +146,9 @@ Each one comes from its own runbook. Add it to **both** Environments, each with 
 
 ## 8. Let the deploy job pull images from GHCR
 
-No registry token is stored. The deploy job uses its own `GITHUB_TOKEN`, which only lives as long as the job. It logs in on the VM with `--password-stdin`, pulls, and logs out. For that, each image package must allow this repository to read it. Do this **once per package**, and again whenever a new image is published (the backend's `iltiam-backend` once its publish workflow exists; the web image with WEB-03, name TO CONFIRM):
+No registry token is stored. The deploy job uses its own `GITHUB_TOKEN`, which only lives as long as the job. It logs in on the VM with `--password-stdin`, pulls, and logs out. For that, each image package must allow this repository to read it. Do this **once per package**, and again whenever a new package appears (the web image with WEB-03, name TO CONFIRM):
 
-1. github.com → **iltiam** organisation → **Packages** → the package (today: `iltiam-ai-api` and `iltiam-ai-worker`; next `iltiam-backend`).
+1. github.com → **iltiam** organisation → **Packages** → the package (`iltiam-ai-api`, `iltiam-ai-worker` and `iltiam-backend`; all three have it since 2026-10-31).
 2. **Package settings → Manage Actions access → Add Repository** → `iltiam-deployment` → role **Read.**
 3. **What you should see:** `iltiam-deployment` listed with role **Read**.
 
@@ -169,7 +169,7 @@ These are the values to set. Every other `var` in the templates is `optional`: l
 | `STORAGE_REGION` | `me-riyadh-1` | same |
 | `STORAGE_BUCKET_WOUND_IMAGES`, `…_WOUND_MASKS`, `…_REPORTS`, `…_PRESCRIPTIONS`, `…_PROFILE_PHOTOS` | `iltiam-staging-wound-images`, `-wound-masks`, `-reports`, `-prescriptions`, `-profile-photos` | `iltiam-prod-wound-images`, `-wound-masks`, `-reports`, `-prescriptions`, `-profile-photos` ([Runbook 8](08-object-storage.md), section 7) |
 | `AI_MASK_UPLOAD_ENABLED` | `True` | `True` |
-| `ACTIVATION_LINK_BASE_URL` | `https://staging-app.iltiamcare.com/activate` | `https://app.iltiamcare.com/activate` (path TO CONFIRM) |
+| `ACTIVATION_LINK_BASE_URL` | `https://staging-app.iltiamcare.com/activate` (set 2026-10-31; TO CONFIRM, below) | `https://app.iltiamcare.com/activate` (TO CONFIRM, below) |
 | `SMS_BACKEND` | leave out until Runbook 12, then as production | `apps.notifications.sms.AuthenticaSMSBackend` |
 | `AUTHENTICA_SENDER_NAME` | the approved sender name | same |
 | `PUSH_BACKEND` | leave out until Runbook 11, then as production | `apps.notifications.push.FCMPushBackend` |
@@ -182,6 +182,16 @@ These are the values to set. Every other `var` in the templates is `optional`: l
 | `ILTIAM_TISSUE_ENABLED` | `0` | `0` |
 | `API_BASE_URL` (name TO CONFIRM, WEB-03) | `https://staging-api.iltiamcare.com/api` | `https://api.iltiamcare.com/api` |
 | `TURNSTILE_SITE_KEY` (name TO CONFIRM, WEB-03) | the staging widget's site key | the production widget's site key |
+
+**`ACTIVATION_LINK_BASE_URL`: TO CONFIRM with the web team (WEB-05).** The backend emails `<ACTIVATION_LINK_BASE_URL>?token=<token>` to an invited clinic admin or Super Admin. The web app has no such page yet: an unknown path redirects to `/`, which drops the token. Until WEB-03 runs the web app, `staging-app` answers 502 anyway, and staging's console email backend writes the link only to the backend's log. Questions for the web team:
+
+1. Is the page's path `/activate`, or something else (for example `/set-password`)?
+2. Does it read the query parameter `token`? The base URL must not contain a `?` of its own.
+3. Is the page public, outside the role guards (no sign-in needed)?
+4. Which backend endpoint does it call to set the first password?
+5. How does it handle an expired or used link? The link lasts 24 hours (`INVITATION_TTL_HOURS`).
+
+Change the variable in both Environments once they answer, and deploy.
 
 `STORAGE_ENDPOINT_URL` and `MASK_UPLOAD_ALLOWED_HOSTS` are **secrets**, not variables, because they contain the storage namespace: [Runbook 8](08-object-storage.md), section 11 sets them.
 
