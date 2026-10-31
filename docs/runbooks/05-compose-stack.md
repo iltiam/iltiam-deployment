@@ -551,14 +551,16 @@ With staging (and then production) running, do [Runbook 3](03-cloudflare-tunnels
 
 | Order | Runbook 3 row | Section | Now? |
 |---|---|---|---|
-| 1 | 20 (VM listens only on 22) and 21 (port check from outside) | 10.4 | yes |
-| 2 | 22, API part: `{"status": "ok"}` on `staging-api.` (on `api.` once production has its backend) | 11.1 | **after iltiam-backend#99** |
-| 3 | 23: API never cached | 11.2 | **after iltiam-backend#99** |
-| 4 | 25, API part: no rewriting | 11.3 | **after iltiam-backend#99** |
-| 5 | 26: AI unreachable from the tunnel's network | 11.4 (and below) | yes |
-| 6 | 27: `NUM_PROXIES` resists a fake header. Check first with `gh variable list --env staging -R iltiam/iltiam-deployment` that `NUM_PROXIES` is `1` | 11.5 | **after iltiam-backend#99** |
-| 7 | 22 (app part), 24 (assets cached), 25 (app part) | 11.1 to 11.3 | **after WEB-03** |
-| 8 | 28: HSTS | 11.6 | **after WEB-03**: HSTS waits until the app hosts serve the real web app |
+| 1 | 20 (VM listens only on 22) and 21 (port check from outside) | 10.4 | done on staging, 2026-10-31 |
+| 2 | 22, API part: `{"status": "ok"}` on `staging-api.` (on `api.` once production has its backend) | 11.1 | done on staging, 2026-10-31 |
+| 3 | 23: API never cached | 11.2 | done on staging, 2026-10-31 |
+| 4 | 25, API part: no rewriting | 11.3 | done on staging, 2026-10-31 |
+| 5 | 26: AI unreachable from the tunnel's network | 11.4 (and below) | done on staging, 2026-10-31 |
+| 6 | 27: `NUM_PROXIES` resists a fake header. Check first with `gh variable list --env staging -R iltiam/iltiam-deployment` that `NUM_PROXIES` is `1` | 11.5 | done on staging, 2026-10-31 |
+| 7 | 22 (app part), 24 (assets cached), 25 (app part) | 11.1 to 11.3 | **after WEB-03**, tracked in #35 |
+| 8 | 28: HSTS | 11.6 | **after WEB-03**, tracked in #35: HSTS waits until the app hosts serve the real web app |
+
+For production, rows 1 to 8 again on `app.` and `api.`, tracked in #36.
 
 **Row 26, in detail.** On the VM, as `deploy`:
 
@@ -572,7 +574,7 @@ docker run --rm --network iltiam-staging_edge curlimages/curl:8.22.0 -sS -m 5 -o
 
 **What you should see:**
 - six networks: `iltiam-staging_edge`, `_internal`, `_egress` and the same three for `iltiam-prod`;
-- `curl: (6) Could not resolve host: ai-api`, then the same for `postgres`;
+- `curl: (6) Could not resolve host: ai-api`, then the same for `postgres`. `curl: (28) Resolving timed out …` means the same: the name doesn't exist on `edge`;
 - `200`: the network itself works, so the two failures above are real isolation.
 
 For production, use `iltiam-prod_edge`. Until production has its backend, the third command answers `Could not resolve host: backend-web`.
@@ -759,7 +761,7 @@ The **Verified** column records the date each row last passed.
 | 7 | Environments complete | section 5.4; Runbook 4, section 10.2 | the three `DEPLOY_*` names in both; the `comm` commands print nothing | on the VM | staging, via the green deploys 2026-10-31 (AI-only, then with the backend's values) |
 | 8 | Staging deploy | section 6 | green run, `==> deployed staging` | on the VM | 2026-10-31, `COMPOSE_PROFILES=backend`, backend `sha-4b5251d` (AI-only earlier the same day) |
 | 9 | Staging containers | section 7.1 | 9 services, 8 `(healthy)`, `ai-beat` `Up` (AI-only: 6, 5 `(healthy)`) | on the VM | 2026-10-31: 9, 8 `(healthy)`, `ai-beat` `Up` |
-| 10 | Env files and ports | section 7.2 | `700`/`600`; no `0.0.0.0:` | on the VM | staging, via the green deploy 2026-10-31: `700`/`600` only; the port check is still open |
+| 10 | Env files and ports | section 7.2 | `700`/`600`; no `0.0.0.0:` | on the VM | staging, via the green deploy 2026-10-31: `700`/`600` only. Ports 2026-10-31: no `0.0.0.0:` or `[::]:` mapping (Runbook 3, row 20) |
 | 11 | Backend through the tunnel | section 7.3 | `{"status": "ok"}`; `/api/ready/` all `ok` | after #99 | 2026-10-31: `{"status":"ok"}`; `/api/ready/` ready, `db`, `redis`, `storage`, `ai` all `ok` (through the public hostname, from the VM) |
 | 12 | AI service | section 7.4 | `/ready` ready; checksum `382ce77d…`; weights present (also ai-service#143) | on the VM | partial, 2026-10-31: AI containers healthy, weights downloaded (ai-service#143 closed on these); `/ready` ready, seen as `ai` `ok` in `/api/ready/` (the backend asks the AI service's `/ready`). The checksum is still open |
 | 13 | Two torch threads | section 7.5 | `torch intra-op threads: 2` | on the VM, with `sha-0d1861e` or newer | |
@@ -770,9 +772,9 @@ The **Verified** column records the date each row last passed.
 | 18 | Idle memory (AC 1, part) | section 9.5 | `all containers:` under 10240 MiB, both projects running (for now staging: about 2713 MiB, section 2) | on the VM | partial, 2026-10-31: staging complete 2173 MiB (AI-only earlier: 1615 MiB); production not running yet |
 | 19 | AI worker peak | section 11.4 | under 1.5 GiB with room to spare | on the VM | |
 | 20 | Production first | section 9.6 | staging `ai-worker` stops and starts; production unchanged | production issue | |
-| 21 | Runbook 3, rows 20, 21, 22 (API), 23, 25 (API), 26, 27 | section 10 | as in Runbook 3, section 13 | on the VM: 20, 21, 26; after #99: the rest | partial, 2026-10-31: 22 (API) `{"status":"ok"}`; 23 `cf-cache-status: DYNAMIC`; 25 (API) not rewritten. 20, 21, 26 and 27 still open |
-| 22 | Runbook 3, rows 22 (app), 24, 25 (app) | section 10 | as in Runbook 3, section 13 | after WEB-03 | |
-| 23 | HSTS, Runbook 3 row 28 | section 10; Runbook 3, section 11.6 | `max-age=15552000; includeSubDomains` | after WEB-03 | |
+| 21 | Runbook 3, rows 20, 21, 22 (API), 23, 25 (API), 26, 27 | section 10 | as in Runbook 3, section 13 | on the VM: 20, 21, 26; after #99: the rest | PASS 2026-10-31, staging: 22 (API) `{"status":"ok"}`; 23 `cf-cache-status: DYNAMIC`; 25 (API) not rewritten; 20, 21, 26 and 27 pass (details in Runbook 3, section 13). Production: #36 |
+| 22 | Runbook 3, rows 22 (app), 24, 25 (app) | section 10 | as in Runbook 3, section 13 | after WEB-03 (#35) | |
+| 23 | HSTS, Runbook 3 row 28 | section 10; Runbook 3, section 11.6 | `max-age=15552000; includeSubDomains` | after WEB-03 (#35) | |
 | 24 | Production backend | section 8, "later"; section 7 with `production` | `api.iltiamcare.com/api/health/` `{"status": "ok"}` | after DEP-13/14/SMTP | |
 | 25 | Both projects fully healthy at once (AC 1) | sections 7.1, 8, 9.5 | every service of both projects healthy; idle under 10 GB | after WEB-03 and DEP-13/14/SMTP | |
 
@@ -793,8 +795,8 @@ The **Verified** column records the date each row last passed.
 ## 16. What comes next
 
 - **The staging backend:** its tag (`sha-4b5251d`) and `COMPOSE_PROFILES=backend` are in `env/staging.versions`. Next: section 6, the "after #99" rows of section 14 and row 12, then [Runbook 8](08-object-storage.md), section 13.
-- **Production**, in its own issue: sections 5 (production), 8, 11.2 and the "production issue" rows of section 14.
-- **WEB-03** (iltiam/iltiam-web#25): a small pull request adds the `web` service (on `edge`, 64 MB, port 8080, `web.env`), its tag in the versions files, and its rules in `scripts/check-compose.sh`; `scripts/render-deploy-env.sh` then writes `web.env`. Then section 10 rows 7 and 8 (with HSTS).
+- **Production**, in its own issue (#36): sections 5 (production), 8, 11.2 and the "production issue" rows of section 14.
+- **WEB-03** (iltiam/iltiam-web#25): a small pull request adds the `web` service (on `edge`, 64 MB, port 8080, `web.env`), its tag in the versions files, and its rules in `scripts/check-compose.sh`; `scripts/render-deploy-env.sh` then writes `web.env`. Then section 10 rows 7 and 8 (with HSTS), tracked in #35.
 - **DEP-13, DEP-14 and SMTP:** production's backend (section 8, "later").
 - **Runbook 6** (#8): backups and the weekly restore test (section 12).
 - **Runbook 7** (#10): monitoring on a network shared with both projects, memory and disk alerts, Redis memory.
