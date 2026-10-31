@@ -39,7 +39,7 @@ Filled in when the steps are done. Names and dates only: never the namespace, an
 | Staging access (section 9) | group `iltiam-staging-storage`; policy `iltiam-storage-staging` (exact bucket names); user `iltiam-staging-storage` |
 | Production access (section 9.6) | later, with the production backend |
 | Staging key in GitHub (section 11) | `STORAGE_ACCESS_KEY`, `STORAGE_SECRET_KEY` set 2026-10-29 |
-| Staging storage settings in GitHub (section 11) | `STORAGE_ENDPOINT_URL` and `MASK_UPLOAD_ALLOWED_HOSTS` (secrets), `STORAGE_REGION`, the five `STORAGE_BUCKET_*`, `AI_MASK_UPLOAD_ENABLED=True` (variables), 2026-10-29; no stale variables |
+| Staging storage settings in GitHub (section 11) | `STORAGE_ENDPOINT_URL` and `MASK_UPLOAD_ALLOWED_HOSTS` (secrets), `STORAGE_REGION`, the five `STORAGE_BUCKET_*`, `AI_MASK_UPLOAD_ENABLED=True` (variables), 2026-10-29; no stale variables. `STORAGE_ENDPOINT_URL` and `MASK_UPLOAD_ALLOWED_HOSTS` set again 2026-10-31: the endpoint had been saved with an empty namespace (Runbook 4, section 13) |
 | Probe objects (section 14.3) | removed from every staging bucket, 2026-10-29 |
 | Alarms (section 12) | not done yet |
 | Vault keys last rotated (section 15.1) | |
@@ -397,7 +397,7 @@ On the VM, as `deploy` ([Runbook 5](05-compose-stack.md), section 4.4 for the `i
    iltiam staging exec backend-web python manage.py check_storage
    ```
 
-   **What you should see:** a `✓` on every line, then `All storage checks passed.` Each run overwrites `.healthcheck/check_storage.txt` in every bucket. The storage user can't delete objects (section 9.4), so each run leaves one tiny old version, which the 30-day rule removes (section 8).
+   **What you should see:** a `✓` on every line, then `All storage checks passed.` **Passed on staging, 2026-10-31:** the 5 buckets, each with exists, default encryption `aws:kms`, versioning `Enabled`, object encrypted `aws:kms` and anonymous read refused (`404`); this proves iltiam-backend#80 on OCI. Each run overwrites `.healthcheck/check_storage.txt` in every bucket. The storage user can't delete objects (section 9.4), so each run leaves one tiny old version, which the 30-day rule removes (section 8).
 4. **One analysis through the backend** (the staging app, or the API with a `seed_staging` account; Runbook 5, section 11.4 calls the AI service directly and stores nothing): the photo appears in `iltiam-staging-wound-images` and its mask in `iltiam-staging-wound-masks`, under the assessment's id.
 5. **Customer-managed key on the objects** (acceptance criterion): console → bucket `iltiam-staging-wound-images` → the photo's **⋮ → View Object Details.** The encryption key is `iltiam-staging-objects`.
 
@@ -511,9 +511,9 @@ The **Verified** column records the date each row last passed.
 | 11 | Cross-environment and backups refusal | section 10, parts 7 and 8 | every line `refused` | console | 2026-10-29 |
 | 12 | Staging values in GitHub | section 11; Runbook 4, section 10.2 | four secrets, seven variables; the `comm` commands print nothing | console | 2026-10-29 |
 | 13 | Alarms | section 12 | 2 alarms OK; topic with 2 confirmed emails | console | |
-| 14 | `/api/ready/` storage | section 13, step 1 | `storage` `ok` | after the first deploy | |
+| 14 | `/api/ready/` storage | section 13, step 1 | `storage` `ok` | after the first deploy | 2026-10-31 |
 | 15 | From inside the worker | section 13, step 2 | own bucket reachable; production's refused | after the first deploy | |
-| 16 | `check_storage` on staging (AC 1) | section 13, step 3 | `All storage checks passed.` | after #80 | |
+| 16 | `check_storage` on staging (AC 1) | section 13, step 3 | `All storage checks passed.` | after #80 | 2026-10-31 (5 buckets × 5 checks, backend `sha-4b5251d`) |
 | 17 | Customer-managed key on objects (AC 2) | section 13, step 5 | `iltiam-staging-objects` | after the first deploy (first seen on a probe object) | 2026-10-29 (probe object) |
 | 18 | Production access and probe | section 9.6, section 10 with `production` | as rows 7 to 11 | later | |
 | 19 | `check_storage` on production (AC 1) | section 13 with `production` | `All storage checks passed.` | later | |
