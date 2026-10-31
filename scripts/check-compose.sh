@@ -5,8 +5,10 @@
 #
 #   1. env/<env>.versions is well formed (scripts/deploy.sh --check-versions).
 #   2. scripts/compose.sh refuses a `config` that would print secrets on the VM.
-#   3. For staging and production, each with and without the FCM file, through scripts/compose.sh:
-#      - exactly the expected services (production: no backend while its profile is off);
+#   3. For staging and production, each as its versions file says and with the backend profile on (from a copy of
+#      the repository, so the backend's rules hold before an environment turns it on), each with and without the FCM
+#      file, through scripts/compose.sh:
+#      - exactly the expected services (no backend while the profile is off);
 #      - no published port, no host network, no privileged container;
 #      - every service on exactly its networks: only cloudflared and backend-web on edge; internal is internal: true;
 #      - mem_limit, capped json-file logs, the restart policy and no-new-privileges everywhere; cap_drop ALL on our
@@ -19,8 +21,8 @@
 #      - the FCM file mounted read-only into the four backend roles when it exists, nowhere when it doesn't, and
 #        never with a host path Docker would create (compared with how this Compose version renders an explicit
 #        create_host_path false and true: section 0 below).
-#   4. Negative cases: a published port, the AI api on edge, a secret in the wrong container, a latest tag, an FCM
-#      mount that would create the host path, and a writable FCM mount are all caught.
+#   4. Negative cases: a published port, the AI api on edge, a secret in the wrong container, a latest tag, a missing
+#      mem_limit, an FCM mount that would create the host path, and a writable FCM mount are all caught.
 #
 # Usage: bash scripts/check-compose.sh
 # Needs bash, jq and the Docker Compose plugin. No image is pulled and no container started.
@@ -199,53 +201,77 @@ for name in CF_TUNNEL_TOKEN POSTGRES_PASSWORD BACKEND_DB_PASSWORD AI_DB_PASSWORD
 done
 printf '}\n' >>"$work/dummies.json"
 
+# The same files with the backend profile on in both versions files.
+with_backend="$work/repo-backend"
+mkdir -p "$with_backend"
+cp -r compose.yml compose.fcm.yml postgres scripts env "$with_backend/"
+sed -i 's/^COMPOSE_PROFILES=.*/COMPOSE_PROFILES=backend/' "$with_backend"/env/*.versions
+
 for env in staging production; do
   mkdir -p "$root/env/$env"
   jq -r 'to_entries[] | "\(.key)='"'"'\(.value)'"'"'"' "$work/dummies.json" | tr -d '\r' >"$root/env/$env/infra.env"
   : >"$root/env/$env/ai.env"
   : >"$root/env/$env/backend.env"
-  expected="$ALL_SERVICES"
-  [[ "$env" == production ]] && expected="$NO_BACKEND"
+  profiles="$(sed -n 's/^COMPOSE_PROFILES=//p' "env/$env.versions" | tr -d '\r' | tail -n 1)"
+  variants=(.)
+  [[ ",$profiles," == *",backend,"* ]] || variants+=("$with_backend")
 
-  for fcm in false true; do
-    if [[ "$fcm" == true ]]; then : >"$root/env/$env/fcm-service-account.json"; fi
-    log "$env, FCM file $([[ "$fcm" == true ]] && echo present || echo absent)"
-    cfg="$work/$env-$fcm.json"
-    ILTIAM_ROOT="$root" bash scripts/compose.sh "$env" config --format json >"$cfg" 2>"$work/err" \
-      || { cat "$work/err" >&2; fail "docker compose config failed for $env"; }
-    problems="$(broken "$cfg" "$expected" "$fcm")"
-    [[ -z "$problems" ]] || { printf '    %s\n' "$problems" >&2; fail "$env: compose.yml breaks the rules above"; }
-    ok "$(jq '.services | length' "$cfg" | tr -d '\r') services, every rule holds"
+  for dir in "${variants[@]}"; do
+    label=core
+    expected="$NO_BACKEND"
+    if [[ "$dir" != . || ",$profiles," == *",backend,"* ]]; then
+      label=backend
+      expected="$ALL_SERVICES"
+    fi
+    what="as env/$env.versions"
+    [[ "$dir" == . ]] || what="backend profile on"
+    for fcm in false true; do
+      if [[ "$fcm" == true ]]; then : >"$root/env/$env/fcm-service-account.json"; fi
+      log "$env, $what, FCM file $([[ "$fcm" == true ]] && echo present || echo absent)"
+      cfg="$work/$env-$label-$fcm.json"
+      ILTIAM_ROOT="$root" bash "$dir/scripts/compose.sh" "$env" config --format json >"$cfg" 2>"$work/err" \
+        || { cat "$work/err" >&2; fail "docker compose config failed for $env"; }
+      problems="$(broken "$cfg" "$expected" "$fcm")"
+      [[ -z "$problems" ]] || { printf '    %s\n' "$problems" >&2; fail "$env: compose.yml breaks the rules above"; }
+      ok "$(jq '.services | length' "$cfg" | tr -d '\r') services, every rule holds"
+    done
+    rm -f "$root/env/$env/fcm-service-account.json"
   done
-  rm -f "$root/env/$env/fcm-service-account.json"
 done
 
 # --- 4. Negative cases -----------------------------------------------------------------------------------------------
 
 log "negative cases"
-jq '.services["ai-api"].ports = [{"target": 8000, "published": "8000"}]' "$work/staging-false.json" >"$work/neg-ports.json"
+# Staging with the backend profile on: every service is there. Without and with the FCM file.
+base="$work/staging-backend-false.json"
+base_fcm="$work/staging-backend-true.json"
+jq '.services["ai-api"].ports = [{"target": 8000, "published": "8000"}]' "$base" >"$work/neg-ports.json"
 broken "$work/neg-ports.json" "$ALL_SERVICES" false | grep -q "ai-api: publishes ports" \
   || fail "a published port was not caught"
 ok "caught: a published port"
-jq '.services["ai-api"].networks.edge = null' "$work/staging-false.json" >"$work/neg-edge.json"
+jq '.services["ai-api"].networks.edge = null' "$base" >"$work/neg-edge.json"
 broken "$work/neg-edge.json" "$ALL_SERVICES" false | grep -q "ai-api: networks edge,internal" \
   || fail "the AI api on edge was not caught"
 ok "caught: the AI api on edge"
-jq '.services["ai-api"].environment.X = "dummy-cf_tunnel_token"' "$work/staging-false.json" >"$work/neg-secret.json"
+jq '.services["ai-api"].environment.X = "dummy-cf_tunnel_token"' "$base" >"$work/neg-secret.json"
 broken "$work/neg-secret.json" "$ALL_SERVICES" false | grep -q "ai-api: holds CF_TUNNEL_TOKEN" \
   || fail "the tunnel token in the AI api was not caught"
 ok "caught: the tunnel token in the AI api"
-jq '.services.redis.image = "redis:latest"' "$work/staging-false.json" >"$work/neg-latest.json"
+jq '.services.redis.image = "redis:latest"' "$base" >"$work/neg-latest.json"
 broken "$work/neg-latest.json" "$ALL_SERVICES" false | grep -q "redis: image 'redis:latest' is not pinned" \
   || fail "an image tagged latest was not caught"
 ok "caught: an image tagged latest"
+jq 'del(.services["ai-beat"].mem_limit)' "$base" >"$work/neg-mem.json"
+broken "$work/neg-mem.json" "$ALL_SERVICES" false | grep -q "ai-beat: no mem_limit" \
+  || fail "a service without mem_limit was not caught"
+ok "caught: a service without mem_limit"
 fcm_mount='.services["backend-web"].volumes |= map(if .target == "/run/secrets/fcm-service-account.json"'
-jq --argjson created "$created" "$fcm_mount then .bind = \$created else . end)" "$work/staging-true.json" \
+jq --argjson created "$created" "$fcm_mount then .bind = \$created else . end)" "$base_fcm" \
   >"$work/neg-fcm-created.json"
 broken "$work/neg-fcm-created.json" "$ALL_SERVICES" true | grep -q "backend-web: the FCM file must be mounted" \
   || fail "an FCM mount that would create the host path was not caught"
 ok "caught: an FCM mount that would create the host path (create_host_path true or the short syntax)"
-jq "$fcm_mount then .read_only = false else . end)" "$work/staging-true.json" >"$work/neg-fcm-rw.json"
+jq "$fcm_mount then .read_only = false else . end)" "$base_fcm" >"$work/neg-fcm-rw.json"
 broken "$work/neg-fcm-rw.json" "$ALL_SERVICES" true | grep -q "backend-web: the FCM file must be mounted" \
   || fail "a writable FCM mount was not caught"
 ok "caught: a writable FCM mount"

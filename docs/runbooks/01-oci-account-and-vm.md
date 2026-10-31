@@ -23,7 +23,7 @@ Console menu names move between Oracle console releases. If a menu below is not 
 | Budget | `iltiam-monthly-budget`, 10 USD monthly, root compartment |
 | Compartment | `iltiam` |
 | Network | VCN `iltiam-vcn`, public subnet `10.0.0.0/24`; ingress TCP 22 only |
-| Instance | `iltiam-1`, `VM.Standard.A1.Flex`, 2 OCPU / 12 GB, Canonical Ubuntu 24.04 aarch64 |
+| Instance | `iltiam-vm` in the OCI console (**Compute → Instances**); hostname `iltiam-1`, the name the other runbooks use. `VM.Standard.A1.Flex`, 2 OCPU / 12 GB, Canonical Ubuntu 24.04 aarch64 |
 | Boot volume | 100 GB, VPU 10 (Balanced), in-transit encryption on |
 | Data volume | 100 GB, VPU 10, attached from the volume page (no device path), ext4 at `/srv/iltiam`, mounted by UUID |
 | Storage total | 100 + 100 = **200 GB**, the whole Always Free block storage allowance |

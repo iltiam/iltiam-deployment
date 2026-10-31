@@ -170,16 +170,29 @@ deploy_json() {
 
 log "render-deploy-env.sh (the deploy workflow's renderer)"
 command -v jq >/dev/null 2>&1 || fail "jq not found"
-declare -A deploy_files=([staging]="ai.env backend.env infra.env" [production]="ai.env infra.env")
 for env in staging production; do
+  profiles="$(sed -n 's/^COMPOSE_PROFILES=//p' "env/$env.versions" | tr -d '\r' | tail -n 1)"
+  expected="ai.env infra.env"
+  if [[ ",$profiles," == *",backend,"* ]]; then expected="ai.env backend.env infra.env"; fi
   secrets_json="$(deploy_json "$env" secret)"
   vars_json="$(deploy_json "$env" var)"
   SECRETS_JSON="$secrets_json" VARS_JSON="$vars_json" \
     bash scripts/render-deploy-env.sh "$env" "$work/deploy-$env" >/dev/null || fail "render-deploy-env.sh $env failed"
   got="$(cd "$work/deploy-$env" && printf '%s ' *)"
-  [[ "${got% }" == "${deploy_files[$env]}" ]] || fail "render-deploy-env.sh $env wrote '$got', expected '${deploy_files[$env]}'"
-  ok "$env: ${deploy_files[$env]} (versions file: profiles '$(sed -n 's/^COMPOSE_PROFILES=//p' "env/$env.versions")')"
+  [[ "${got% }" == "$expected" ]] || fail "render-deploy-env.sh $env wrote '$got', expected '$expected'"
+  ok "$env: $expected (versions file: profiles '$profiles')"
 done
+# The backend profile on, from a copy of the repository: backend.env too.
+mkdir -p "$work/repo-backend"
+cp -r scripts env "$work/repo-backend/"
+sed -i 's/^COMPOSE_PROFILES=.*/COMPOSE_PROFILES=backend/' "$work/repo-backend/env/staging.versions"
+SECRETS_JSON="$(deploy_json staging secret)" VARS_JSON="$(deploy_json staging var)" \
+  bash "$work/repo-backend/scripts/render-deploy-env.sh" staging "$work/deploy-backend" >/dev/null \
+  || fail "render-deploy-env.sh staging with the backend profile on failed"
+got="$(cd "$work/deploy-backend" && printf '%s ' *)"
+[[ "${got% }" == "ai.env backend.env infra.env" ]] \
+  || fail "render-deploy-env.sh with the backend profile on wrote '$got', expected 'ai.env backend.env infra.env'"
+ok "staging, backend profile on: ai.env backend.env infra.env"
 secrets_json="$(deploy_json staging secret | jq -c '. + {FCM_SERVICE_ACCOUNT_JSON: "{\"type\": \"service_account\"}"}' | tr -d '\r')"
 SECRETS_JSON="$secrets_json" VARS_JSON="$(deploy_json staging var)" \
   bash scripts/render-deploy-env.sh staging "$work/deploy-fcm" >/dev/null || fail "render-deploy-env.sh with FCM failed"
@@ -218,11 +231,12 @@ cp "$work/staging"/*.env "$work/no-tunnel/"
 grep -v '^CF_TUNNEL_TOKEN=' "$work/staging/infra.env" >"$work/no-tunnel/infra.env"
 expect_fail "docker compose config with CF_TUNNEL_TOKEN missing from infra.env" \
   compose_config staging "$work/no-tunnel" --quiet
-deploy_without_secret_key() {
-  SECRETS_JSON="$(deploy_json staging secret | jq -c 'del(.SECRET_KEY)' | tr -d '\r')" \
+# AI_SERVICE_TOKEN: required in ai.env, which every deploy writes, whatever the profiles.
+deploy_without_service_token() {
+  SECRETS_JSON="$(deploy_json staging secret | jq -c 'del(.AI_SERVICE_TOKEN)' | tr -d '\r')" \
     VARS_JSON="$(deploy_json staging var)" bash scripts/render-deploy-env.sh staging "$work/neg-deploy"
 }
-expect_fail "render-deploy-env.sh with SECRET_KEY missing from the Environment" deploy_without_secret_key
+expect_fail "render-deploy-env.sh with AI_SERVICE_TOKEN missing from the Environment" deploy_without_service_token
 bad_fcm() {
   SECRETS_JSON="$(deploy_json staging secret | jq -c '. + {FCM_SERVICE_ACCOUNT_JSON: "not json"}' | tr -d '\r')" \
     VARS_JSON="$(deploy_json staging var)" bash scripts/render-deploy-env.sh staging "$work/neg-fcm"
