@@ -86,13 +86,13 @@ Riyadh has a single availability domain. **Our workaround, in order:**
    - Under QEMU emulation on an x86 runner the torch layer builds slowly and burns free minutes.
    - GitHub's docs now list the `ubuntu-24.04-arm` runner for private repositories, using the account's free minutes ([GitHub docs](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)). The August 2025 changelog said it was public-only ([changelog](https://github.blog/changelog/2025-08-07-arm64-hosted-runners-for-public-repositories-are-now-generally-available/)).
    - **Fallback: build on the VM.** Images are published only on merges to `main` and tags (DEP#1).
-3. **Memory:** 12 GB for two environments. DEP#2 sets the budget: about 3.8 GB per environment, about 1 GB for monitoring, about 9 GB in total, plus 4 GB swap, with `mem_limit` on every service. The staging AI worker is the first thing stopped under pressure. The limits as set, with the measured idle figures: [Runbook 5](../runbooks/05-compose-stack.md), section 2.
+3. **Memory:** 12 GB for two environments. DEP#2 sets the budget: about 3.2 GB per environment (of which the AI service's api, worker and beat take 1.9 GB, measured at idle on native arm64 in iltiam/iltiam-ai-service#154), about 1 GB for monitoring and 0.5 GB for the system, about 7.9 GB in total, plus 4 GB swap, with `mem_limit` on every service. The first estimate (3.8 GB per environment, about 9 GB in total) had no line for the AI beat. The staging AI worker is the first thing stopped under pressure. The limits as set, with the measured idle figures: [Runbook 5](../runbooks/05-compose-stack.md), section 2.
 4. **Numbers can differ slightly from x86.** Floating-point order on ARM kernels can move a mask boundary pixel. NFR-MAI-03 (identical results) holds per deployment configuration, which is still true.
    - The golden regression suite and its baseline stay on x86 CI.
    - AI-12 measured the area at 25.66 cm² on `good_marker.jpg` and 25.27 cm² on the 8 MP scene, identical on A1 and x86.
 5. **Capacity and reclamation:** see Decision 1.
 
-**Requirement for DEP#2 (from AI-12):** run the AI worker with **2 torch threads** (2 beat the shipped 4 by about 6 % on the 2-core VM), `OMP_NUM_THREADS=2`, and worker concurrency 1 per environment. The shipped config has `torch_threads: 4` (`segmentation.yaml`, `tissue.yaml`) and no environment override yet; the override is planned in iltiam/iltiam-ai-service#143.
+**Requirement for DEP#2 (from AI-12):** run the AI worker with **2 torch threads** (2 beat the shipped 4 by about 6 % on the 2-core VM), `OMP_NUM_THREADS=2`, and worker concurrency 1 per environment. The shipped config has `torch_threads: 4` (`segmentation.yaml`, `tissue.yaml`); `ILTIAM_TORCH_THREADS` overrides it (iltiam/iltiam-ai-service#158, in the images from `sha-0d1861e` on), and `compose.yml` sets it to 2.
 
 ## Decision 3: one VM for staging and production, split only when needed
 

@@ -9,6 +9,7 @@
   - **no published port**, and the AI service on a network the tunnel can't reach;
   - a memory limit on every container, sized so both environments fit in 12 GB;
   - a deploy started by hand from GitHub (**Actions → deploy**), which never puts a secret in this repository or on a command line.
+- **Scope for now: staging only**, for testing and the demo. Production moves to a later issue; its sections (5 for production, 8, 11.2, and the production lines elsewhere) stay here for then, but are not done now.
 
 > **This repository is public. Never paste a secret into this runbook, an issue, a PR, a commit or a chat.** That includes the env files on the VM, the deploy keys, the VM's IP address, the tunnel ID and the output of `docker compose config` (it prints every secret). Use the placeholders below. **Only ever run `config` with `--quiet`**; `scripts/compose.sh` refuses it otherwise.
 
@@ -38,6 +39,10 @@ Filled in when the steps are done. Names, versions and dates only: never an IP, 
 | AI worker peak during one analysis (section 11.4) | |
 
 ## 1. How it works
+
+**The VM has two names.** In the OCI console it is the instance **`iltiam-vm`** (**Compute → Instances**). Its hostname, the name in its prompt and in `hostnamectl`, is **`iltiam-1`**, and this runbook uses that one.
+
+**Staging starts AI-only.** Until iltiam-backend#99 publishes the backend image, `env/staging.versions` has `COMPOSE_PROFILES=` (empty): staging runs `cloudflared`, Postgres, Redis, `weights-init` and the AI service, and `staging-api.iltiamcare.com` answers 502. Once the backend tag is in, a pull request sets `COMPOSE_PROFILES=backend` again. The steps below mark what changes while staging is AI-only.
 
 ```
 iltiam-1  (Ampere A1, arm64, 2 OCPU / 12 GB + 4 GB swap; only port 22 open)
@@ -85,8 +90,8 @@ The two projects share only the weights folder. Each has its own containers, net
 | `redis` | Redis 7; backend databases 0 and 2, AI service 3 to 5 | yes | yes |
 | `weights-init` | one-shot: downloads the model files the AI image's registry lists, if missing | yes | yes |
 | `ai-api`, `ai-worker`, `ai-beat` | the AI service: 1 gunicorn process, 1 Celery process, the scheduler | yes | yes |
-| `backend-migrate` | one-shot: database migrations | yes | after DEP-13, DEP-14 and SMTP |
-| `backend-web`, `backend-worker`, `backend-beat` | the API, its Celery worker, its scheduler | yes | after DEP-13, DEP-14 and SMTP |
+| `backend-migrate` | one-shot: database migrations | after iltiam-backend#99 | after DEP-13, DEP-14 and SMTP |
+| `backend-web`, `backend-worker`, `backend-beat` | the API, its Celery worker, its scheduler | after iltiam-backend#99 | after DEP-13, DEP-14 and SMTP |
 | `web` | the web app | after WEB-03 | after WEB-03 |
 
 **Why production has no backend yet:** the production settings refuse to start with the console SMS, push and email backends. They need Firebase (Runbook 11, DEP-13), Authentica (Runbook 12, DEP-14) and the SMTP provider (Runbook 2, section 11). Until then `env/production.versions` leaves the `backend` profile off, and `api.iltiamcare.com` answers 502.
@@ -111,36 +116,45 @@ Running a deploy again with the same tags changes nothing: no running container 
 
 ## 2. Memory budget
 
-12 GB of RAM and 4 GB of swap for two environments, monitoring (Runbook 7, #10) and the system. Every container has a `mem_limit`: a container that goes over it is stopped by the kernel ("OOMKilled") and restarted, instead of slowing down the whole VM.
+12 GB of RAM (about 11.2 GiB; `free -h` shows about `11Gi`) and 4 GiB of swap for two environments, monitoring (Runbook 7, #10) and the system. Every container has a `mem_limit`: a container that goes over it is stopped by the kernel ("OOMKilled") and restarted, instead of slowing down the whole VM. `scripts/check-compose.sh` fails CI if a service has none.
 
-| Service | `mem_limit` | Idle (expected) |
-|---|---|---|
-| `cloudflared` | 128 MB | about 30 MB |
-| `postgres` (`shared_buffers=128MB`) | 384 MB | about 100 MB |
-| `redis` (`maxmemory 128mb`) | 192 MB | about 10 MB |
-| `ai-api` (1 gunicorn process) | 1 GB | **616 MiB** measured (iltiam-ai-service#154, native arm64) |
-| `ai-worker` (1 Celery process) | 1.5 GB | **1004 MiB** measured; peak during an analysis: section 11.4 |
-| `ai-beat` | 384 MB | **293 MiB** measured |
-| `backend-web` (2 gunicorn workers) | 512 MB | about 250 MB |
-| `backend-worker` (2 Celery processes) | 640 MB | about 300 MB |
-| `backend-beat` | 192 MB | about 100 MB |
-| `web` (with WEB-03) | 64 MB | about 10 MB |
-| One-shots: `weights-init` 512 MB, `backend-migrate` 384 MB | | exit after a few seconds |
-| **One environment** | **about 4.9 GB** | **about 2.8 GB** |
+All figures in MiB and GiB, the units `docker stats` shows. **Idle** is measured or expected use after start-up; **budget** is the rounded figure issue #2 plans with.
 
-- **Both environments, idle:** about 5.6 GB, plus monitoring (up to 1.2 GB, #10) and the system (about 0.5 GB): **about 7.3 GB**, under the 10 GB the issue allows.
-- **Limits are ceilings, not reservations.** Their total (about 9.9 GB for two environments) is only reached if everything peaks at once; swap absorbs the rest.
+| Service | `mem_limit` | Idle | Budget |
+|---|---|---|---|
+| `cloudflared` | 128 MiB | about 30 MiB | 0.1 GiB, with `web` |
+| `postgres` (`shared_buffers=128MB`) | 384 MiB | about 100 MiB | 0.3 GiB |
+| `redis` (`maxmemory 128mb`) | 192 MiB | about 10 MiB | 0.1 GiB |
+| `ai-api` (1 gunicorn process) | 1024 MiB | **616 MiB** measured | 0.6 GiB |
+| `ai-worker` (1 Celery process) | 1536 MiB | **1004 MiB** measured; peak during an analysis: section 11.4 | 1.0 GiB |
+| `ai-beat` | 384 MiB | **293 MiB** measured | 0.3 GiB |
+| `backend-web` (2 gunicorn workers) | 512 MiB | about 250 MiB | 0.4 GiB |
+| `backend-worker` (2 Celery processes) | 640 MiB | about 300 MiB | 0.4 GiB, with `backend-beat` |
+| `backend-beat` | 192 MiB | about 100 MiB | |
+| `web` (with WEB-03) | 64 MiB | about 10 MiB | |
+| One-shots: `weights-init` 512 MiB, `backend-migrate` 384 MiB | | exit after a few seconds, one at a time | |
+| **AI service** (`ai-api`, `ai-worker`, `ai-beat`) | **2944 MiB** | **1913 MiB (1.9 GiB)** | **1.9 GiB** |
+| **One environment, complete** | **5056 MiB (4.9 GiB)** | **2713 MiB (2.65 GiB)** | **3.2 GiB** |
+| **Staging now** (AI-only, section 1) | **3648 MiB (3.6 GiB)** | **2053 MiB (2.0 GiB)** | **2.4 GiB** |
+
+The measured figures are from iltiam-ai-service#154 (native arm64, after `/ready` and one analysis, 1 process each); section 9.5 measures them on the VM.
+
+- **Budget, both environments complete:** 2 × 3.2 GiB, plus monitoring (about 1 GiB, #10) and the system (about 0.5 GiB): **about 7.9 GiB** of 11.2. Issue #2's first budget said 3.8 per environment and about 9 in total, with 1.2 for the AI api, 1.3 for the worker and no line for the beat; the measurements came in lower.
+- **Peak:** the AI worker's peak during an analysis isn't measured yet (section 11.4). Its `mem_limit` caps it at 1.5 GiB, so both workers analysing at once add at most about 1 GiB: **about 8.9 GiB**.
+- **Idle, both environments complete:** about 5.3 GiB of containers (section 9.5 measures it), under the 10 GiB the issue allows.
+- **Limits are ceilings, not reservations.** Their total for two complete environments (10112 MiB, 9.9 GiB), plus monitoring and the system, is more than the 11.2 GiB of RAM. It is only reached if everything peaks at once; swap absorbs the rest.
 - **Production first.** When memory is short (`free -h` shows little "available", or section 9.5 shows the total near 10 GB), stop the **staging** AI worker, never production's (section 9.6). It holds about 1 GB, and staging analyses simply wait in the queue.
 - **CPU:** there are only 2 cores. When staging and production analyse at the same moment, both get slower. The same rule applies: stop the staging AI worker while production is busy.
 
 ## 3. Before you start
 
 1. **Done already:** [Runbook 1](01-oci-account-and-vm.md) (the VM, `ssh iltiam` works, the data volume at `/srv/iltiam`), [Runbook 2](02-cloudflare-dns-tls.md), [Runbook 3](03-cloudflare-tunnels.md) (the two tunnels and `CF_TUNNEL_TOKEN`) and [Runbook 4](04-secrets.md) (the GitHub Environments and the generated secrets).
-2. **[Runbook 8](08-object-storage.md) (#13, object storage) before the first staging deploy.** The staging backend needs its storage key, endpoint and bucket names (Runbook 8, section 11): the deploy refuses to write `backend.env` without them, and the backend's `/api/ready/` checks every bucket. The backend image must also include iltiam-backend#80's boto3 checksum setting, or every upload fails with `501` (Runbook 8, section 13).
-3. **Every required secret and variable is in GitHub.** Set the variables of [Runbook 4](04-secrets.md), section 9, including `NUM_PROXIES=1`, and the secret `WEIGHTS_READ_TOKEN` (`docs/secrets.md`, section 6.6). Then run the two `comm` commands of Runbook 4, section 10.2, for `staging` and for `production`. **Both must print nothing.** `web.env`'s two variables can wait for WEB-03.
+2. **[Runbook 8](08-object-storage.md) (#13, object storage) before the first staging deploy.** Staging's storage part is done. The staging backend needs its storage key, endpoint and bucket names (Runbook 8, section 11): the deploy refuses to write `backend.env` without them, and the backend's `/api/ready/` checks every bucket. The backend image must also include iltiam-backend#80's boto3 checksum setting, or every upload fails with `501` (Runbook 8, section 13). While staging is AI-only, only `MASK_UPLOAD_ALLOWED_HOSTS` (in `ai.env`) is needed.
+3. **Every required secret and variable is in GitHub.** Set the variables of [Runbook 4](04-secrets.md), section 9, including `NUM_PROXIES=1`, and the secret `WEIGHTS_READ_TOKEN` (`docs/secrets.md`, section 6.6). Then run the two `comm` commands of Runbook 4, section 10.2, for `staging`. **They must print nothing.** `web.env`'s two variables can wait for WEB-03.
+   - **While staging is AI-only**, only `infra.env` and `ai.env` are written, so only their values are needed: the secrets `CF_TUNNEL_TOKEN`, `POSTGRES_PASSWORD`, `BACKEND_DB_PASSWORD`, `AI_DB_PASSWORD`, `WEIGHTS_READ_TOKEN`, `DJANGO_SECRET_KEY`, `AI_SERVICE_TOKEN` and `MASK_UPLOAD_ALLOWED_HOSTS`, and the variables `ALLOW_SYNC=0`, `AI_API_WORKERS=1`, `AI_WORKER_CONCURRENCY=1` and `ILTIAM_TISSUE_ENABLED=0`. The backend's values (including `NUM_PROXIES` and `ACTIVATION_LINK_BASE_URL`) can wait for iltiam-backend#99.
 4. **The images are published, and their tags are in this repository:**
-   - **AI service:** iltiam-ai-service → **Actions → image → Run workflow**, branch `main`, ref `main`. It publishes `sha-0d1861e` (or the newer `sha-<7>` of `main`), the first build that honours `ILTIAM_TORCH_THREADS`. The versions files hold `sha-42270dc` (0.1.0) until then.
-   - **Backend:** `ghcr.io/iltiam/iltiam-backend:sha-<7>`, once the backend publishes it (the backend issue "publish the arm64 image to GHCR").
+   - **AI service:** `sha-0d1861e` (published 2026-10-29 for linux/arm64 and linux/amd64), the first build that honours `ILTIAM_TORCH_THREADS`. Both versions files hold it.
+   - **Backend:** `ghcr.io/iltiam/iltiam-backend:sha-<7>`, once the backend publishes it (iltiam-backend#99). Until then staging is AI-only (section 1).
    - Check each tag has an arm64 build, in Git Bash: `docker manifest inspect ghcr.io/iltiam/iltiam-ai-api:sha-<7> | grep -c arm64` prints `1` or more. (Private packages need `docker login ghcr.io` with your own account first; `docker logout ghcr.io` afterwards.)
    - Put the tags into `env/staging.versions` and `env/production.versions` by a pull request, and merge it. **`scripts/deploy.sh` refuses `to-confirm`** for any service it would start.
 5. **GHCR access:** each package (`iltiam-ai-api`, `iltiam-ai-worker`, `iltiam-backend`) grants `iltiam-deployment` the **Read** role ([Runbook 4](04-secrets.md), section 8).
@@ -270,7 +284,7 @@ Each environment has its **own** SSH key, so staging and production never share 
 
    **What you should see:** `Docker Compose version v2.x.y`. The first time, SSH asks whether to trust the host: compare with section 5.2 step 1 before you type `yes`.
 
-4. Repeat steps 1 to 3 with `production` instead of `staging` everywhere (`iltiam-deploy-production`, `--env production`).
+4. Repeat steps 1 to 3 with `production` instead of `staging` everywhere (`iltiam-deploy-production`, `--env production`). **Not now:** production comes with its own issue (scope, at the top).
 
 ### 5.2 The VM's host key (`DEPLOY_SSH_KNOWN_HOSTS`)
 
@@ -290,7 +304,7 @@ The workflow refuses to connect to a host whose key it doesn't know, so nobody c
    ```
 
    **What you should see:** the **same** `SHA256:…` fingerprint as in step 1. If it differs, **stop**: you are not talking to the VM.
-3. Store it in both Environments, then delete the file:
+3. Store it in both Environments, then delete the file. For now, staging only: leave out the `production` line.
 
    ```bash
    gh secret set DEPLOY_SSH_KNOWN_HOSTS --env staging -R iltiam/iltiam-deployment < ~/iltiam-known-hosts
@@ -307,7 +321,7 @@ gh secret set DEPLOY_HOST --env staging -R iltiam/iltiam-deployment
 gh secret set DEPLOY_HOST --env production -R iltiam/iltiam-deployment
 ```
 
-Each asks for the value: type `<PUBLIC_IP>`, Enter.
+Each asks for the value: type `<PUBLIC_IP>`, Enter. For now, staging only: leave out the `production` line.
 
 ### 5.4 Check
 
@@ -315,7 +329,7 @@ Each asks for the value: type `<PUBLIC_IP>`, Enter.
 for e in staging production; do echo "== $e"; gh secret list --env $e -R iltiam/iltiam-deployment --json name -q '.[].name' | grep '^DEPLOY_'; done
 ```
 
-**What you should see:** `DEPLOY_HOST`, `DEPLOY_SSH_KEY` and `DEPLOY_SSH_KNOWN_HOSTS` under each environment. Then run Runbook 4, section 10.2 once more for both environments: it must print nothing.
+**What you should see:** `DEPLOY_HOST`, `DEPLOY_SSH_KEY` and `DEPLOY_SSH_KNOWN_HOSTS` under each environment (for now under `staging` only; `production` lists nothing). Then run Runbook 4, section 10.2 once more for the environments you set up: it must print nothing.
 
 ## 6. Deploy staging
 
@@ -341,6 +355,8 @@ for e in staging production; do echo "== $e"; gh secret list --env $e -R iltiam/
 - `==> running in this project`: a table with every service `Up … (healthy)` (`ai-beat` shows only `Up`, because it has no health check); then the digest of each image;
 - `==> deployed staging`, and a green check on the run.
 
+**While staging is AI-only** (section 1): `==> env files` lists only `ai.env (600)` and `infra.env (600)`, there is no `==> backend-migrate`, the starts are `ai-api`, then `ai-worker ai-beat cloudflared`, and the table has six services.
+
 **If it fails:** the last `ERROR:` line says what to do; section 13 lists them. Nothing is half-deployed by a failed guard or one-shot: the services that were running keep running.
 
 ## 7. Check staging
@@ -353,7 +369,7 @@ On the VM: `ssh iltiam`, then `sudo -iu deploy` (section 4.4 for the `iltiam` sh
 iltiam staging ps --format 'table {{.Service}}\t{{.Status}}'
 ```
 
-**What you should see:** nine services. `ai-beat` says `Up …`; the other eight say `Up … (healthy)`. The one-shots don't appear: they ran and were removed.
+**What you should see:** nine services. `ai-beat` says `Up …`; the other eight say `Up … (healthy)`. The one-shots don't appear: they ran and were removed. **While staging is AI-only:** six services (`cloudflared`, `postgres`, `redis`, `ai-api`, `ai-worker` healthy, `ai-beat` Up).
 
 ### 7.2 Files and ports
 
@@ -379,6 +395,8 @@ curl.exe -s https://staging-api.iltiamcare.com/api/ready/
 
 **What you should see:** `{"status": "ok"}`, then `"status": "ready"` with `db`, `redis`, `storage` and `ai` all `ok`. A `503` names what is failing: `storage` means Runbook 8's keys, endpoint or buckets ([Runbook 8](08-object-storage.md), sections 13 and 16), `ai` means the AI service isn't ready yet (section 7.4).
 
+**While staging is AI-only:** both answer **502** (the tunnel runs, there is no backend behind it). That is expected; do this check once the backend is on.
+
 ### 7.4 The AI service, from inside the project
 
 The AI service has no hostname and no route, so check it from the backend's container, the way the backend calls it:
@@ -386,6 +404,14 @@ The AI service has no hostname and no route, so check it from the backend's cont
 ```bash
 iltiam staging exec backend-web python -c "import urllib.request as u; print(u.urlopen('http://ai-api:8000/ready', timeout=5).read().decode())"
 iltiam staging exec backend-web python -c "import json, urllib.request as u; c = json.load(u.urlopen('http://ai-api:8000/capabilities', timeout=5)); print(json.dumps(c, indent=1)[:1500])"
+ls -l /srv/iltiam/weights
+```
+
+**While staging is AI-only** there is no `backend-web`: ask `ai-api` itself, at `127.0.0.1`:
+
+```bash
+iltiam staging exec ai-api python -c "import urllib.request as u; print(u.urlopen('http://127.0.0.1:8000/ready', timeout=5).read().decode())"
+iltiam staging exec ai-api python -c "import json, urllib.request as u; c = json.load(u.urlopen('http://127.0.0.1:8000/capabilities', timeout=5)); print(json.dumps(c, indent=1)[:1500])"
 ls -l /srv/iltiam/weights
 ```
 
@@ -403,10 +429,11 @@ iltiam staging logs ai-worker ai-api | grep "torch intra-op threads"
 ```
 
 **What you should see:** `torch intra-op threads: 2 (requested 2; …)`, once per process that has loaded its models (the worker after its first analysis, section 11.4).
-- With `sha-42270dc` (0.1.0) there is no such line: that image predates `ILTIAM_TORCH_THREADS` and uses 4 threads.
-- After `sha-0d1861e` or newer is deployed, run this check again.
+- With an image older than `sha-0d1861e` (for example `sha-42270dc`, 0.1.0, after a rollback) there is no such line: those predate `ILTIAM_TORCH_THREADS` and use 4 threads.
 
 ## 8. Deploy production
+
+**Not now.** For now only staging runs (scope, at the top); production moves to a later issue, which follows this section.
 
 Production runs `postgres`, `redis`, `weights-init`, the AI service and `cloudflared`: `env/production.versions` has `COMPOSE_PROFILES=` (empty) until DEP-13, DEP-14 and SMTP are done (section 1).
 
@@ -509,11 +536,11 @@ With staging (and then production) running, do [Runbook 3](03-cloudflare-tunnels
 | Order | Runbook 3 row | Section | Now? |
 |---|---|---|---|
 | 1 | 20 (VM listens only on 22) and 21 (port check from outside) | 10.4 | yes |
-| 2 | 22, API part: `{"status": "ok"}` on `staging-api.` (on `api.` once production has its backend) | 11.1 | yes |
-| 3 | 23: API never cached | 11.2 | yes |
-| 4 | 25, API part: no rewriting | 11.3 | yes |
+| 2 | 22, API part: `{"status": "ok"}` on `staging-api.` (on `api.` once production has its backend) | 11.1 | **after iltiam-backend#99** |
+| 3 | 23: API never cached | 11.2 | **after iltiam-backend#99** |
+| 4 | 25, API part: no rewriting | 11.3 | **after iltiam-backend#99** |
 | 5 | 26: AI unreachable from the tunnel's network | 11.4 (and below) | yes |
-| 6 | 27: `NUM_PROXIES` resists a fake header. Check first with `gh variable list --env staging -R iltiam/iltiam-deployment` that `NUM_PROXIES` is `1` | 11.5 | yes |
+| 6 | 27: `NUM_PROXIES` resists a fake header. Check first with `gh variable list --env staging -R iltiam/iltiam-deployment` that `NUM_PROXIES` is `1` | 11.5 | **after iltiam-backend#99** |
 | 7 | 22 (app part), 24 (assets cached), 25 (app part) | 11.1 to 11.3 | **after WEB-03** |
 | 8 | 28: HSTS | 11.6 | **after WEB-03**: HSTS waits until the app hosts serve the real web app |
 
@@ -533,6 +560,8 @@ docker run --rm --network iltiam-staging_edge curlimages/curl:8.22.0 -sS -m 5 -o
 - `200`: the network itself works, so the two failures above are real isolation.
 
 For production, use `iltiam-prod_edge`. Until production has its backend, the third command answers `Could not resolve host: backend-web`.
+
+**While only staging runs, AI-only:** three networks (the `iltiam-staging_` ones), and the third command answers `Could not resolve host: backend-web` too. The two `Could not resolve host` lines for `ai-api` and `postgres` still prove the isolation; run the third again once the backend is on.
 
 ## 11. The issue's acceptance checks
 
@@ -555,6 +584,8 @@ rm /tmp/before.txt /tmp/after.txt
 **What you should see:** `no container was recreated`. In the run's log, `up` says `Running` for every service.
 
 ### 11.2 Breaking staging doesn't touch production
+
+**Not now:** it needs production running, so it moves to the production issue with section 8.
 
 ```bash
 prod() { docker inspect -f '{{.Name}} {{.State.StartedAt}} {{if .State.Health}}{{.State.Health.Status}}{{end}}' $(docker ps -q --filter label=com.docker.compose.project=iltiam-prod) | sort; }
@@ -588,11 +619,11 @@ findmnt /srv/iltiam
 sudo -iu deploy bash -c 'iltiam() { bash /srv/iltiam/repo/scripts/compose.sh "$@"; }; iltiam staging ps --format "table {{.Service}}\t{{.Status}}"; iltiam production ps --format "table {{.Service}}\t{{.Status}}"'
 ```
 
-**What you should see:** `/srv/iltiam` mounted, and both projects back as in sections 7.1 and 8 within about three minutes. The AI services are the slowest; they load their models first. Containers started in any order after a reboot, so some may restart once while Postgres or Redis come up; that is normal.
+**What you should see:** `/srv/iltiam` mounted, and both projects back as in sections 7.1 and 8 within about three minutes (for now only staging; `iltiam production ps` says `infra.env not found`, which is fine). The AI services are the slowest; they load their models first. Containers started in any order after a reboot, so some may restart once while Postgres or Redis come up; that is normal.
 
 ### 11.4 Memory, idle and during an analysis
 
-1. **Idle, both projects running:** section 9.5. `all containers:` must be under 10240 MiB. Write it in the As built table.
+1. **Idle, both projects running:** section 9.5. `all containers:` must be under 10240 MiB. Write it in the As built table. For now, staging alone: compare with section 2's "Staging now" row (about 2053 MiB).
 2. **Peak of the AI worker during one analysis.** One analysis goes through the AI service's job API from inside the staging `ai-api` container, which already holds the service token: it never appears on a command line or on screen. (The AI repository's `scripts/smoke_demo.py` needs `httpx`, which the image doesn't have, and `ai-api` has no internet to install it; so the few lines below do the same with `requests`.)
    - On your laptop, from the `iltiam-ai-service` folder (Git Bash), copy the repository's test photo with the 50 mm marker. For a real 8 MP case, use one of your own 8 MP photos of the printed marker sheet (AI-09): **never a photo of a patient.**
 
@@ -681,7 +712,7 @@ sudo -iu deploy bash -c 'iltiam() { bash /srv/iltiam/repo/scripts/compose.sh "$@
 | A container shows `Restarting`, and `docker inspect -f '{{.State.OOMKilled}}' <name>` says `true` | It went over its `mem_limit`. Section 9.5; if it is the AI worker during analyses, section 11.4 step 2 |
 | `backend-web` stays `(unhealthy)` | Its health check sends the **first** name in `ALLOWED_HOSTS` as the host. That must be `staging-api.iltiamcare.com` / `api.iltiamcare.com` ([Runbook 4](04-secrets.md), section 9). Then `iltiam <ENV> logs backend-web` |
 | `cloudflared` stays `(unhealthy)` | No connection to Cloudflare: wrong or refreshed `CF_TUNNEL_TOKEN` ([Runbook 3](03-cloudflare-tunnels.md), section 12), or outbound traffic is blocked (Runbook 3, section 14) |
-| `staging-api` or `api` answers **502** | `cloudflared` runs, but `backend-web` doesn't. Expected on production until its backend is turned on (section 8). Otherwise `iltiam <ENV> ps` and its logs |
+| `staging-api` or `api` answers **502** | `cloudflared` runs, but `backend-web` doesn't. Expected on staging while it is AI-only (section 1), and on production until its backend is turned on (section 8). Otherwise `iltiam <ENV> ps` and its logs |
 | `400 Bad Request` or `ERR_TOO_MANY_REDIRECTS` from the API | [Runbook 3](03-cloudflare-tunnels.md), section 14 |
 | `'config …' would print secrets into this terminal` | `scripts/compose.sh` protects you: use `iltiam <ENV> config --quiet` |
 | `infra.env not found or not readable` | You are not `deploy`: run `sudo -iu deploy` first. Or the environment was never deployed |
@@ -694,6 +725,8 @@ The **When** column says when a row can pass:
 - **this PR:** in CI, before the merge;
 - **on the VM:** after sections 4 to 11;
 - **after WEB-03:** once the web image and its service exist;
+- **after #99:** once iltiam-backend#99's image runs on staging (section 1);
+- **production issue:** with production, later (scope, at the top);
 - **after DEP-13/14/SMTP:** once production's backend is on (section 8).
 
 The **Verified** column records the date each row last passed.
@@ -708,19 +741,19 @@ The **Verified** column records the date each row last passed.
 | 6 | Host key | section 5.2 | the two fingerprints are the same | on the VM | |
 | 7 | Environments complete | section 5.4; Runbook 4, section 10.2 | the three `DEPLOY_*` names in both; the `comm` commands print nothing | on the VM | |
 | 8 | Staging deploy | section 6 | green run, `==> deployed staging` | on the VM | |
-| 9 | Staging containers | section 7.1 | 9 services, 8 `(healthy)`, `ai-beat` `Up` | on the VM | |
+| 9 | Staging containers | section 7.1 | 9 services, 8 `(healthy)`, `ai-beat` `Up` (AI-only: 6, 5 `(healthy)`) | on the VM | |
 | 10 | Env files and ports | section 7.2 | `700`/`600`; no `0.0.0.0:` | on the VM | |
-| 11 | Backend through the tunnel | section 7.3 | `{"status": "ok"}`; `/api/ready/` all `ok` | on the VM | |
+| 11 | Backend through the tunnel | section 7.3 | `{"status": "ok"}`; `/api/ready/` all `ok` | after #99 | |
 | 12 | AI service | section 7.4 | `/ready` ready; checksum `382ce77d…`; weights present (also ai-service#143) | on the VM | |
 | 13 | Two torch threads | section 7.5 | `torch intra-op threads: 2` | on the VM, with `sha-0d1861e` or newer | |
-| 14 | Production deploy | section 8 | approval asked; green run; 7 services; `iltiam-prod` Healthy | on the VM | |
+| 14 | Production deploy | section 8 | approval asked; green run; 7 services; `iltiam-prod` Healthy | production issue | |
 | 15 | Same tags, no change (AC 3) | section 11.1 | `no container was recreated` | on the VM | |
-| 16 | Staging broken, production untouched (AC 2) | section 11.2 | `production untouched`; `200` | on the VM | |
-| 17 | Reboot | section 11.3 | volume mounted; both projects back | on the VM | |
-| 18 | Idle memory (AC 1, part) | section 9.5 | `all containers:` under 10240 MiB, both projects running | on the VM | |
-| 19 | AI worker peak | section 11.4 | under 1.5 GB with room to spare | on the VM | |
-| 20 | Production first | section 9.6 | staging `ai-worker` stops and starts; production unchanged | on the VM | |
-| 21 | Runbook 3, rows 20, 21, 22 (API), 23, 25 (API), 26, 27 | section 10 | as in Runbook 3, section 13 | on the VM | |
+| 16 | Staging broken, production untouched (AC 2) | section 11.2 | `production untouched`; `200` | production issue | |
+| 17 | Reboot | section 11.3 | volume mounted; both projects back (for now staging) | on the VM | |
+| 18 | Idle memory (AC 1, part) | section 9.5 | `all containers:` under 10240 MiB, both projects running (for now staging: about 2053 MiB, section 2) | on the VM | |
+| 19 | AI worker peak | section 11.4 | under 1.5 GiB with room to spare | on the VM | |
+| 20 | Production first | section 9.6 | staging `ai-worker` stops and starts; production unchanged | production issue | |
+| 21 | Runbook 3, rows 20, 21, 22 (API), 23, 25 (API), 26, 27 | section 10 | as in Runbook 3, section 13 | on the VM: 20, 21, 26; after #99: the rest | |
 | 22 | Runbook 3, rows 22 (app), 24, 25 (app) | section 10 | as in Runbook 3, section 13 | after WEB-03 | |
 | 23 | HSTS, Runbook 3 row 28 | section 10; Runbook 3, section 11.6 | `max-age=15552000; includeSubDomains` | after WEB-03 | |
 | 24 | Production backend | section 8, "later"; section 7 with `production` | `api.iltiamcare.com/api/health/` `{"status": "ok"}` | after DEP-13/14/SMTP | |
@@ -742,7 +775,8 @@ The **Verified** column records the date each row last passed.
 
 ## 16. What comes next
 
-- **The backend image** (iltiam-backend issue: publish the arm64 image to GHCR), with iltiam-backend#80's checksum setting, then its tag in `env/staging.versions`, then section 6. Then [Runbook 8](08-object-storage.md), section 13.
+- **The backend image** (iltiam-backend#99), with iltiam-backend#80's checksum setting, then its tag and `COMPOSE_PROFILES=backend` in `env/staging.versions` by one pull request, then section 6 and the "after #99" rows of section 14. Then [Runbook 8](08-object-storage.md), section 13.
+- **Production**, in its own issue: sections 5 (production), 8, 11.2 and the "production issue" rows of section 14.
 - **WEB-03** (iltiam/iltiam-web#25): a small pull request adds the `web` service (on `edge`, 64 MB, port 8080, `web.env`), its tag in the versions files, and its rules in `scripts/check-compose.sh`; `scripts/render-deploy-env.sh` then writes `web.env`. Then section 10 rows 7 and 8 (with HSTS).
 - **DEP-13, DEP-14 and SMTP:** production's backend (section 8, "later").
 - **Runbook 6** (#8): backups and the weekly restore test (section 12).
