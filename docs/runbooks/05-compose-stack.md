@@ -29,20 +29,20 @@ Filled in when the steps are done. Names, versions and dates only: never an IP, 
 | Docker waits for `/srv/iltiam` (section 4.1) | |
 | Directories and modes (section 4.2) | |
 | Repository clone `/srv/iltiam/repo` (section 4.3) | |
-| Docker and Compose versions on the VM (section 4.4) | |
+| Docker and Compose versions on the VM (section 4.4) | Docker 29.9.2, Docker Compose v5.6.1 (2026-10-31) |
 | Deploy keys, one per environment (section 5.1) | |
 | `DEPLOY_SSH_KNOWN_HOSTS`, `DEPLOY_HOST` (sections 5.2, 5.3) | |
-| GHCR access for `iltiam-deployment` (Runbook 4, section 8) | |
-| Images deployed on staging (`env/staging.versions`) | |
+| GHCR access for `iltiam-deployment` (Runbook 4, section 8) | `iltiam-ai-api`, `iltiam-ai-worker`: Read, proven by the 2026-10-31 pull. `iltiam-backend`: Read (Manage Actions access), granted 2026-10-31; proven at the first backend deploy |
+| Images deployed on staging (`env/staging.versions`) | 2026-10-31: `iltiam-ai-api` and `iltiam-ai-worker` `sha-0d1861e`, AI-only (`COMPOSE_PROFILES=` empty). Next: `iltiam-backend` `sha-4b5251d` with `COMPOSE_PROFILES=backend` |
 | Images deployed on production (`env/production.versions`) | |
-| Idle memory, both projects (section 9.5) | |
+| Idle memory, both projects (section 9.5) | Staging AI-only, 2026-10-31, before any analysis: **1615 MiB** (`ai-api` 608, `ai-worker` 663, `ai-beat` 297, `postgres` 26, `redis` 5, `cloudflared` 16); `free -h`: 2.2 GiB used, 9.4 GiB available |
 | AI worker peak during one analysis (section 11.4) | |
 
 ## 1. How it works
 
 **The VM has two names.** In the OCI console it is the instance **`iltiam-vm`** (**Compute → Instances**). Its hostname, the name in its prompt and in `hostnamectl`, is **`iltiam-1`**, and this runbook uses that one.
 
-**Staging starts AI-only.** Until iltiam-backend#99 publishes the backend image, `env/staging.versions` has `COMPOSE_PROFILES=` (empty): staging runs `cloudflared`, Postgres, Redis, `weights-init` and the AI service, and `staging-api.iltiamcare.com` answers 502. Once the backend tag is in, a pull request sets `COMPOSE_PROFILES=backend` again. The steps below mark what changes while staging is AI-only.
+**Staging started AI-only.** The first staging deploy (2026-10-31) ran with `COMPOSE_PROFILES=` (empty): `cloudflared`, Postgres, Redis, `weights-init` and the AI service, while `staging-api.iltiamcare.com` answered 502. iltiam-backend#99 then published the backend image (`sha-4b5251d`, iltiam-backend PR #101, which also carries #80's storage fix), and `env/staging.versions` now has that tag and `COMPOSE_PROFILES=backend`. The steps below still mark what differs while staging is AI-only, for a rollback to it (section 9.4).
 
 ```
 iltiam-1  (Ampere A1, arm64, 2 OCPU / 12 GB + 4 GB swap; only port 22 open)
@@ -90,8 +90,8 @@ The two projects share only the weights folder. Each has its own containers, net
 | `redis` | Redis 7; backend databases 0 and 2, AI service 3 to 5 | yes | yes |
 | `weights-init` | one-shot: downloads the model files the AI image's registry lists, if missing | yes | yes |
 | `ai-api`, `ai-worker`, `ai-beat` | the AI service: 1 gunicorn process, 1 Celery process, the scheduler | yes | yes |
-| `backend-migrate` | one-shot: database migrations | after iltiam-backend#99 | after DEP-13, DEP-14 and SMTP |
-| `backend-web`, `backend-worker`, `backend-beat` | the API, its Celery worker, its scheduler | after iltiam-backend#99 | after DEP-13, DEP-14 and SMTP |
+| `backend-migrate` | one-shot: database migrations | yes (`sha-4b5251d`) | after DEP-13, DEP-14 and SMTP |
+| `backend-web`, `backend-worker`, `backend-beat` | the API, its Celery worker, its scheduler | yes (`sha-4b5251d`) | after DEP-13, DEP-14 and SMTP |
 | `web` | the web app | after WEB-03 | after WEB-03 |
 
 **Why production has no backend yet:** the production settings refuse to start with the console SMS, push and email backends. They need Firebase (Runbook 11, DEP-13), Authentica (Runbook 12, DEP-14) and the SMTP provider (Runbook 2, section 11). Until then `env/production.versions` leaves the `backend` profile off, and `api.iltiamcare.com` answers 502.
@@ -135,9 +135,9 @@ All figures in MiB and GiB, the units `docker stats` shows. **Idle** is measured
 | One-shots: `weights-init` 512 MiB, `backend-migrate` 384 MiB | | exit after a few seconds, one at a time | |
 | **AI service** (`ai-api`, `ai-worker`, `ai-beat`) | **2944 MiB** | **1913 MiB (1.9 GiB)** | **1.9 GiB** |
 | **One environment, complete** | **5056 MiB (4.9 GiB)** | **2713 MiB (2.65 GiB)** | **3.2 GiB** |
-| **Staging now** (AI-only, section 1) | **3648 MiB (3.6 GiB)** | **2053 MiB (2.0 GiB)** | **2.4 GiB** |
+| **Staging AI-only** (section 1, until the backend deploy) | **3648 MiB (3.6 GiB)** | **2053 MiB (2.0 GiB)**; **1615 MiB** measured on the VM | **2.4 GiB** |
 
-The measured figures are from iltiam-ai-service#154 (native arm64, after `/ready` and one analysis, 1 process each); section 9.5 measures them on the VM.
+The measured figures are from iltiam-ai-service#154 (native arm64, after `/ready` and one analysis, 1 process each); section 9.5 measures them on the VM. **On the VM, 2026-10-31** (staging AI-only, before any analysis): `ai-api` 608 MiB, `ai-worker` 663 MiB, `ai-beat` 297 MiB, `postgres` 26 MiB, `redis` 5 MiB, `cloudflared` 16 MiB, **1615 MiB** in all. The worker loads its models at its first analysis, so it is still below #154's 1004 MiB. `ai-beat` already uses 77 % of its 384 MiB limit: watch it in section 9.5, and raise its `mem_limit` by a pull request if it nears 350 MiB.
 
 - **Budget, both environments complete:** 2 × 3.2 GiB, plus monitoring (about 1 GiB, #10) and the system (about 0.5 GiB): **about 7.9 GiB** of 11.2. Issue #2's first budget said 3.8 per environment and about 9 in total, with 1.2 for the AI api, 1.3 for the worker and no line for the beat; the measurements came in lower.
 - **Peak:** the AI worker's peak during an analysis isn't measured yet (section 11.4). Its `mem_limit` caps it at 1.5 GiB, so both workers analysing at once add at most about 1 GiB: **about 8.9 GiB**.
@@ -149,13 +149,23 @@ The measured figures are from iltiam-ai-service#154 (native arm64, after `/ready
 ## 3. Before you start
 
 1. **Done already:** [Runbook 1](01-oci-account-and-vm.md) (the VM, `ssh iltiam` works, the data volume at `/srv/iltiam`), [Runbook 2](02-cloudflare-dns-tls.md), [Runbook 3](03-cloudflare-tunnels.md) (the two tunnels and `CF_TUNNEL_TOKEN`) and [Runbook 4](04-secrets.md) (the GitHub Environments and the generated secrets).
-2. **[Runbook 8](08-object-storage.md) (#13, object storage) before the first staging deploy.** Staging's storage part is done. The staging backend needs its storage key, endpoint and bucket names (Runbook 8, section 11): the deploy refuses to write `backend.env` without them, and the backend's `/api/ready/` checks every bucket. The backend image must also include iltiam-backend#80's boto3 checksum setting, or every upload fails with `501` (Runbook 8, section 13). While staging is AI-only, only `MASK_UPLOAD_ALLOWED_HOSTS` (in `ai.env`) is needed.
+2. **[Runbook 8](08-object-storage.md) (#13, object storage) before the first staging deploy.** Staging's storage part is done. The staging backend needs its storage key, endpoint and bucket names (Runbook 8, section 11): the deploy refuses to write `backend.env` without them, and the backend's `/api/ready/` checks every bucket. The backend image must also include iltiam-backend#80's boto3 checksum setting, or every upload fails with `501` (Runbook 8, section 13); `sha-4b5251d` and later do. While staging is AI-only, only `MASK_UPLOAD_ALLOWED_HOSTS` (in `ai.env`) is needed.
 3. **Every required secret and variable is in GitHub.** Set the variables of [Runbook 4](04-secrets.md), section 9, including `NUM_PROXIES=1`, and the secret `WEIGHTS_READ_TOKEN` (`docs/secrets.md`, section 6.6). Then run the two `comm` commands of Runbook 4, section 10.2, for `staging`. **They must print nothing.** `web.env`'s two variables can wait for WEB-03.
-   - **While staging is AI-only**, only `infra.env` and `ai.env` are written, so only their values are needed: the secrets `CF_TUNNEL_TOKEN`, `POSTGRES_PASSWORD`, `BACKEND_DB_PASSWORD`, `AI_DB_PASSWORD`, `WEIGHTS_READ_TOKEN`, `DJANGO_SECRET_KEY`, `AI_SERVICE_TOKEN` and `MASK_UPLOAD_ALLOWED_HOSTS`, and the variables `ALLOW_SYNC=0`, `AI_API_WORKERS=1`, `AI_WORKER_CONCURRENCY=1` and `ILTIAM_TISSUE_ENABLED=0`. The backend's values (including `NUM_PROXIES` and `ACTIVATION_LINK_BASE_URL`) can wait for iltiam-backend#99.
+   - **While staging is AI-only**, only `infra.env` and `ai.env` are written, so only their values are needed: the secrets `CF_TUNNEL_TOKEN`, `POSTGRES_PASSWORD`, `BACKEND_DB_PASSWORD`, `AI_DB_PASSWORD`, `WEIGHTS_READ_TOKEN`, `DJANGO_SECRET_KEY`, `AI_SERVICE_TOKEN` and `MASK_UPLOAD_ALLOWED_HOSTS`, and the variables `ALLOW_SYNC=0`, `AI_API_WORKERS=1`, `AI_WORKER_CONCURRENCY=1` and `ILTIAM_TISSUE_ENABLED=0`. The backend's values (including `NUM_PROXIES` and `ACTIVATION_LINK_BASE_URL`) are needed once `COMPOSE_PROFILES=backend`; staging has them since 2026-10-31.
 4. **The images are published, and their tags are in this repository:**
    - **AI service:** `sha-0d1861e` (published 2026-10-29 for linux/arm64 and linux/amd64), the first build that honours `ILTIAM_TORCH_THREADS`. Both versions files hold it.
-   - **Backend:** `ghcr.io/iltiam/iltiam-backend:sha-<7>`, once the backend publishes it (iltiam-backend#99). Until then staging is AI-only (section 1).
-   - Check each tag has an arm64 build, in Git Bash: `docker manifest inspect ghcr.io/iltiam/iltiam-ai-api:sha-<7> | grep -c arm64` prints `1` or more. (Private packages need `docker login ghcr.io` with your own account first; `docker logout ghcr.io` afterwards.)
+   - **Backend:** `sha-4b5251d` (published 2026-10-31 for linux/arm64 and linux/amd64 by iltiam-backend PR #101: #99's image and #80's storage fix). Only `env/staging.versions` holds it; production keeps `to-confirm` until its backend is turned on (#36).
+   - Check each tag has an arm64 build, in Git Bash: `docker manifest inspect ghcr.io/iltiam/iltiam-ai-api:sha-<7> | grep -c arm64` prints `1` or more. (Private packages need `docker login ghcr.io` with your own account first; `docker logout ghcr.io` afterwards.) Without Docker, ask GHCR's API with your `gh` login; it prints the platforms, including `linux/arm64`:
+
+     ```bash
+     IMAGE=iltiam/iltiam-backend TAG=sha-4b5251d
+     TOKEN=$(curl -s -u "x:$(gh auth token)" "https://ghcr.io/token?scope=repository:$IMAGE:pull" | jq -r .token)
+     curl -s -H "Authorization: Bearer $TOKEN" -H "Accept: application/vnd.oci.image.index.v1+json" \
+       "https://ghcr.io/v2/$IMAGE/manifests/$TAG" | jq -r '.manifests[].platform | "\(.os)/\(.architecture)"'
+     unset TOKEN
+     ```
+
+     `unknown/unknown` lines are the image's SBOM and provenance attestations.
    - Put the tags into `env/staging.versions` and `env/production.versions` by a pull request, and merge it. **`scripts/deploy.sh` refuses `to-confirm`** for any service it would start.
 5. **GHCR access:** each package (`iltiam-ai-api`, `iltiam-ai-worker`, `iltiam-backend`) grants `iltiam-deployment` the **Read** role ([Runbook 4](04-secrets.md), section 8).
 6. **This runbook's pull request is merged into `main`.** The Environments deploy only from `main`, and GitHub shows **Run workflow** only for workflows on the default branch.
@@ -420,7 +430,7 @@ ls -l /srv/iltiam/weights
 - `/capabilities`: the segmentation model `segformer_b2_wound` with a SHA-256 starting `382ce77d`, the one in the AI image's `models/registry.yaml`.
 - `/srv/iltiam/weights`: `segformer_b2_wound_v2.pth` (about 110 MB) and the tissue model file.
 
-These three checks also close iltiam-ai-service#143 (the image on the VM). Record them there.
+iltiam-ai-service#143 (the image on the VM) was closed on 2026-10-31 on the healthy containers and the downloaded weights. Add these three results there as a comment.
 
 ### 7.5 Two torch threads
 
@@ -491,6 +501,12 @@ Never retag images by hand. Put the earlier tags back into the versions file ins
 1. In your clone on the laptop: `git log -p env/staging.versions` shows every tag that was deployed.
 2. Open a pull request that puts the previous tags back. Merge it.
 3. Deploy that environment (section 6 or 8).
+
+**Back to AI-only** (`COMPOSE_PROFILES=` empty again): the deploy then leaves the backend containers running, because `--remove-orphans` doesn't count a service of an inactive profile as an orphan. After that deploy, stop them by hand:
+
+```bash
+iltiam staging stop backend-web backend-worker backend-beat
+```
 
 **Database migrations don't roll back by themselves.** If the newer backend ran a migration, an older backend may not work with the newer database. Check the backend's release notes first; restoring the database is Runbook 6 (#8).
 
@@ -623,7 +639,7 @@ sudo -iu deploy bash -c 'iltiam() { bash /srv/iltiam/repo/scripts/compose.sh "$@
 
 ### 11.4 Memory, idle and during an analysis
 
-1. **Idle, both projects running:** section 9.5. `all containers:` must be under 10240 MiB. Write it in the As built table. For now, staging alone: compare with section 2's "Staging now" row (about 2053 MiB).
+1. **Idle, both projects running:** section 9.5. `all containers:` must be under 10240 MiB. Write it in the As built table. For now, staging alone: compare with section 2 (AI-only 1615 MiB measured; the backend adds about 650 MiB).
 2. **Peak of the AI worker during one analysis.** One analysis goes through the AI service's job API from inside the staging `ai-api` container, which already holds the service token: it never appears on a command line or on screen. (The AI repository's `scripts/smoke_demo.py` needs `httpx`, which the image doesn't have, and `ai-api` has no internet to install it; so the few lines below do the same with `requests`.)
    - On your laptop, from the `iltiam-ai-service` folder (Git Bash), copy the repository's test photo with the 50 mm marker. For a real 8 MP case, use one of your own 8 MP photos of the printed marker sheet (AI-09): **never a photo of a patient.**
 
@@ -736,21 +752,21 @@ The **Verified** column records the date each row last passed.
 | 1 | CI | the pull request's checks | `env-check` green: shellcheck, `check-env.sh`, `check-compose.sh`, gitleaks | this PR | |
 | 2 | Docker waits for the volume | section 4.1 | `RequiresMountsFor=/srv/iltiam` | on the VM | |
 | 3 | Folders | section 4.2 | the modes and owners shown there | on the VM | |
-| 4 | Repository clone | section 4.3 | `/srv/iltiam/repo` at `main` | on the VM | |
-| 5 | Deploy keys | section 5.1 | one key per environment, each with `restrict`; each test prints the Compose version | on the VM | |
-| 6 | Host key | section 5.2 | the two fingerprints are the same | on the VM | |
-| 7 | Environments complete | section 5.4; Runbook 4, section 10.2 | the three `DEPLOY_*` names in both; the `comm` commands print nothing | on the VM | |
-| 8 | Staging deploy | section 6 | green run, `==> deployed staging` | on the VM | |
-| 9 | Staging containers | section 7.1 | 9 services, 8 `(healthy)`, `ai-beat` `Up` (AI-only: 6, 5 `(healthy)`) | on the VM | |
-| 10 | Env files and ports | section 7.2 | `700`/`600`; no `0.0.0.0:` | on the VM | |
+| 4 | Repository clone | section 4.3 | `/srv/iltiam/repo` at `main` | on the VM | staging, via the green deploy 2026-10-31 |
+| 5 | Deploy keys | section 5.1 | one key per environment, each with `restrict`; each test prints the Compose version | on the VM | staging, via the green deploy 2026-10-31 |
+| 6 | Host key | section 5.2 | the two fingerprints are the same | on the VM | staging, via the green deploy 2026-10-31 |
+| 7 | Environments complete | section 5.4; Runbook 4, section 10.2 | the three `DEPLOY_*` names in both; the `comm` commands print nothing | on the VM | staging, via the green deploy 2026-10-31 (AI-only values; the backend's are set, proven at its deploy) |
+| 8 | Staging deploy | section 6 | green run, `==> deployed staging` | on the VM | 2026-10-31, AI-only |
+| 9 | Staging containers | section 7.1 | 9 services, 8 `(healthy)`, `ai-beat` `Up` (AI-only: 6, 5 `(healthy)`) | on the VM | 2026-10-31, AI-only: 6, 5 `(healthy)`, `ai-beat` `Up` |
+| 10 | Env files and ports | section 7.2 | `700`/`600`; no `0.0.0.0:` | on the VM | staging, via the green deploy 2026-10-31: `700`/`600` only; the port check is still open |
 | 11 | Backend through the tunnel | section 7.3 | `{"status": "ok"}`; `/api/ready/` all `ok` | after #99 | |
-| 12 | AI service | section 7.4 | `/ready` ready; checksum `382ce77d…`; weights present (also ai-service#143) | on the VM | |
+| 12 | AI service | section 7.4 | `/ready` ready; checksum `382ce77d…`; weights present (also ai-service#143) | on the VM | partial, 2026-10-31: AI containers healthy, weights downloaded (ai-service#143 closed on these). `/ready` and the checksum come after the backend deploy |
 | 13 | Two torch threads | section 7.5 | `torch intra-op threads: 2` | on the VM, with `sha-0d1861e` or newer | |
 | 14 | Production deploy | section 8 | approval asked; green run; 7 services; `iltiam-prod` Healthy | production issue | |
 | 15 | Same tags, no change (AC 3) | section 11.1 | `no container was recreated` | on the VM | |
 | 16 | Staging broken, production untouched (AC 2) | section 11.2 | `production untouched`; `200` | production issue | |
 | 17 | Reboot | section 11.3 | volume mounted; both projects back (for now staging) | on the VM | |
-| 18 | Idle memory (AC 1, part) | section 9.5 | `all containers:` under 10240 MiB, both projects running (for now staging: about 2053 MiB, section 2) | on the VM | |
+| 18 | Idle memory (AC 1, part) | section 9.5 | `all containers:` under 10240 MiB, both projects running (for now staging: about 2053 MiB, section 2) | on the VM | partial, 2026-10-31: staging AI-only 1615 MiB |
 | 19 | AI worker peak | section 11.4 | under 1.5 GiB with room to spare | on the VM | |
 | 20 | Production first | section 9.6 | staging `ai-worker` stops and starts; production unchanged | production issue | |
 | 21 | Runbook 3, rows 20, 21, 22 (API), 23, 25 (API), 26, 27 | section 10 | as in Runbook 3, section 13 | on the VM: 20, 21, 26; after #99: the rest | |
@@ -775,7 +791,7 @@ The **Verified** column records the date each row last passed.
 
 ## 16. What comes next
 
-- **The backend image** (iltiam-backend#99), with iltiam-backend#80's checksum setting, then its tag and `COMPOSE_PROFILES=backend` in `env/staging.versions` by one pull request, then section 6 and the "after #99" rows of section 14. Then [Runbook 8](08-object-storage.md), section 13.
+- **The staging backend:** its tag (`sha-4b5251d`) and `COMPOSE_PROFILES=backend` are in `env/staging.versions`. Next: section 6, the "after #99" rows of section 14 and row 12, then [Runbook 8](08-object-storage.md), section 13.
 - **Production**, in its own issue: sections 5 (production), 8, 11.2 and the "production issue" rows of section 14.
 - **WEB-03** (iltiam/iltiam-web#25): a small pull request adds the `web` service (on `edge`, 64 MB, port 8080, `web.env`), its tag in the versions files, and its rules in `scripts/check-compose.sh`; `scripts/render-deploy-env.sh` then writes `web.env`. Then section 10 rows 7 and 8 (with HSTS).
 - **DEP-13, DEP-14 and SMTP:** production's backend (section 8, "later").

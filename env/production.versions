@@ -13,6 +13,6 @@ COMPOSE_PROFILES=
 AI_API_IMAGE=ghcr.io/iltiam/iltiam-ai-api:sha-0d1861e
 AI_WORKER_IMAGE=ghcr.io/iltiam/iltiam-ai-worker:sha-0d1861e
 
-# TO CONFIRM: not published yet (iltiam-backend issue: publish the arm64 image to GHCR). Not started while
-# COMPOSE_PROFILES is empty, but Compose still needs a valid name here.
+# TO CONFIRM: the backend image is published (staging runs sha-4b5251d); production picks its tag when its backend is
+# turned on (#36). Not started while COMPOSE_PROFILES is empty, but Compose still needs a valid name here.
 BACKEND_IMAGE=ghcr.io/iltiam/iltiam-backend:to-confirm

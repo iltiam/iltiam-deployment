@@ -367,7 +367,7 @@ Runbook 7 (#10) adds the Grafana panel "object storage used vs 20 GB" next to th
 
 ## 13. After the first staging deploy
 
-**The staging backend must include iltiam-backend#80's checksum fix.** boto3 1.36 and later add a checksum to every upload, which OCI refuses with `501 NotImplemented`. The probe (section 10) sets `when_required`; the backend needs the same before any upload works.
+**The staging backend must include iltiam-backend#80's checksum fix.** boto3 1.36 and later add a checksum to every upload, which OCI refuses with `501 NotImplemented`. The probe (section 10) sets `when_required`; the backend does the same since `sha-4b5251d` (iltiam-backend PR #101, 2026-10-31), the tag `env/staging.versions` deploys. That image also teaches `check_storage` OCI's answers (`aws:kms`, `404` for an anonymous read) and reuses a passing `/api/ready/` storage check for 60 s (`READY_STORAGE_CACHE_S`).
 
 On the VM, as `deploy` ([Runbook 5](05-compose-stack.md), section 4.4 for the `iltiam` shortcut):
 
@@ -391,14 +391,14 @@ On the VM, as `deploy` ([Runbook 5](05-compose-stack.md), section 4.4 for the `i
    ```
 
    **What you should see:** `iltiam-staging-wound-images reachable`, then `iltiam-prod-wound-images refused, HTTP 404`. This also proves the network path from the VM.
-3. **`check_storage`** (acceptance criterion; after iltiam-backend#80 teaches it that OCI reports `aws:kms` and answers anonymous reads with 404):
+3. **`check_storage`** (acceptance criterion; every bucket of the backend's `STORAGE_BUCKET_*`, five lines each):
 
    ```bash
    iltiam staging exec backend-web python manage.py check_storage
    ```
 
-   **What you should see:** a `✓` on every line, then `All storage checks passed.`
-4. **One analysis** (Runbook 5, section 11.4, or the staging app): the photo appears in `iltiam-staging-wound-images` and its mask in `iltiam-staging-wound-masks`, under the assessment's id.
+   **What you should see:** a `✓` on every line, then `All storage checks passed.` Each run overwrites `.healthcheck/check_storage.txt` in every bucket. The storage user can't delete objects (section 9.4), so each run leaves one tiny old version, which the 30-day rule removes (section 8).
+4. **One analysis through the backend** (the staging app, or the API with a `seed_staging` account; Runbook 5, section 11.4 calls the AI service directly and stores nothing): the photo appears in `iltiam-staging-wound-images` and its mask in `iltiam-staging-wound-masks`, under the assessment's id.
 5. **Customer-managed key on the objects** (acceptance criterion): console → bucket `iltiam-staging-wound-images` → the photo's **⋮ → View Object Details.** The encryption key is `iltiam-staging-objects`.
 
 ## 14. Day to day
