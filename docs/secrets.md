@@ -219,7 +219,7 @@ Found while writing the templates (issue #3). Each one belongs to the issue name
 
 10. **How the web image uses `TURNSTILE_SITE_KEY`:** iltiam/iltiam-web#28 (it doesn't read it yet). WEB-03 confirmed `API_BASE_URL` and `IMAGE_ORIGINS`.
 11. **iltiam-mobile secret names** (google-services per flavor, upload keystore): MOB-02, MOB-03, MOB-28a. Keystore owner MYF25.
-12. **SMTP provider:** decided, OCI Email Delivery (ADR-0004 Decision 6), pending confirmation that it is offered in Riyadh. Set up with Runbook 2, section 11; Resend is the fallback.
+12. **SMTP provider:** OCI Email Delivery (ADR-0004 Decision 6). Confirmed in Riyadh on 2026-10-30. Email domain, DKIM, approved sender and custom return path set up on 2026-11-07 (Runbook 2, sections 11.3 and 11.4). The SMTP users and their credentials are still to do (section 11.5); Resend stays the fallback.
 13. **Values and menus:**
     - `ALLOW_SYNC=0` (`AI_MASK_UPLOAD_ENABLED=True` is settled by Runbook 8's probe: the AI service's presigned mask upload works on OCI);
     - the activation link path (WEB-05);

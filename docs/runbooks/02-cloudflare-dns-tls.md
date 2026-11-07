@@ -4,7 +4,7 @@
 - **Who:** anyone on the team with Administrator rights on the Cloudflare account. No cloud experience needed; follow the steps in order.
 - **Time:** about 1.5 hours, plus 30 minutes for receiving mail (section 11.9). DNSSEC then turns active by itself within 1–2 days. Two parts wait:
   - **HSTS** (section 7) waits for #2 ([Runbook 3](03-cloudflare-tunnels.md), section 11).
-  - **The email provider** (sections 11.3 to 11.8) waits for the SMTP provider.
+  - **The email provider:** sections 11.3 and 11.4 are done; sections 11.5 to 11.7 are next (#35).
 - **Result:** the zone `iltiamcare.com` on Cloudflare with:
   - two administrators with 2FA, and DNSSEC on;
   - Full (strict) TLS;
@@ -50,10 +50,14 @@ Cloudflare redesigned its dashboard in 2025 and still moves menus. If a menu bel
 | Under Attack mode | Off |
 | Turnstile widgets | `iltiam-staging` (`staging-app.iltiamcare.com`), `iltiam-prod` (`app.iltiamcare.com`); keys in both GitHub Environments |
 | SPF / DMARC | SPF: `v=spf1 -all` until 2026-10-29, then the row "SPF after section 11.9"; DMARC Management enabled, `_dmarc` with `p=quarantine` (unchanged by #28, checked 2026-10-29) |
-| SMTP provider | OCI Email Delivery (ADR-0004 Decision 6): available in `me-riyadh-1`, checked 2026-10-30 (section 11.2); sections 11.3 to 11.7 pending |
+| SMTP provider | OCI Email Delivery (ADR-0004 Decision 6): available in `me-riyadh-1`, checked 2026-10-30 (section 11.2); sections 11.3 and 11.4 done 2026-11-07; sections 11.5 to 11.7 pending |
+| OCI email domain | `iltiamcare.com`, **Active** (Riyadh, compartment `iltiam`), 2026-11-07 |
+| OCI DKIM | Selector `iltiam-ruh-202611`, **Active**. CNAME `iltiam-ruh-202611._domainkey` → `iltiam-ruh-202611.iltiamcare.com.dkim.ruh1.oracleemaildelivery.com`, DNS only (2026-11-07) |
+| Approved sender | `no-reply@iltiamcare.com` (2026-11-07) |
+| Custom return path | `ruh.rp.iltiamcare.com`, **Active**. One CNAME → `ruh1.rp.oracleemaildelivery.com`, DNS only (2026-11-07) |
 | SMTP endpoint | `smtp.email.me-riyadh-1.oci.oraclecloud.com`, port 587, TLS required (STARTTLS) |
 | Email Routing (#28) | Enabled 2026-10-29; the SPF record was edited before onboarding (section 11.9, step 1) |
-| SPF after section 11.9 | One record: `v=spf1 include:_spf.mx.cloudflare.net -all` (2026-10-29) |
+| SPF after section 11.9 | One record: `v=spf1 include:_spf.mx.cloudflare.net -all` (2026-10-29). Section 11.4 leaves it unchanged |
 | MX records (Email Routing) | `route1.mx.cloudflare.net` (27), `route2.mx.cloudflare.net` (95), `route3.mx.cloudflare.net` (47) |
 | Email Routing DKIM (`cf2024-1._domainkey`) | Present (2026-10-29) |
 | Gmail filter (section 11.9, step 6) | Not yet added |
@@ -342,7 +346,7 @@ Until a provider is set up, nobody may send mail as `@iltiamcare.com`. Two recor
 
 **Is DMARC safe before SPF and DKIM exist? Yes.** The domain sends nothing yet, so the policy can't catch any legitimate mail, and it stops anyone spoofing a new health brand from day one. **The one rule:** when the provider is set up, its DKIM must show **Active** before the first real email is sent (section 11.6). Otherwise invitations and codes land in spam.
 
-**There is only ever one SPF record.** Sections 11.9 and 11.4 *edit* this one; they never add a second, because two SPF records make SPF fail everywhere.
+**There is only ever one SPF record.** Section 11.9 *edits* this one and never adds a second, because two SPF records make SPF fail everywhere. Section 11.4 leaves it as it is.
 
 **Don't add MX records by hand.** The only MX records come from Email Routing (section 11.9).
 
@@ -352,7 +356,7 @@ Until a provider is set up, nobody may send mail as `@iltiamcare.com`. Two recor
 
 ### 11.2 Pending SMTP provider: check that Riyadh has Email Delivery (do this first)
 
-> **Status: the Riyadh check (this section) passed on 2026-10-30.** Sections 11.3 to 11.7 are not done yet. Until they are:
+> **Status: the Riyadh check (this section) passed on 2026-10-30, and sections 11.3 and 11.4 are done (2026-11-07).** Sections 11.5 to 11.7 are not done yet. Until they are:
 > - **staging** prints email to its log (Runbook 4, section 7);
 > - **production** refuses to start, because the email settings are `prod-required`.
 
@@ -375,61 +379,51 @@ The endpoint isn't a secret. Go on to section 11.3; the fallback (section 11.8) 
 
 **If Riyadh has no Email Delivery, or the page asks you to upgrade:** stop. Tell the owner, and use the fallback (section 11.8) only after the owner agrees. ADR-0004 Decision 6 changes then.
 
-### 11.3 Pending SMTP provider: email domain and DKIM
+### 11.3 Email domain and DKIM (done 2026-11-07)
 
-1. **Email Delivery → Email Domains**, compartment `iltiam` → **Create Email Domain** → `iltiamcare.com` → **Create.**
+**What the OCI console shows is the source of truth.** If it shows another value than this section, use OCI's value, then correct this section and `scripts/check-dns.sh`.
+
+1. OCI console, region **Saudi Arabia Central (Riyadh).** **☰ → Developer Services → Email Delivery → Email Domains**, compartment `iltiam` → **Create Email Domain** → `iltiamcare.com` → **Create.**
 2. Open `iltiamcare.com` → **DKIM → Add DKIM.**
-   - **DKIM selector:** `iltiam-ruh-202611` (use the month you do this; if OCI asks for another format, follow its hint). This is `<DKIM_SELECTOR>`.
+   - **DKIM selector:** `iltiam-ruh-202611` (use the month you do this; if OCI asks for another format, follow its hint). This is `<DKIM_SELECTOR>`. A selector other than the script's default needs `DKIM_SELECTOR=<DKIM_SELECTOR>` in front of the command (section 12.1).
    - **Generate DKIM Record.** OCI shows a **CNAME record** name and value: `<OCI_DKIM_TARGET>`.
    - **Create DKIM.**
 3. Cloudflare → **DNS → Records → Add record:**
    - **Type:** CNAME.
    - **Name:** only the part before `.iltiamcare.com`, i.e. `<DKIM_SELECTOR>._domainkey`. Cloudflare adds the domain itself.
    - **Target:** `<OCI_DKIM_TARGET>`.
-   - **Proxy status: DNS only (grey cloud).** Cloudflare proxies new CNAMEs by default, and a proxied DKIM record never verifies.
+   - **Proxy status: DNS only (grey cloud).** Cloudflare proxies new CNAMEs by default, so check this switch before you save. A proxied DKIM record never verifies. If you already saved it as **Proxied**, edit the record and switch it to **DNS only**.
    - **Save.**
 4. Wait until the DKIM status in OCI turns **Active**. That takes minutes to a few hours.
 
-### 11.4 Pending SMTP provider: approved sender, return path, SPF
+**What you should see:**
+- the email domain and DKIM both **Active** in OCI;
+- `PASS row 22` from `scripts/check-dns.sh`.
+
+### 11.4 Approved sender and return path (done 2026-11-07)
+
+Do this only after DKIM is **Active**: OCI's docs say you can't create the approved sender before that.
 
 1. **Email Delivery → Approved Senders**, compartment `iltiam` → **Create Approved Sender** → `no-reply@iltiamcare.com` → **Create.**
-2. **Custom return path.** Bounces go back to this subdomain, and it lets SPF align for DMARC. OCI's docs ask for an **MX** record and a **TXT** (SPF) record, not a CNAME, on a subdomain named `<region key>.rp.<domain>`. Riyadh's region key is `RUH`, so the subdomain is `ruh.rp.iltiamcare.com`.
-   - Cloudflare → **DNS → Records → Add record**, twice. **Name** is only the part before `.iltiamcare.com`:
+2. **Custom return path.** Bounces go back to this subdomain, and it lets SPF align for DMARC.
+   - OCI → **Email Domains** → `iltiamcare.com` → **Custom Return Path → Add custom return path.** Enter the prefix so that the full name is `ruh.rp.iltiamcare.com` (`<region key>.rp.<domain>`; Riyadh's region key is `RUH`). **Generate CNAME Record**, copy the name and the value, then **Add custom return path.**
+   - Cloudflare → **DNS → Records → Add record**, within **72 hours**. After that, OCI marks the return path **Failed**, and you must delete it in OCI and create it again.
 
-     | Type | Name | Mail server / Content | Priority |
+     | Type | Name | Target | Proxy status |
      |---|---|---|---|
-     | MX | `ruh.rp` | `bmta.email.me-riyadh-1.oci.oraclecloud.com` | `10` |
-     | TXT | `ruh.rp` | `v=spf1 include:ap.rp.oracleemaildelivery.com -all` | — |
+     | CNAME | `ruh.rp` | `ruh1.rp.oracleemaildelivery.com` | **DNS only (grey cloud)** |
 
-     MX and TXT records are never proxied, so there is no proxy switch to set.
-   - OCI → the email domain page → **Custom return path** (or **Return path**) → `ruh.rp.iltiamcare.com` → **Save.**
-   - **If OCI shows other values, OCI wins:** use them, and correct this table.
-   - **No clash with Email Routing:** its MX records are on `iltiamcare.com` itself (section 11.9), these are on `ruh.rp`.
-3. **The SPF record.** In Cloudflare, **edit** the existing `@` TXT record (section 11.9 left it as `v=spf1 include:_spf.mx.cloudflare.net -all`) so that it reads:
-
-   ```
-   v=spf1 include:_spf.mx.cloudflare.net include:ap.rp.oracleemaildelivery.com -all
-   ```
-
-   - **Edit it; never add a second one.** If Cloudflare won't let you edit it because Email Routing locked it: **Email Routing → Settings →** the SPF record **→ Unlock**, then edit.
-   - That is 2 of SPF's limit of 10 DNS lookups.
-
-> **`ap.rp.oracleemaildelivery.com` is inferred: confirm it on the OCI email domain page in #12.**
-> - **Why it is inferred:** OCI's SPF table lists only Americas, Asia/Pacific and Europe. It doesn't say which one Riyadh belongs to.
-> - **The evidence (checked 2026-10-29):** Oracle's published IP list (`https://docs.oracle.com/iaas/tools/public_ip_ranges.json`) gives region `me-riyadh-1` the range `84.8.68.0/25`. That exact range is in the `ap.rp.oracleemaildelivery.com` record.
-> - **To confirm:** after step 3, the SPF check on the OCI email domain page shows as configured, and mail-tester shows SPF passing (section 11.6).
-> - **If either says SPF fails, use OCI's "All Commercial Regions" value.** Put it in the same one record:
->
->   ```
->   v=spf1 include:_spf.mx.cloudflare.net include:rp.oracleemaildelivery.com include:ap.rp.oracleemaildelivery.com include:eu.rp.oracleemaildelivery.com -all
->   ```
->
->   Make the same change to the `ruh.rp` TXT record from step 2. That is 5 of the 10 lookups (`rp.` itself includes one more), which is still fine.
+   - **It is one CNAME, with no MX or TXT at `ruh.rp`.** A CNAME can't share its name with another record. Oracle keeps the MX and the SPF record behind the CNAME. OCI's "Creating an Email Domain" page still describes MX and TXT records, but on 2026-11-07 the console generated this one CNAME.
+   - **No clash with Email Routing:** its MX records are on `iltiamcare.com` itself (section 11.9), and this record is on `ruh.rp`.
+3. **The main SPF record: don't change it.** It stays `v=spf1 include:_spf.mx.cloudflare.net -all`.
+   - **Why:** receivers check SPF on the return path, not on the `From` domain. For OCI's mail that is `ruh.rp.iltiamcare.com`, which leads through the CNAME to Oracle's own SPF record, so the main record is never asked about this mail.
+   - **DMARC still aligns:** `ruh.rp.iltiamcare.com` is a subdomain of the `From` domain, and `aspf=r` (section 11.1) allows that.
+   - **Oracle's record is `v=spf1 ip4:… ~all`:** it lists Riyadh's senders itself, so we don't maintain their addresses. Its `~all` is Oracle's choice and doesn't change our main record's `-all`.
 
 **What you should see:**
 - the approved sender `no-reply@iltiamcare.com`;
-- after a refresh, the SPF, DKIM and return path checks on the email domain page show as configured;
-- the count in section 12.1 still prints `1`.
+- the custom return path **Active** on the email domain page;
+- `PASS row 17`, `PASS row 23` and `PASS row 33` from `scripts/check-dns.sh`.
 
 ### 11.5 Pending SMTP provider: one SMTP user per environment
 
@@ -511,7 +505,7 @@ This needs neither a deploy nor Runbook 3.
 
 Only when all three hold:
 - DKIM is **Active** in OCI;
-- SPF was edited as in section 11.4;
+- the custom return path is **Active** in OCI (section 11.4);
 - mail-tester scored 9 or more.
 
 Then redeploy staging (Runbook 9). Check that a real email arrives in the inbox, not in spam: for example the first Super Admin's invitation (`bootstrap_superadmin`, backend `docs/deployment.md`).
@@ -574,7 +568,7 @@ Patients need an address that answers:
 
    **Save.**
    - **Why first:** Cloudflare's docs don't say what Email Routing does when an SPF record already exists. If ours already has Cloudflare's include, there is nothing for it to add.
-   - **Why `-all`, not Cloudflare's default `~all`:** only Cloudflare, and later OCI (section 11.4), may send as our domain. Forwarding isn't affected: Email Routing forwards mail under an envelope sender of its own.
+   - **Why `-all`, not Cloudflare's default `~all`:** only Cloudflare may send with our domain as the return path; OCI's mail uses `ruh.rp` (section 11.4). Forwarding isn't affected: Email Routing forwards mail under an envelope sender of its own.
 
    **What you should see:** the SPF count in section 12.1 prints `1`, and the record reads `v=spf1 include:_spf.mx.cloudflare.net -all`.
 
@@ -641,10 +635,16 @@ Patients need an address that answers:
 bash scripts/check-dns.sh
 ```
 
+In PowerShell, name Git Bash in full, because plain `bash` there can start WSL instead. `-l` reads your Git Bash profile, which may be what puts `jq` on the PATH:
+
+```powershell
+& "C:\Program Files\Git\bin\bash.exe" -l scripts/check-dns.sh
+```
+
 - **What it does:** it asks Cloudflare's resolver over HTTPS, so it works without `dig`, and fetches the staging hosts' headers.
 - **What it prints:** one `PASS`, `FAIL` or `PENDING` line per checklist row it can decide (section 12.2 lists them), then a count.
 - **Exit code:** `0` when nothing failed. `PENDING` only means "not possible yet".
-- **Row 22:** after section 11.3, set the DKIM selector first: `DKIM_SELECTOR=<DKIM_SELECTOR> bash scripts/check-dns.sh`.
+- **Row 22:** the script looks for the selector `iltiam-ruh-202611`. For another one: `DKIM_SELECTOR=<DKIM_SELECTOR> bash scripts/check-dns.sh`.
 
 **Its output is the one to paste into the issue.** It redacts the DMARC report address and the DS digest, and prints no IP, ID or URL. The commands below print both, so never paste their raw output.
 
@@ -671,8 +671,7 @@ Resolve-DnsName cf2024-1._domainkey.iltiamcare.com -Type TXT -Server 1.1.1.1
 After section 11.4, check the return path too:
 
 ```powershell
-Resolve-DnsName ruh.rp.iltiamcare.com -Type MX -Server 1.1.1.1
-Resolve-DnsName ruh.rp.iltiamcare.com -Type TXT -Server 1.1.1.1
+Resolve-DnsName ruh.rp.iltiamcare.com -Type CNAME -Server 1.1.1.1
 ```
 
 The same with `nslookup`, in PowerShell or cmd:
@@ -707,8 +706,7 @@ foreach ($q in @(@("iltiamcare.com","NS"),@("iltiamcare.com","TXT"),@("_dmarc.il
 - **NS:** two names ending in `.ns.cloudflare.com.`
 - **TXT:** exactly one `v=spf1` line:
   - before section 11.9: `"v=spf1 -all"`;
-  - after 11.9: `"v=spf1 include:_spf.mx.cloudflare.net -all"`;
-  - after 11.4: `"v=spf1 include:_spf.mx.cloudflare.net include:ap.rp.oracleemaildelivery.com -all"`.
+  - after 11.9, and still after 11.4: `"v=spf1 include:_spf.mx.cloudflare.net -all"`.
 - **`_dmarc` TXT:** one line starting `"v=DMARC1; p=quarantine;`
 - **DS:** one line starting with a key tag, then `13 2` (algorithm 13, digest type 2), then the digest
 - **MX** (after 11.9): three lines, a number then `route1.mx.cloudflare.net.`, `route2…` and `route3…`. Empty before 11.9.
@@ -736,16 +734,16 @@ The **Verified** column records the date each row last passed. "DoH" means the D
 |---|---|---|
 | `nameservers` | 5 | Two names ending in `.ns.cloudflare.com` |
 | `DS record in .com` | 7 | One DS record, algorithm 13, digest type 2 |
-| `DNSSEC validates` | 8 | Every DNS answer the script got has the AD flag; no SERVFAIL |
+| `DNSSEC validates` | 8 | Every DNS answer from our own zone has the AD flag; no SERVFAIL. The SPF behind `ruh.rp` doesn't count: Oracle's zone isn't signed |
 | `SPF, one record` | 17 | Exactly one `v=spf1` record, with the expected content |
 | `DMARC` | 18 | One record, starting `v=DMARC1; p=quarantine;`, with `sp=quarantine` |
 | `HSTS` | 19 | `max-age=15552000; includeSubDomains` on `staging-app` and `staging-api` |
 | `API not rewritten` | 20 | `staging-api`'s health answer is JSON, with no `rocket-loader` or `email-decode` script |
 | `OCI DKIM` | 22 | The `<DKIM_SELECTOR>._domainkey` CNAME exists and is DNS only. DKIM **Active** in OCI is checked by hand |
-| `SPF with the provider` | 23 | The SPF record has OCI's include, or the "All Commercial Regions" fallback. The OCI page is checked by hand |
+| `SPF with the provider` | 23 | Following the `ruh.rp` CNAME, one `v=spf1` record that names senders (`ip4:`, `ip6:` or `include:`), and the main SPF is still one record |
 | `MX (Email Routing)` | 26 | Exactly `route1`, `route2` and `route3.mx.cloudflare.net` |
 | `Email Routing DKIM` | 27 | `cf2024-1._domainkey` has a public key (`p=`) |
-| `return path ruh.rp` | 33 | MX `10 bmta.email.me-riyadh-1.oci.oraclecloud.com` and one `v=spf1` TXT. The OCI page is checked by hand |
+| `return path ruh.rp` | 33 | One CNAME to `ruh1.rp.oracleemaildelivery.com`, DNS only, with no MX or TXT at `ruh.rp`. **Active** in OCI is checked by hand |
 | `API never cached` | Runbook 3, row 23 | `cf-cache-status` `DYNAMIC` or `BYPASS` on two requests to `staging-api` |
 
 **Checked by hand:** every other row (1 to 4, 6, 9 to 16, 21, 24, 25, 28 to 32 and 34). They need the dashboard, a mailbox, OCI or SSL Labs.
@@ -772,9 +770,9 @@ The **Verified** column records the date each row last passed. "DoH" means the D
 | 18 | DMARC | `Resolve-DnsName _dmarc.iltiamcare.com -Type TXT` / `dig TXT _dmarc…` / DoH; **Email → DMARC Management** | Starts exactly with `v=DMARC1; p=quarantine; sp=quarantine; …; rua=mailto:…` (nothing before `v=`); shown as valid | today | 2026-10-28 (DoH) |
 | 19 | HSTS | Section 7, `curl.exe -sI` on `staging-app` and `staging-api` | `max-age=15552000; includeSubDomains` on both | after #2 | |
 | 20 | API not rewritten | `curl.exe -s https://staging-api.iltiamcare.com/api/health/` | The backend's JSON, unchanged; no `rocket-loader` or `email-decode` script anywhere | after #2 | 2026-10-31 (`check-dns.sh` PASS: HTTP 200, JSON, no injected script; `cf-cache-status: DYNAMIC`) |
-| 21 | SSL Labs | `https://www.ssllabs.com/ssltest/analyze.html?d=staging-app.iltiamcare.com` | Grade **A** or better (A+ once HSTS is on) | after #2 | |
-| 22 | DKIM | `Resolve-DnsName <DKIM_SELECTOR>._domainkey.iltiamcare.com -Type CNAME -Server 1.1.1.1` / `dig CNAME … +short`; OCI email domain | The OCI target; DKIM **Active** in OCI | after SMTP provider | |
-| 23 | SPF with the provider | as row 17; OCI email domain page | Exactly one `v=spf1` record: `v=spf1 include:_spf.mx.cloudflare.net include:ap.rp.oracleemaildelivery.com -all`, or the "All Commercial Regions" fallback (section 11.4); OCI shows SPF as configured | after SMTP provider | |
+| 21 | SSL Labs | `https://www.ssllabs.com/ssltest/analyze.html?d=staging-app.iltiamcare.com` | Grade **A** or better (A+ once HSTS is on) | after #2 | 2026-11-07: grade A on all 4 addresses (2 IPv4, 2 IPv6), results hidden from the boards |
+| 22 | DKIM | `Resolve-DnsName <DKIM_SELECTOR>._domainkey.iltiamcare.com -Type CNAME -Server 1.1.1.1` / `dig CNAME … +short`; OCI email domain | The OCI target, DNS only; DKIM **Active** in OCI | after SMTP provider | 2026-11-07: CNAME to `iltiam-ruh-202611.iltiamcare.com.dkim.ruh1.oracleemaildelivery.com`, DNS only; DKIM **Active** in OCI; `check-dns.sh` PASS |
+| 23 | SPF with the provider | `scripts/check-dns.sh` (section 12.1) | Following the `ruh.rp` CNAME, Oracle's one `v=spf1` record, which names its senders; the main SPF is still one record, unchanged (section 11.4) | after SMTP provider | 2026-11-07 (`check-dns.sh` PASS): Oracle's `v=spf1 ip4:… ~all` behind `ruh.rp`; main SPF one record, not edited |
 | 24 | mail-tester | Section 11.6 | **9/10 or more**; SPF, DKIM and DMARC pass | after SMTP provider | |
 | 25 | A real email | An invitation from staging (section 11.7) | Arrives in the inbox, not in spam | after email setup (section 11.3 onward) and #2 | |
 | 26 | MX records | `Resolve-DnsName iltiamcare.com -Type MX` / `dig MX` / DoH | Exactly three: `route1`, `route2` and `route3.mx.cloudflare.net` | after 11.9 | 2026-10-29 (DoH) |
@@ -784,10 +782,10 @@ The **Verified** column records the date each row last passed. "DoH" means the D
 | 30 | `privacy@` arrives | Section 11.9, step 7 | In the team mailbox's **Inbox**, labelled `ILTIAM`; **Show original**: SPF and DKIM pass | after 11.9 | 2026-10-29 (Inbox, SPF and DKIM pass; no label yet: the Gmail filter isn't added) |
 | 31 | `security@` arrives | Section 11.9, step 7 | As row 30 | after 11.9 | |
 | 32 | Unknown address bounces | Section 11.9, step 7 (`nobody@`) | The outside account gets a bounce; Email Routing shows it rejected | after 11.9 | 2026-10-29 |
-| 33 | Return path | `Resolve-DnsName ruh.rp.iltiamcare.com -Type MX` and `-Type TXT` (12.1); OCI email domain page | MX `10 bmta.email.me-riyadh-1.oci.oraclecloud.com`; one `v=spf1` TXT; OCI shows the return path as configured | after SMTP provider | |
+| 33 | Return path | `Resolve-DnsName ruh.rp.iltiamcare.com -Type CNAME` (12.1); OCI email domain page | One CNAME to `ruh1.rp.oracleemaildelivery.com`, DNS only; no MX or TXT at `ruh.rp`; **Active** in OCI | after SMTP provider | 2026-11-07: CNAME to `ruh1.rp.oracleemaildelivery.com`, DNS only; **Active** in OCI; `check-dns.sh` PASS |
 | 34 | Our own mail to `privacy@` | Section 11.6, step 5 | In the team mailbox's **Inbox**; **Show original**: SPF, DKIM and DMARC pass | after SMTP provider | |
 
-**Record the results as a comment:** rows 1 to 25 on issue #12, rows 17 and 26 to 34 on issue #28. Pass or fail per row, with the date. **Never include** account IDs, zone IDs, dashboard URLs, keys, report addresses or email addresses (the team mailbox's address included).
+**Record the results as a comment on issue #35** (#12 and #28 are closed). Pass or fail per row, with the date. **Never include** account IDs, zone IDs, dashboard URLs, keys, report addresses or email addresses (the team mailbox's address included).
 
 ## 13. Troubleshooting
 
@@ -805,14 +803,14 @@ The **Verified** column records the date each row last passed. "DoH" means the D
 | The Configuration Rule's expression is refused | Straight double quotes `"`, hostnames separated by a space inside `{ }`, and the whole expression in parentheses |
 | The teammate got no invitation | Spam folder. **Members** → remove the pending invitation and invite again |
 | Turnstile shows "invalid domain" | The page's hostname isn't in the widget's **Hostnames** list (section 10) |
-| mail-tester: SPF `permerror` | Two `v=spf1` records. Merge them into one (section 11.9, step 3; section 11.4) |
+| mail-tester: SPF `permerror` | Two `v=spf1` records. Merge them into one (section 11.9, step 3) |
 | Two `v=spf1` records after turning on Email Routing | Email Routing added its own. Section 11.9, step 3 |
 | Can't edit or delete the SPF or MX records | Email Routing locked them. **Email Routing → Settings →** the record **→ Unlock** |
 | A routing rule shows as disabled, or nothing is forwarded | The destination isn't verified yet. **Email Routing → Destination addresses** → resend the verification email and click its link (section 11.9, step 4) |
 | A test to `privacy@` never shows up and doesn't bounce | You sent it from the team mailbox itself (Gmail hides it), or it's in **Spam**. Test from an outside account; add the Gmail filter (section 11.9, step 6) |
 | A sender gets a bounce that mentions SPF, DKIM or DMARC | Their own domain fails authentication. Email Routing rejects mail that fails the sender's DMARC policy, or passes neither SPF nor DKIM. We can't fix it; ask them to write from another address |
 | A message with large attachments bounces | Email Routing accepts at most 25 MiB per message |
-| OCI's return path check stays unconfigured | The `ruh.rp` records are missing or misnamed. **Name** must be only `ruh.rp`, not `ruh.rp.iltiamcare.com` (Cloudflare adds the domain itself); check with the `ruh.rp` commands in section 12.1 |
+| OCI's return path never turns **Active**, or shows **Failed** | The `ruh.rp` CNAME is missing, proxied or misnamed. **Name** must be only `ruh.rp`, not `ruh.rp.iltiamcare.com` (Cloudflare adds the domain itself), and the proxy status **DNS only**; check with the `ruh.rp` command in section 12.1. **Failed** means it wasn't there within 72 hours: delete the return path in OCI and create it again (section 11.4) |
 | OCI DKIM never turns Active | The CNAME is proxied (orange cloud): set **DNS only**. Or its name ends in `.iltiamcare.com.iltiamcare.com`: type only the part before the domain |
 | `SMTPAuthenticationError` from `mailcheck.py` | Wrong username or password, or the user isn't in `iltiam-smtp-senders`, or the policy is missing (section 11.5) |
 | `mailcheck.py` times out | Wrong endpoint or port: use `smtp.email.me-riyadh-1.oci.oraclecloud.com` (section 11.2), port 587 |
@@ -842,7 +840,7 @@ The **Verified** column records the date each row last passed. "DoH" means the D
 - **[Runbook 3](03-cloudflare-tunnels.md)** (#9): the tunnels, public hostnames, cache rules and the sign-in rate limit. Bot Fight Mode, Rocket Loader and Email Obfuscation are already set here, so #9 only verifies them. After #2 (Runbook 3, section 11):
   - section 7 (HSTS);
   - checklist rows 11 and 19 to 21.
-- **SMTP provider:** sections 11.3 to 11.7, then checklist rows 22 to 25 and 33 to 34. These finish #12 and #28.
+- **SMTP provider:** sections 11.3 and 11.4 are done (rows 22, 23 and 33). Next are sections 11.5 to 11.7, then rows 24, 25 and 34, tracked in #35 for staging and #36 for production.
 - **Runbook 4** (#3): the Turnstile keys (section 10) and later the SMTP credentials (section 11.5) fill its sections 7 and 9.
 - **Receiving mail** (#28): section 11.9 now, then checklist rows 17 and 26 to 32. Follow-ups:
   - the backend names `privacy@iltiamcare.com` in its breach-notice docs and adds `Reply-To: privacy@` to breach notices;
