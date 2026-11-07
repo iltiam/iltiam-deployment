@@ -32,8 +32,8 @@ Filled in when the steps are done. Names, versions and dates only: never an IP, 
 | Docker and Compose versions on the VM (section 4.4) | Docker 29.9.2, Docker Compose v5.6.1 (2026-10-31) |
 | Deploy keys, one per environment (section 5.1) | |
 | `DEPLOY_SSH_KNOWN_HOSTS`, `DEPLOY_HOST` (sections 5.2, 5.3) | |
-| GHCR access for `iltiam-deployment` (Runbook 4, section 8) | `iltiam-ai-api`, `iltiam-ai-worker`: Read, proven by the 2026-10-31 pull. `iltiam-backend`: Read under **Manage Actions access**, proven by the 2026-10-31 backend deploy (a first grant under Codespaces access gave `denied`; Runbook 4, section 8) |
-| Images deployed on staging (`env/staging.versions`) | 2026-10-31: `iltiam-ai-api` and `iltiam-ai-worker` `sha-0d1861e`; `iltiam-backend` `sha-4b5251d`, `COMPOSE_PROFILES=backend` |
+| GHCR access for `iltiam-deployment` (Runbook 4, section 8) | `iltiam-ai-api`, `iltiam-ai-worker`: Read, proven by the 2026-10-31 pull. `iltiam-backend`: Read under **Manage Actions access**, proven by the 2026-10-31 backend deploy (a first grant under Codespaces access gave `denied`; Runbook 4, section 8). `iltiam-web`: Read, proven by the 2026-11-07 deploy (run 42374345414) |
+| Images deployed on staging (`env/staging.versions`) | 2026-10-31: `iltiam-ai-api` and `iltiam-ai-worker` `sha-0d1861e`; `iltiam-backend` `sha-4b5251d`, `COMPOSE_PROFILES=backend`. 2026-11-07: `iltiam-web` `sha-a5faaa2` added, `COMPOSE_PROFILES=backend,web` (run 42374345414) |
 | Images deployed on production (`env/production.versions`) | |
 | Idle memory, both projects (section 9.5) | Staging complete, 2026-10-31, before any analysis: **2173 MiB** (`ai-api` 608, `ai-worker` 663, `ai-beat` 297, `backend-web` 234, `backend-worker` 204, `backend-beat` 114, `postgres` 32, `redis` 5, `cloudflared` 16); `free -h`: 2.9 GiB used, 8.7 GiB available. Earlier the same day, AI-only: 1615 MiB, 2.2 GiB used. Production isn't running yet (#36) |
 | AI worker peak during one analysis (section 11.4) | |
@@ -131,7 +131,7 @@ All figures in MiB and GiB, the units `docker stats` shows. **Idle** is measured
 | `backend-web` (2 gunicorn workers) | 512 MiB | about 250 MiB | 0.4 GiB |
 | `backend-worker` (2 Celery processes) | 640 MiB | about 300 MiB | 0.4 GiB, with `backend-beat` |
 | `backend-beat` | 192 MiB | about 100 MiB | |
-| `web` (nginx, 1 worker process) | 64 MiB | about 10 MiB (not measured on the VM yet) | |
+| `web` (nginx, 1 worker process) | 64 MiB | about 10 MiB expected; **2.355 MiB** measured on the VM, 2026-11-07 | |
 | One-shots: `weights-init` 512 MiB, `backend-migrate` 384 MiB | | exit after a few seconds, one at a time | |
 | **AI service** (`ai-api`, `ai-worker`, `ai-beat`) | **2944 MiB** | **1913 MiB (1.9 GiB)** | **1.9 GiB** |
 | **One environment, complete** | **5056 MiB (4.9 GiB)** | **2713 MiB (2.65 GiB)** | **3.2 GiB** |
@@ -458,9 +458,9 @@ if ($html.Length -eq 0) { "EMPTY: no page came back" } elseif ($html -match 'roc
 - `/`: `200`, a `content-security-policy` header, and `cf-cache-status: DYNAMIC` (or `BYPASS`).
 - `/config.js`: `cache-control: no-cache`, and `apiUrl: "https://staging-api.iltiamcare.com"`.
 - The asset: `cf-cache-status: MISS` then `HIT`, and `cache-control: public, max-age=31536000, immutable`. If you run it again later, `HIT` both times is fine.
-- `none found`: Cloudflare injects no script.
+- `none found`: `curl` sees no injected script. That is not enough, because Cloudflare can inject a script only for browsers: do the browser check in [Runbook 3](03-cloudflare-tunnels.md), section 11.3, too.
 
-**Sign-in reaches the API** (a browser on your laptop). Open `https://staging-app.iltiamcare.com/login` and press F12. Try a made-up account and a wrong password, **once**: sign-in is rate limited, and the web app can't show a CAPTCHA yet (iltiam-web#28).
+**Sign-in reaches the API** (a browser on your laptop). Open `https://staging-app.iltiamcare.com/login` and press F12. Try a made-up number in the format `+9665XXXXXXXX` and a wrong password of at least 8 characters, **once**: the form stops anything shorter or in another format before it sends a request, sign-in is rate limited, and the web app can't show a CAPTCHA yet (iltiam-web#28).
 - **Network** tab: `POST https://staging-api.iltiamcare.com/api/auth/login/` with a JSON error response.
 - **Console** tab: no `blocked by CORS policy` line and no `Content Security Policy` line.
 
@@ -601,7 +601,7 @@ With staging (and then production) running, do [Runbook 3](03-cloudflare-tunnels
 | 4 | 25, API part: no rewriting | 11.3 | done on staging, 2026-10-31 |
 | 5 | 26: AI unreachable from the tunnel's network | 11.4 (and below) | done on staging, 2026-10-31 |
 | 6 | 27: `NUM_PROXIES` resists a fake header. Check first with `gh variable list --env staging -R iltiam/iltiam-deployment` that `NUM_PROXIES` is `1` | 11.5 | done on staging, 2026-10-31 |
-| 7 | 22 (app part), 24 (assets cached), 25 (app part) | 11.1 to 11.3 | **after #41**, tracked in #35 |
+| 7 | 22 (app part), 24 (assets cached), 25 (app part) | 11.1 to 11.3 | done on staging, 2026-11-07 (#41) |
 | 8 | 28: HSTS | 11.6 | **after #41**, tracked in #35: HSTS waits until the app hosts serve the real web app |
 
 For production, rows 1 to 8 again on `app.` and `api.`, tracked in #36.
@@ -777,7 +777,7 @@ sudo -iu deploy bash -c 'iltiam() { bash /srv/iltiam/repo/scripts/compose.sh "$@
 | `staging-app` or `app` answers **502** | `cloudflared` runs, but `web` doesn't. Expected on production until #36. Otherwise `iltiam <ENV> ps` and `iltiam <ENV> logs web` |
 | `cloudflared` stays `(unhealthy)` | No connection to Cloudflare: wrong or refreshed `CF_TUNNEL_TOKEN` ([Runbook 3](03-cloudflare-tunnels.md), section 12), or outbound traffic is blocked (Runbook 3, section 14) |
 | `staging-api` or `api` answers **502** | `cloudflared` runs, but `backend-web` doesn't. Expected on staging while it is AI-only (section 1), and on production until its backend is turned on (section 8). Otherwise `iltiam <ENV> ps` and its logs |
-| `staging-api` times out on port 443 from your laptop, but answers from the VM (`curl -s https://staging-api.iltiamcare.com/api/health/`) and over a phone hotspot | The laptop's network, not the stack (seen 2026-10-31). Run section 7.3 over the hotspot or from the VM |
+| `staging-api` times out on port 443 from your laptop, but answers from the VM (`curl -s https://staging-api.iltiamcare.com/api/health/`) | The laptop's network, not the stack (seen 2026-10-31). Run the check from the VM |
 | `400 Bad Request` or `ERR_TOO_MANY_REDIRECTS` from the API | [Runbook 3](03-cloudflare-tunnels.md), section 14 |
 | `'config …' would print secrets into this terminal` | `scripts/compose.sh` protects you: use `iltiam <ENV> config --quiet` |
 | `infra.env not found or not readable` | You are not `deploy`: run `sudo -iu deploy` first. Or the environment was never deployed |
@@ -819,11 +819,11 @@ The **Verified** column records the date each row last passed.
 | 19 | AI worker peak | section 11.4 | under 1.5 GiB with room to spare | on the VM | |
 | 20 | Production first | section 9.6 | staging `ai-worker` stops and starts; production unchanged | production issue | |
 | 21 | Runbook 3, rows 20, 21, 22 (API), 23, 25 (API), 26, 27 | section 10 | as in Runbook 3, section 13 | on the VM: 20, 21, 26; after #99: the rest | PASS 2026-10-31, staging: 22 (API) `{"status":"ok"}`; 23 `cf-cache-status: DYNAMIC`; 25 (API) not rewritten; 20, 21, 26 and 27 pass (details in Runbook 3, section 13). Production: #36 |
-| 22 | Runbook 3, rows 22 (app), 24, 25 (app) | section 10 | as in Runbook 3, section 13 | after #41 (#35) | |
+| 22 | Runbook 3, rows 22 (app), 24, 25 (app) | section 10 | as in Runbook 3, section 13 | after #41 | PASS 2026-11-07, `staging-app` (details in Runbook 3, section 13) |
 | 23 | HSTS, Runbook 3 row 28 | section 10; Runbook 3, section 11.6 | `max-age=15552000; includeSubDomains` | after #41 (#35) | |
 | 24 | Production backend | section 8, "later"; section 7 with `production` | `api.iltiamcare.com/api/health/` `{"status": "ok"}` | after DEP-13/14/SMTP | |
 | 25 | Both projects fully healthy at once (AC 1) | sections 7.1, 8, 9.5 | every service of both projects healthy; idle under 10 GB | after #41 and DEP-13/14/SMTP | |
-| 26 | Web app on staging | section 7.6 | `200` with a CSP; `/config.js` with the staging API and `no-cache`; asset `MISS` then `HIT`; no injected script; sign-in reaches the API with no CORS error; under 64 MiB, `oom=false`, no published port | after #41 | |
+| 26 | Web app on staging | section 7.6 | `200` with a CSP; `/config.js` with the staging API and `no-cache`; asset `MISS` then `HIT`; no injected script; sign-in reaches the API with no CORS error; under 64 MiB, `oom=false`, no published port | after #41 | PASS 2026-11-07, deploy run 42374345414: the log shows `web.env (600)`, `web` in the start line and `deployed staging`. `/`: `200`, `cf-cache-status: DYNAMIC`, `Cache-Control: no-cache`, the full CSP with `connect-src 'self' https://staging-api.iltiamcare.com`, plus `nosniff`, `X-Frame-Options: DENY`, Referrer-Policy, Permissions-Policy, COOP and CORP. `/config.js`: `200`, `no-cache`, `apiUrl` the staging API, `DYNAMIC`. `/assets/index-BteeYMH5.js`: `MISS` then `HIT`, `public, max-age=31536000, immutable`. VM: 2.355 MiB of 64 MiB, `oom=false restarts=0 limit=67108864 readonly=true capdrop=[ALL]`, `docker port` empty. Sign-in: with a made-up number and a wrong password of 8 or more characters, the app showed the API's error, "The phone number or password is incorrect", so the request reached `staging-api` and CORS works. Injected script: the first browser test found `https://static.cloudflareinsights.com/beacon.min.js`, blocked by the CSP. After Cloudflare RUM and the Web Analytics automatic setup were turned off, a browser-like `curl` of `/login` has no `cloudflareinsights` and the browser console shows no CSP error (Runbook 3, section 11.3) |
 
 **Record the results as a comment on issue #2:** pass or fail per row, with the date. **Never include** IP addresses, fingerprints, keys, tokens, env file contents, `docker compose config` output or logs.
 
@@ -843,7 +843,7 @@ The **Verified** column records the date each row last passed.
 
 - **The staging backend:** its tag (`sha-4b5251d`) and the `backend` profile are in `env/staging.versions`. Next: section 6, the "after #99" rows of section 14 and row 12, then [Runbook 8](08-object-storage.md), section 13.
 - **Production**, in its own issue (#36): sections 5 (production), 8, 11.2 and the "production issue" rows of section 14.
-- **The web app** (#41): its tag (`sha-a5faaa2`) and the `web` profile are in `env/staging.versions`. Next: section 6, section 7.6 and row 26 of section 14, then section 10 rows 7 and 8 (with HSTS), tracked in #35.
+- **The web app** (#41): runs on staging since 2026-11-07, and section 7.6 and row 26 of section 14 pass. Next: section 10 row 8 (HSTS), tracked in #35.
 - **DEP-13, DEP-14 and SMTP:** production's backend (section 8, "later").
 - **Runbook 6** (#8): backups and the weekly restore test (section 12).
 - **Runbook 7** (#10): monitoring on a network shared with both projects, memory and disk alerts, Redis memory.

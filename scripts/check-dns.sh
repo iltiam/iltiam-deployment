@@ -20,7 +20,7 @@
 #   NOTE     not counted
 # Rows that need the dashboard, a mailbox, OCI or SSL Labs are not checked here; the last NOTE lists them.
 # Exit 0 when nothing failed (PENDING lines allowed); 1 when a check failed. Some networks break the HTTPS checks
-# (no answer, FAIL): run it again from a phone hotspot.
+# (no answer, FAIL): run it again from the VM.
 
 set -euo pipefail
 
@@ -287,7 +287,7 @@ not_up() {
   shift 2
   for status in "$@"; do
     if [[ "$status" == 000 ]]; then
-      result FAIL "$row" "$label" "no HTTPS answer (network? run it again from a phone hotspot)"
+      result FAIL "$row" "$label" "no HTTPS answer (network? run it again from the VM)"
       return 0
     fi
   done
