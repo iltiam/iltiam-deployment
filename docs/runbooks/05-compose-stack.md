@@ -602,7 +602,7 @@ With staging (and then production) running, do [Runbook 3](03-cloudflare-tunnels
 | 5 | 26: AI unreachable from the tunnel's network | 11.4 (and below) | done on staging, 2026-10-31 |
 | 6 | 27: `NUM_PROXIES` resists a fake header. Check first with `gh variable list --env staging -R iltiam/iltiam-deployment` that `NUM_PROXIES` is `1` | 11.5 | done on staging, 2026-10-31 |
 | 7 | 22 (app part), 24 (assets cached), 25 (app part) | 11.1 to 11.3 | done on staging, 2026-11-07 (#41) |
-| 8 | 28: HSTS | 11.6 | **after #41**, tracked in #35: HSTS waits until the app hosts serve the real web app |
+| 8 | 28: HSTS | 11.6 | done on staging, 2026-11-07 (#35) |
 
 For production, rows 1 to 8 again on `app.` and `api.`, tracked in #36.
 
@@ -820,7 +820,7 @@ The **Verified** column records the date each row last passed.
 | 20 | Production first | section 9.6 | staging `ai-worker` stops and starts; production unchanged | production issue | |
 | 21 | Runbook 3, rows 20, 21, 22 (API), 23, 25 (API), 26, 27 | section 10 | as in Runbook 3, section 13 | on the VM: 20, 21, 26; after #99: the rest | PASS 2026-10-31, staging: 22 (API) `{"status":"ok"}`; 23 `cf-cache-status: DYNAMIC`; 25 (API) not rewritten; 20, 21, 26 and 27 pass (details in Runbook 3, section 13). Production: #36 |
 | 22 | Runbook 3, rows 22 (app), 24, 25 (app) | section 10 | as in Runbook 3, section 13 | after #41 | PASS 2026-11-07, `staging-app` (details in Runbook 3, section 13) |
-| 23 | HSTS, Runbook 3 row 28 | section 10; Runbook 3, section 11.6 | `max-age=15552000; includeSubDomains` | after #41 (#35) | |
+| 23 | HSTS, Runbook 3 row 28 | section 10; Runbook 3, section 11.6 | `max-age=15552000; includeSubDomains` | after #41 (#35) | PASS 2026-11-07, staging: `staging-app` and `staging-api` each send one header, no preload (details in Runbook 3, section 13). Production: #36 |
 | 24 | Production backend | section 8, "later"; section 7 with `production` | `api.iltiamcare.com/api/health/` `{"status": "ok"}` | after DEP-13/14/SMTP | |
 | 25 | Both projects fully healthy at once (AC 1) | sections 7.1, 8, 9.5 | every service of both projects healthy; idle under 10 GB | after #41 and DEP-13/14/SMTP | |
 | 26 | Web app on staging | section 7.6 | `200` with a CSP; `/config.js` with the staging API and `no-cache`; asset `MISS` then `HIT`; no injected script; sign-in reaches the API with no CORS error; under 64 MiB, `oom=false`, no published port | after #41 | PASS 2026-11-07, deploy run 42374345414: the log shows `web.env (600)`, `web` in the start line and `deployed staging`. `/`: `200`, `cf-cache-status: DYNAMIC`, `Cache-Control: no-cache`, the full CSP with `connect-src 'self' https://staging-api.iltiamcare.com`, plus `nosniff`, `X-Frame-Options: DENY`, Referrer-Policy, Permissions-Policy, COOP and CORP. `/config.js`: `200`, `no-cache`, `apiUrl` the staging API, `DYNAMIC`. `/assets/index-BteeYMH5.js`: `MISS` then `HIT`, `public, max-age=31536000, immutable`. VM: 2.355 MiB of 64 MiB, `oom=false restarts=0 limit=67108864 readonly=true capdrop=[ALL]`, `docker port` empty. Sign-in: with a made-up number and a wrong password of 8 or more characters, the app showed the API's error, "The phone number or password is incorrect", so the request reached `staging-api` and CORS works. Injected script: the first browser test found `https://static.cloudflareinsights.com/beacon.min.js`, blocked by the CSP. After Cloudflare RUM and the Web Analytics automatic setup were turned off, a browser-like `curl` of `/login` has no `cloudflareinsights` and the browser console shows no CSP error (Runbook 3, section 11.3) |
@@ -843,7 +843,7 @@ The **Verified** column records the date each row last passed.
 
 - **The staging backend:** its tag (`sha-4b5251d`) and the `backend` profile are in `env/staging.versions`. Next: section 6, the "after #99" rows of section 14 and row 12, then [Runbook 8](08-object-storage.md), section 13.
 - **Production**, in its own issue (#36): sections 5 (production), 8, 11.2 and the "production issue" rows of section 14.
-- **The web app** (#41): runs on staging since 2026-11-07, and section 7.6 and row 26 of section 14 pass. Next: section 10 row 8 (HSTS), tracked in #35.
+- **The web app** (#41): runs on staging since 2026-11-07, and section 7.6 and row 26 of section 14 pass. Section 10 row 8 (HSTS) passed on staging on 2026-11-07 (#35).
 - **DEP-13, DEP-14 and SMTP:** production's backend (section 8, "later").
 - **Runbook 6** (#8): backups and the weekly restore test (section 12).
 - **Runbook 7** (#10): monitoring on a network shared with both projects, memory and disk alerts, Redis memory.

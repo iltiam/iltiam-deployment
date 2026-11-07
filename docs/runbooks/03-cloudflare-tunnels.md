@@ -40,9 +40,9 @@ Filled in when the steps are done. Names only: never a token, ID, team name or I
 | Access applications | Self-hosted, `team-only`, One-time PIN only: `grafana` (`grafana.iltiamcare.com`, whole host), `api.iltiamcare.com` path `admin`, `staging-api.iltiamcare.com` path `admin` |
 | OCI ingress and VM ports | Default Security List: the 3 ingress rules of section 10.1, one egress rule (all protocols to `0.0.0.0/0`); no NSG on the primary VNIC. VM: only `sshd` on `:22` publicly, Oracle's iptables kept, no containers. External port scan from the laptop: only 22 open |
 | `NUM_PROXIES` | `1`, confirmed by the `whoami` headers (one `X-Forwarded-For` entry); behaviour on the real staging backend checked 2026-10-31 (row 27) |
-| Real stack (section 11) | Staging, 2026-10-31: every check that doesn't need the web app passes (section 13). The web-dependent checks and HSTS moved to #35, the production checks to #36, `grafana.` to #10. Staging, 2026-11-07 (#41): the web app's checks pass too (rows 22, 24, 25); HSTS stays in #35 |
+| Real stack (section 11) | Staging, 2026-10-31: every check that doesn't need the web app passes (section 13). The web-dependent checks and HSTS moved to #35, the production checks to #36, `grafana.` to #10. Staging, 2026-11-07 (#41): the web app's checks pass too (rows 22, 24, 25). Staging, 2026-11-07 (#35): HSTS is on (row 28) |
 | Script injection on the app hosts (section 11.3) | 2026-11-07: Cloudflare RUM off, Web Analytics automatic setup off |
-| HSTS (Runbook 2, section 7) | Moved to #35: it waits until `staging-app` serves the real web app (iltiam/iltiam-web#25) |
+| HSTS (Runbook 2, section 7) | On since 2026-11-07 (#35): Max-Age 6 months, includeSubDomains On, Preload Off, No-Sniff On; `staging-app` and `staging-api` each send one header. Staging `SECURE_HSTS_SECONDS=15552000`, deploy run `42398911877`. Production's `SECURE_HSTS_SECONDS` and the header check on `app.` and `api.`: #36 |
 
 ## 1. How it works
 
@@ -603,7 +603,7 @@ When Runbook 5 has deployed staging (and later production), the stand-ins are re
 
 - **Staging:** done on 2026-10-31 for everything that doesn't need the web app.
 - **The web app's checks** (rows 22 and 25 for the app hosts, 24): done on `staging-app` on 2026-11-07 (#41).
-- **HSTS** (row 28) is tracked in #35.
+- **HSTS** (row 28): done on staging on 2026-11-07 (#35).
 - **Production** (`app.` and `api.`) is tracked in #36.
 
 ### 11.1 The four hostnames
@@ -716,6 +716,8 @@ Sign-in from the first visitor's address stays blocked for up to a minute afterw
 
 ### 11.6 HSTS
 
+> **Status: on since 2026-11-07 (#35).** Production isn't deployed, so `app.` and `api.` answered `530` when it was turned on, with a valid certificate; `staging-app` and `staging-api` answered `200`. **Production's `SECURE_HSTS_SECONDS`, its redeploy and the header check on `app.` and `api.` are in #36.**
+
 Only when all four hostnames serve the real app over HTTPS with no certificate warning:
 
 1. Follow [Runbook 2, section 7](02-cloudflare-dns-tls.md) exactly:
@@ -798,7 +800,7 @@ The **Verified** column records the date each row last passed.
 | 25 | No rewriting | section 11.3, with `curl` and, for the app hosts, a real browser | no output from `curl`, and no injected script in the browser (also Runbook 2, row 20) | after #2 (API); #35 (app) | PASS 2026-10-31, `staging-api` `/api/health/`: the backend's JSON unchanged, no injected script (Runbook 2, row 20). PASS 2026-11-07, `staging-app` (#41), after turning off Cloudflare RUM and Web Analytics automatic setup: a browser-like `curl` of `/login` has no `cloudflareinsights`, and the browser console shows no CSP error (section 11.3) |
 | 26 | AI unreachable | section 11.4 | on the VM: only `cloudflared`, `backend-web` and `web` on `edge`; `Could not resolve host` or `Resolving timed out` for `ai-api`, `ai-worker`, `ai-beat`, `postgres`, `redis`; the backend answers on the same network; the tunnel's configuration has only the two routes and the 404 catch-all. From outside: no DNS `Answer` for `ai`, `staging-ai`, `ai-api`, `staging-ai-api`; the AI paths give `404` on `staging-api` | after #2; #36 (`iltiam-prod_edge`) | PASS 2026-10-31 (VM; outside checks from the King Saud University network): exactly the three `iltiam-staging_` networks; `edge` holds only `cloudflared` and `backend-web`; the five names `Resolving timed out`; `backend-web` `/api/health/` `200`; tunnel configuration `http://web:8080`, `http://backend-web:8000`, `http_status:404`. `/health`, `/ready`, `/version`, `/capabilities`, `/v1/analyze` `404`; the four names `"Status":0` with no `Answer`. Production: #36 |
 | 27 | `NUM_PROXIES` | section 11.5 | `NUM_PROXIES` `1` in GitHub and in the container; `429 application/json` after about 20 attempts despite fake addresses; right after, a different visitor gets `400` | after #2; #36 (production) | PASS 2026-10-31, staging: `1` in GitHub and in `backend-web`. From the VM with a fake `X-Forwarded-For` per request: 20 × `400 application/json`, then `429 application/json` (the backend's limit); right after, the laptop (a different visitor) got `400 application/json`. Production: #36 |
-| 28 | HSTS | section 11.6 | `max-age=15552000; includeSubDomains` on app and API (Runbook 2, rows 19 to 21) | #35; #36 (production header) | |
+| 28 | HSTS | section 11.6 | `max-age=15552000; includeSubDomains` on app and API (Runbook 2, rows 19 to 21) | #35; #36 (production header) | PASS 2026-11-07, staging (#35): `staging-app` and `staging-api` each send one `strict-transport-security: max-age=15552000; includeSubDomains`, no preload; deploy run `42398911877`. Production: #36 |
 
 **Record the results as a comment on issue #9:** pass or fail per row, with the date. **Never include** tokens, tunnel IDs, CNAME targets, account or zone IDs, the team name, dashboard URLs, IP addresses or email addresses.
 
@@ -841,9 +843,9 @@ The **Verified** column records the date each row last passed.
 ## 16. What comes next
 
 - **[Runbook 5](05-compose-stack.md)** (#2): the two Compose projects, each with its `cloudflared` (`TUNNEL_TOKEN` from `CF_TUNNEL_TOKEN`), the `edge`, `internal` and `egress` networks, `FORWARDED_ALLOW_IPS` (section 8) and no `ports:`. Staging runs, and its section 11 checks without the web app passed on 2026-10-31.
-- **#35:** HSTS (section 11.6, row 28; Runbook 2, section 7 and rows 19 and 21). Rows 22 and 25 for the app hosts and row 24 passed on staging with #41. The web image (WEB-03, iltiam/iltiam-web#25) brings the port (8080), the content security policy and security headers, and the `Cache-Control` headers (section 6.2).
-- **#36** (production): section 11 and rows 7, 16, 20 to 28 on `app.` and `api.`.
-- **[Runbook 4](04-secrets.md)** (#3): `SECURE_HSTS_SECONDS` (section 11.6) in both Environments, with #35.
+- **#35:** HSTS passed on staging on 2026-11-07 (section 11.6, row 28; Runbook 2, section 7 and rows 19 and 21). Rows 22 and 25 for the app hosts and row 24 passed on staging with #41. The web image (WEB-03, iltiam/iltiam-web#25) brings the port (8080), the content security policy and security headers, and the `Cache-Control` headers (section 6.2).
+- **#36** (production): section 11 and rows 7, 16, 20 to 28 on `app.` and `api.`, with production's `SECURE_HSTS_SECONDS`.
+- **[Runbook 4](04-secrets.md)** (#3): `SECURE_HSTS_SECONDS` (section 11.6): staging set on 2026-11-07 (#35), production in #36.
 - **Runbook 7** (#10): the `grafana.` route (on which tunnel) and `status.`, then row 17; the Access application already exists (section 9.3).
 - **DEP-10** (#17): automates the checks of section 11 as the post-deploy smoke test.
 - **Later hardening:** SSH through a tunnel with Access, and port 22 closed (section 10.3).
