@@ -124,7 +124,7 @@ Do this **once for staging, then again for production**. The script makes new va
 Each one comes from its own runbook. Add it to **both** Environments, each with its own value, when that runbook is done.
 
 - **Needed before the first staging deploy** (`required` in the templates): the storage keys, `CF_TUNNEL_TOKEN`, `TURNSTILE_SECRET_KEY` and `WEIGHTS_READ_TOKEN`.
-- **Can wait on staging** (`prod-required`): Authentica, SMTP and Firebase. Until they exist, the staging backend prints SMS, push and email to its log instead (section 9 table).
+- **Can wait on staging** (`prod-required`): Authentica and Firebase. Until they exist, the staging backend prints SMS and push to its log instead (section 9 table). SMTP is already set on staging (2026-11-07); production's is in #36.
 - **Production refuses to start** until every `prod-required` one is set.
 
 | Secret (Environment secret) | From | Runbook / issue |
@@ -134,7 +134,7 @@ Each one comes from its own runbook. Add it to **both** Environments, each with 
 | `CF_TUNNEL_TOKEN` | Cloudflare Zero Trust, tunnel `iltiam-staging` / `iltiam-prod` | [Runbook 3](03-cloudflare-tunnels.md) (#9), section 3 |
 | `AUTHENTICA_API_KEY` (plus the variable `AUTHENTICA_SENDER_NAME`) | Authentica dashboard | Runbook 12 (DEP-14) |
 | `TURNSTILE_SECRET_KEY` (plus the variable `TURNSTILE_SITE_KEY`) | Cloudflare → Turnstile, one widget per environment | [Runbook 2](02-cloudflare-dns-tls.md) (DEP-01), section 10 |
-| `EMAIL_HOST_USER`, `EMAIL_HOST_PASSWORD` | OCI Email Delivery SMTP credentials of the environment's own SMTP user (**pending SMTP provider**) | [Runbook 2](02-cloudflare-dns-tls.md) (DEP-01), section 11.5 |
+| `EMAIL_HOST_USER`, `EMAIL_HOST_PASSWORD` | OCI Email Delivery SMTP credentials of the environment's own SMTP user (staging set 2026-11-07, production in #36) | [Runbook 2](02-cloudflare-dns-tls.md) (DEP-01), section 11.5 |
 | `FCM_SERVICE_ACCOUNT_JSON` | Firebase → Project settings → Service accounts → Generate new private key | Runbook 11 (DEP-13) |
 | `WEIGHTS_READ_TOKEN` | Fine-grained PAT, **one per environment**: only `iltiam-ai-service`, Contents read-only, 1-year expiry | `docs/secrets.md`, section 6.6 |
 | `STAGING_TEST_PASSWORD` (staging only) | You choose it; it must meet the password policy | backend `docs/deployment.md` |
@@ -173,8 +173,9 @@ These are the values to set. Every other `var` in the templates is `optional`: l
 | `SMS_BACKEND` | leave out until Runbook 12, then as production | `apps.notifications.sms.AuthenticaSMSBackend` |
 | `AUTHENTICA_SENDER_NAME` | the approved sender name | same |
 | `PUSH_BACKEND` | leave out until Runbook 11, then as production | `apps.notifications.push.FCMPushBackend` |
-| `EMAIL_BACKEND` | leave out until Runbook 2's SMTP, then as production | `django.core.mail.backends.smtp.EmailBackend` |
-| `EMAIL_HOST`, `EMAIL_PORT`, `DEFAULT_FROM_EMAIL` | OCI Email Delivery's Riyadh SMTP endpoint (Runbook 2, section 11.2), `587`, `ILTIAM Staging <no-reply@iltiamcare.com>` | same host and port, `ILTIAM <no-reply@iltiamcare.com>` |
+| `EMAIL_BACKEND` | `django.core.mail.backends.smtp.EmailBackend` (set 2026-11-07, #35) | same (set with #36) |
+| `EMAIL_HOST`, `EMAIL_PORT`, `DEFAULT_FROM_EMAIL` | OCI Email Delivery's Riyadh SMTP endpoint (Runbook 2, section 11.2), `587`, `ILTIAM Staging <no-reply@iltiamcare.com>` (set 2026-11-07, #35) | same host and port, `ILTIAM <no-reply@iltiamcare.com>` (set with #36) |
+| `SECURE_HSTS_SECONDS` | `15552000` (set 2026-11-07, #35) | `15552000` (set with #36) |
 | `TOTP_ISSUER` | `ILTIAM Staging` | leave out (`ILTIAM`) |
 | `OTP_DEV_ECHO_NUMBERS` | the line `manage.py seed_staging` prints | **never** (production refuses it) |
 | `ALLOW_SYNC` | `0` | `0` |
@@ -184,7 +185,7 @@ These are the values to set. Every other `var` in the templates is `optional`: l
 | `IMAGE_ORIGINS` | `https://*.compat.objectstorage.me-riyadh-1.oci.customer-oci.com` | same (set with #36). Keep the wildcard: the content security policy is public, and the storage namespace must stay out of it |
 | `TURNSTILE_SITE_KEY` | the staging widget's site key | the production widget's site key. The web image doesn't read it yet (iltiam/iltiam-web#28) |
 
-**`ACTIVATION_LINK_BASE_URL`: TO CONFIRM with the web team (WEB-05).** The backend emails `<ACTIVATION_LINK_BASE_URL>?token=<token>` to an invited clinic admin or Super Admin. The web app has no such page yet: an unknown path redirects to `/`, which drops the token. Until #41 runs the web app, `staging-app` answers 502 anyway, and staging's console email backend writes the link only to the backend's log. Questions for the web team:
+**`ACTIVATION_LINK_BASE_URL`: TO CONFIRM with the web team (WEB-05).** The backend emails `<ACTIVATION_LINK_BASE_URL>?token=<token>` to an invited clinic admin or Super Admin. The web app has no such page yet (iltiam/iltiam-web#29): an unknown path redirects to `/`, which drops the token. Staging emails the link through OCI since 2026-11-07, and it opens the home page until #29 is deployed; then resend the invitation ([Runbook 2](02-cloudflare-dns-tls.md), section 11.7). Questions for the web team:
 
 1. Is the page's path `/activate`, or something else (for example `/set-password`)?
 2. Does it read the query parameter `token`? The base URL must not contain a `?` of its own.
@@ -339,7 +340,7 @@ Every row must match before an environment is used. Record the result on the iss
 ## 15. What comes next
 
 - **[Runbook 2](02-cloudflare-dns-tls.md)** (DEP-01): the Turnstile keys now (section 10); the SMTP values once the provider is set up (section 11).
-- **[Runbook 3](03-cloudflare-tunnels.md)** (#9): `CF_TUNNEL_TOKEN`, `NUM_PROXIES`, and later `SECURE_HSTS_SECONDS`.
+- **[Runbook 3](03-cloudflare-tunnels.md)** (#9): `CF_TUNNEL_TOKEN`, `NUM_PROXIES` and `SECURE_HSTS_SECONDS` (staging set 2026-11-07; production in #36).
 - **[Runbook 5](05-compose-stack.md)** (#2): `compose.yml` reads these env files, and the deploy workflow (by hand) writes them to the VM.
 - **[Runbook 8](08-object-storage.md)** (DEP-02): storage keys, the storage endpoint and bucket names.
 - **Runbook 9** (DEP-03): starts the deploy workflow on its own for staging, then runs the smoke test.

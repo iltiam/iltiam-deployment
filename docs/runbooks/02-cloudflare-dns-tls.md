@@ -2,8 +2,8 @@
 
 - **Issue:** iltiam/iltiam-deployment#12 (DEP-01); section 11.9 (receiving mail): iltiam/iltiam-deployment#28. **Decision record:** [ADR-0004](../adr/0004-hosting.md), Decisions 4 and 6.
 - **Who:** anyone on the team with Administrator rights on the Cloudflare account. No cloud experience needed; follow the steps in order.
-- **Time:** about 1.5 hours, plus 30 minutes for receiving mail (section 11.9). DNSSEC then turns active by itself within 1–2 days. Two parts wait:
-  - **HSTS** (section 7) waits for #2 ([Runbook 3](03-cloudflare-tunnels.md), section 11).
+- **Time:** about 1.5 hours, plus 30 minutes for receiving mail (section 11.9). DNSSEC then turns active by itself within 1–2 days. Two parts came later:
+  - **HSTS** (section 7): on since 2026-11-07 (#35, [Runbook 3](03-cloudflare-tunnels.md), section 11).
   - **The email provider:** staging is done (sections 11.3 to 11.7, #35). Production moved to #36.
 - **Result:** the zone `iltiamcare.com` on Cloudflare with:
   - two administrators with 2FA, and DNSSEC on;
@@ -34,7 +34,7 @@ Cloudflare redesigned its dashboard in 2025 and still moves menus. If a menu bel
 | Registrar | Cloudflare Registrar, registered 2026-10-28 |
 | Account owner | ben-fatah |
 | Owner 2FA | On |
-| Second administrator | Omar-Nasri, Administrator (invited 2026-10-28; accepted, checked 2026-10-30); 2FA not yet confirmed |
+| Second administrator | Omar-Nasri, Administrator (invited 2026-10-28; accepted, checked 2026-10-30); 2FA On and Active on the Members page (2026-11-07) |
 | Auto-renew | On |
 | WHOIS privacy | On |
 | Registrar lock | On |
@@ -43,7 +43,7 @@ Cloudflare redesigned its dashboard in 2025 and still moves menus. If a menu bel
 | SSL/TLS encryption mode | Custom, Full (strict) |
 | Edge certificates | Always Use HTTPS On, Minimum TLS 1.2, TLS 1.3 On, Automatic HTTPS Rewrites On |
 | Universal SSL | Active for `iltiamcare.com, *.iltiamcare.com`, backup certificate issued (2026-10-30) |
-| HSTS | Not yet (after #2, section 7) |
+| HSTS | On since 2026-11-07 (section 7): Max-Age 6 months, includeSubDomains On, Preload Off, No-Sniff On. Staging `SECURE_HSTS_SECONDS` `15552000`; production's is in #36 |
 | Rocket Loader / Email Obfuscation (zone) | Off / Off |
 | Configuration rule `api-no-rewrites` | Deployed: Email Obfuscation Off, Rocket Loader Off on `api.` and `staging-api.iltiamcare.com` |
 | Bot Fight Mode | Off |
@@ -162,9 +162,9 @@ TLS 1.3 is what browsers and phones use when they can (SRS §17). TLS 1.2 stays 
 
 **What you should see:** at the top of the page, a **Universal** certificate for `iltiamcare.com, *.iltiamcare.com`. Its status may stay **Pending** until Runbook 3 adds the first proxied hostname. That is fine.
 
-## 7. HSTS: do this after #2 (Runbook 3, section 11)
+## 7. HSTS (on since 2026-11-07)
 
-> **Do after #2**, as part of [Runbook 3](03-cloudflare-tunnels.md), section 11.6. Only turn HSTS on when all of these hold:
+> **Status: on since 2026-11-07 (#35); the result is at the end of this section.** It was part of [Runbook 3](03-cloudflare-tunnels.md), section 11.6. Only turn HSTS on when all of these hold:
 > - `https://app.iltiamcare.com`, `https://staging-app.iltiamcare.com` and both API hosts open with no certificate warning;
 > - every other subdomain that exists (`grafana.`, `status.`) also serves HTTPS.
 
@@ -188,6 +188,14 @@ curl.exe -sI https://staging-app.iltiamcare.com/
 The output includes `strict-transport-security: max-age=15552000; includeSubDomains`.
 
 **The backend sends its own HSTS header** on the API hosts: one week, with subdomains (backend `docs/deployment.md`). Browsers obey the first header they get. After this step, run the same check against `https://staging-api.iltiamcare.com/api/health/`. Then set the Environment variable `SECURE_HSTS_SECONDS` to `15552000` in both GitHub Environments ([Runbook 4](04-secrets.md), section 9) and redeploy, so both headers say 6 months.
+
+**Result (2026-11-07):**
+- **Before turning it on:** Cloudflare DNS showed exactly 4 proxied records: `app`, `api`, `staging-app` and `staging-api`. No apex, `www` or wildcard. DKIM, `ruh.rp` and MX are DNS only.
+- **Checked from the VM:** `staging-app` and `staging-api` answered `200`. `app` and `api` answered `530`, because production isn't deployed (#36). All four have a valid certificate (curl's `ssl_verify_result` is `0`).
+- **Cloudflare:** HSTS On, Max-Age 6 months, includeSubDomains On, Preload Off, No-Sniff On.
+- **Staging:** `SECURE_HSTS_SECONDS=15552000`, deploy run `42398911877` green.
+- **Headers:** `staging-app` and `staging-api` each send one `strict-transport-security: max-age=15552000; includeSubDomains`, with no preload.
+- **Production:** `SECURE_HSTS_SECONDS` and the header check on `app` and `api` are in #36.
 
 **From then on, never:**
 - pause Cloudflare;
@@ -777,7 +785,7 @@ The **Verified** column records the date each row last passed. "DoH" means the D
 | # | Check | How | Expected | When | Verified |
 |---|---|---|---|---|---|
 | 1 | Owner 2FA | **My Profile → Authentication**; sign out and in | 2FA enabled; sign-in asks for the code | today | 2026-10-28 |
-| 2 | Second administrator | **Manage Account → Members** | Omar-Nasri, **Administrator**, accepted; Omar-Nasri confirms 2FA on | today | Pending: accepted as Administrator (checked 2026-10-30); 2FA not yet confirmed |
+| 2 | Second administrator | **Manage Account → Members** | Omar-Nasri, **Administrator**, accepted; Omar-Nasri confirms 2FA on | today | 2026-11-07: Omar-Nasri's account shows 2FA On and Active on the Members page (accepted as Administrator, checked 2026-10-30) |
 | 3 | Registrar settings | **Manage Domains → iltiamcare.com → Configuration** | Auto-renew On, privacy On, lock On, DNSSEC enabled | today | 2026-10-28 |
 | 4 | WHOIS | ICANN lookup (12.1) | Contact details redacted; status includes `clientTransferProhibited` | today | 2026-10-30 (ICANN lookup: contacts redacted, `clientTransferProhibited` present) |
 | 5 | Nameservers | `Resolve-DnsName … -Type NS` / `dig NS` / DoH | Two names ending in `.ns.cloudflare.com` | today | 2026-10-28 (DoH) |
@@ -785,7 +793,7 @@ The **Verified** column records the date each row last passed. "DoH" means the D
 | 7 | DS record in `.com` | `Resolve-DnsName … -Type DS` / `dig DS` / DoH | One DS record, algorithm `13`, digest type `2`. Empty means still pending | today | 2026-10-28 (DoH) |
 | 8 | DNSSEC validates | `Resolve-DnsName … -Type SOA -DnssecOk` / `dig @1.1.1.1 … +dnssec` / DoH; DNSViz | PowerShell lists an `RRSIG` record; `dig`'s `flags:` line contains `ad`; DoH prints `DNSSEC-validated=True`; DNSViz shows no errors | today | 2026-10-28 (DoH, AD true) |
 | 9 | Encryption mode | **SSL/TLS → Overview** | Custom, **Full (strict)** | today | 2026-10-28 |
-| 10 | Edge certificates | **SSL/TLS → Edge Certificates** | Always Use HTTPS On, Minimum TLS 1.2, TLS 1.3 On, Automatic HTTPS Rewrites On, HSTS off | today | 2026-10-28 |
+| 10 | Edge certificates | **SSL/TLS → Edge Certificates** | Always Use HTTPS On, Minimum TLS 1.2, TLS 1.3 On, Automatic HTTPS Rewrites On; HSTS off until section 7 (on since 2026-11-07) | today | 2026-10-28 |
 | 11 | Universal certificate | **SSL/TLS → Edge Certificates** | Covers `iltiamcare.com, *.iltiamcare.com`; **Active** (may stay Pending until #9) | today / after #9 | 2026-10-30: Active for `iltiamcare.com, *.iltiamcare.com`; backup certificate issued |
 | 12 | Zone rewriting off | Rocket Loader and Email Obfuscation pages (8.1) | Both Off | today | 2026-10-28 |
 | 13 | API rule | **Rules → Configuration Rules** | `api-no-rewrites` enabled: Email Obfuscation Off, Rocket Loader Off | today | 2026-10-28 |
@@ -794,9 +802,9 @@ The **Verified** column records the date each row last passed. "DoH" means the D
 | 16 | Turnstile | **Turnstile**; `gh secret list` / `gh variable list` per environment | `iltiam-staging` and `iltiam-prod`; `TURNSTILE_SECRET_KEY` and `TURNSTILE_SITE_KEY` in both environments | today | 2026-10-28 |
 | 17 | SPF, before the provider | `Resolve-DnsName iltiamcare.com -Type TXT` / `dig TXT` / DoH; the SPF count (12.1) | Exactly one `v=spf1` record: `v=spf1 include:_spf.mx.cloudflare.net -all` (it was `v=spf1 -all`, verified 2026-10-28, until section 11.9) | after 11.9 | 2026-10-29 |
 | 18 | DMARC | `Resolve-DnsName _dmarc.iltiamcare.com -Type TXT` / `dig TXT _dmarc…` / DoH; **Email → DMARC Management** | Starts exactly with `v=DMARC1; p=quarantine; sp=quarantine; …; rua=mailto:…` (nothing before `v=`); shown as valid | today | 2026-10-28 (DoH) |
-| 19 | HSTS | Section 7, `curl.exe -sI` on `staging-app` and `staging-api` | `max-age=15552000; includeSubDomains` on both | after #2 | |
+| 19 | HSTS | Section 7, `curl.exe -sI` on `staging-app` and `staging-api` | `max-age=15552000; includeSubDomains` on both | after #2 | 2026-11-07: `staging-app` and `staging-api` each send one `strict-transport-security: max-age=15552000; includeSubDomains`, no preload; `check-dns.sh` PASS |
 | 20 | API not rewritten | `curl.exe -s https://staging-api.iltiamcare.com/api/health/` | The backend's JSON, unchanged; no `rocket-loader` or `email-decode` script anywhere | after #2 | 2026-10-31 (`check-dns.sh` PASS: HTTP 200, JSON, no injected script; `cf-cache-status: DYNAMIC`) |
-| 21 | SSL Labs | `https://www.ssllabs.com/ssltest/analyze.html?d=staging-app.iltiamcare.com` | Grade **A** or better (A+ once HSTS is on) | after #2 | 2026-11-07: grade A on all 4 addresses (2 IPv4, 2 IPv6), results hidden from the boards |
+| 21 | SSL Labs | `https://www.ssllabs.com/ssltest/analyze.html?d=staging-app.iltiamcare.com` | Grade **A** or better (A+ once HSTS is on) | after #2 | 2026-11-07, after HSTS: grade A+ on all addresses, results hidden from the boards. Before HSTS: grade A on all 4 addresses (2 IPv4, 2 IPv6) |
 | 22 | DKIM | `Resolve-DnsName <DKIM_SELECTOR>._domainkey.iltiamcare.com -Type CNAME -Server 1.1.1.1` / `dig CNAME … +short`; OCI email domain | The OCI target, DNS only; DKIM **Active** in OCI | after SMTP provider | 2026-11-07: CNAME to `iltiam-ruh-202611.iltiamcare.com.dkim.ruh1.oracleemaildelivery.com`, DNS only; DKIM **Active** in OCI; `check-dns.sh` PASS |
 | 23 | SPF with the provider | `scripts/check-dns.sh` (section 12.1) | Following the `ruh.rp` CNAME, Oracle's one `v=spf1` record, which names its senders; the main SPF is still one record, unchanged (section 11.4) | after SMTP provider | 2026-11-07 (`check-dns.sh` PASS): Oracle's `v=spf1 ip4:… ~all` behind `ruh.rp`; main SPF one record, not edited |
 | 24 | mail-tester | Section 11.6 | **9/10 or more**; SPF, DKIM and DMARC pass | after SMTP provider | 2026-11-07: **9.1/10** from the VM, "properly authenticated", not blocklisted |
@@ -863,9 +871,7 @@ The **Verified** column records the date each row last passed. "DoH" means the D
 
 ## 15. What comes next
 
-- **[Runbook 3](03-cloudflare-tunnels.md)** (#9): the tunnels, public hostnames, cache rules and the sign-in rate limit. Bot Fight Mode, Rocket Loader and Email Obfuscation are already set here, so #9 only verifies them. After #2 (Runbook 3, section 11):
-  - section 7 (HSTS);
-  - checklist rows 11 and 19 to 21.
+- **[Runbook 3](03-cloudflare-tunnels.md)** (#9): the tunnels, public hostnames, cache rules and the sign-in rate limit. Bot Fight Mode, Rocket Loader and Email Obfuscation are already set here, so #9 only verifies them. HSTS is on for staging (section 7; rows 19 to 21, 2026-11-07, #35). Production's `SECURE_HSTS_SECONDS` is in #36.
 - **SMTP provider:** staging is done (sections 11.3 to 11.7; rows 22 to 25, 33 and 34; #35). Production email is tracked in #36. When iltiam/iltiam-web#29 is deployed, resend the first Super Admin's invitation (section 11.7).
 - **Runbook 4** (#3): the Turnstile keys (section 10) and later the SMTP credentials (section 11.5) fill its sections 7 and 9.
 - **Receiving mail** (#28): section 11.9 now, then checklist rows 17 and 26 to 32. Follow-ups:
