@@ -679,11 +679,18 @@ for p in /health /ready /version /capabilities /v1/analyze; do printf '%-14s ' "
 
 ### 11.5 `NUM_PROXIES` resists a fake header
 
-Once `NUM_PROXIES=1` is deployed (section 8). First check the value in GitHub (Git Bash) and in the running container (on the VM):
+Once `NUM_PROXIES=1` is deployed (section 8). First check the value in GitHub (Git Bash):
 
 ```bash
 gh variable list --env staging -R iltiam/iltiam-deployment | grep -E '^NUM_PROXIES'
-sudo -iu deploy /srv/iltiam/repo/scripts/compose.sh staging exec -T backend-web printenv NUM_PROXIES
+```
+
+Then check it in the running container. On the VM, become `deploy` first: the `iltiam` shortcut ([Runbook 5](05-compose-stack.md), section 4.4) exists only in that shell, so `sudo -iu deploy iltiam …` on one line gives `command not found`:
+
+```bash
+sudo -iu deploy
+iltiam staging exec -T backend-web printenv NUM_PROXIES
+exit
 ```
 
 **What you should see:** `NUM_PROXIES  1`, then `1`.
