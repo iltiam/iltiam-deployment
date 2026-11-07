@@ -3,11 +3,14 @@
 # docs/runbooks/02-cloudflare-dns-tls.md, section 12.2, that a command can decide. DNS, the email records and the
 # HTTPS headers of the staging hosts. Read-only: it only asks Cloudflare's resolver and fetches two public pages.
 #
-# Usage, in Git Bash on a laptop or on iltiam-1:
+# Usage, in Git Bash on a Windows laptop or on iltiam-1:
 #   bash scripts/check-dns.sh
+# In PowerShell, name Git Bash in full, because plain "bash" there can start WSL instead. -l reads your Git Bash
+# profile, which may be what puts jq on the PATH:
+#   & "C:\Program Files\Git\bin\bash.exe" -l scripts/check-dns.sh
 #
 # Optional, from the environment:
-#   DKIM_SELECTOR  the OCI DKIM selector of section 11.3 (e.g. iltiam-ruh-202611); without it row 22 is PENDING
+#   DKIM_SELECTOR  the OCI DKIM selector of section 11.3, when it isn't the default iltiam-ruh-202611
 #
 # DNS goes to Cloudflare's resolver over HTTPS (DoH), so it works where `dig` is missing (Git Bash) and on networks
 # that block port 53 to outside resolvers. Needs curl and jq.
@@ -16,7 +19,7 @@
 # paste into the issue: the DMARC report address and the DS digest are redacted, and no IP, ID or URL is printed.
 #   PASS     the row's command check passed
 #   FAIL     it failed, or a query got no answer
-#   PENDING  can't pass yet: the record or the origin doesn't exist yet (after the SMTP provider, after #2)
+#   PENDING  can't pass yet: the email record or the HSTS header doesn't exist yet (#35), or staging isn't answering
 #   NOTE     not counted
 # Rows that need the dashboard, a mailbox, OCI or SSL Labs are not checked here; the last NOTE lists them.
 # Exit 0 when nothing failed (PENDING lines allowed); 1 when a check failed. Some networks break the HTTPS checks
@@ -27,10 +30,11 @@ set -euo pipefail
 DOMAIN=iltiamcare.com
 DOH=https://cloudflare-dns.com/dns-query
 SPF_CF="v=spf1 include:_spf.mx.cloudflare.net -all"
-SPF_OCI="v=spf1 include:_spf.mx.cloudflare.net include:ap.rp.oracleemaildelivery.com -all"
-# OCI's "All Commercial Regions" fallback (Runbook 2, section 11.4).
-SPF_OCI_ALL="v=spf1 include:_spf.mx.cloudflare.net include:rp.oracleemaildelivery.com include:ap.rp.oracleemaildelivery.com include:eu.rp.oracleemaildelivery.com -all"
-RETURN_PATH_MX="10 bmta.email.me-riyadh-1.oci.oraclecloud.com."
+# The one CNAME that OCI generates for the return path (Runbook 2, section 11.4).
+RETURN_PATH_TARGET="ruh1.rp.oracleemaildelivery.com."
+GIT_BASH_HINT='On Windows, use Git Bash: & "C:\Program Files\Git\bin\bash.exe" -l scripts/check-dns.sh'
+# Row 19: a max-age of exactly 6 months.
+HSTS_MAX_AGE_RE='(^|[[:space:];])max-age=15552000($|[[:space:];])'
 # Statuses Cloudflare answers itself when nothing runs behind the tunnel yet (530: no connector for the hostname).
 ORIGIN_DOWN=" 502 503 504 521 522 523 524 530 "
 
@@ -40,9 +44,10 @@ die() {
 }
 
 [[ $# -eq 0 ]] || die "usage: $0 (no arguments; DKIM_SELECTOR from the environment)"
-command -v curl >/dev/null 2>&1 || die "curl not found"
-command -v jq >/dev/null 2>&1 || die "jq not found"
-[[ -z "${DKIM_SELECTOR:-}" || "$DKIM_SELECTOR" =~ ^[A-Za-z0-9-]+$ ]] || die "DKIM_SELECTOR: letters, digits and dashes only"
+command -v curl >/dev/null 2>&1 || die "curl not found. $GIT_BASH_HINT"
+command -v jq >/dev/null 2>&1 || die "jq not found. $GIT_BASH_HINT"
+DKIM_SELECTOR="${DKIM_SELECTOR:-iltiam-ruh-202611}"
+[[ "$DKIM_SELECTOR" =~ ^[A-Za-z0-9-]+$ ]] || die "DKIM_SELECTOR: letters, digits and dashes only"
 
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
@@ -73,14 +78,20 @@ jqr() {
   jq -r "$@" | tr -d '\r'
 }
 
-# query NAME TYPE: the resolver's JSON answer goes into $json. Also notes, for row 8, every answer that wasn't
-# DNSSEC-validated (the AD flag) or that failed (SERVFAIL is what a broken DNSSEC chain gives).
+# ask NAME TYPE: the resolver's JSON answer goes into $json. Use it alone for an answer that follows a CNAME into
+# Oracle's zone: that zone isn't signed, so the answer's AD flag says nothing about ours (row 8).
 json=
-query() {
+ask() {
   json=$(curl -fsS -m 15 --retry 2 -H 'accept: application/dns-json' "$DOH?name=$1&type=$2" 2>/dev/null) || {
     json=
     return 1
   }
+}
+
+# query NAME TYPE: the same for an answer from our own zone. Also notes, for row 8, every answer that wasn't
+# DNSSEC-validated (the AD flag) or that failed (SERVFAIL is what a broken DNSSEC chain gives).
+query() {
+  ask "$1" "$2" || return 1
   answered=$((answered + 1))
   local status ad
   status=$(jqr '.Status' <<<"$json")
@@ -115,6 +126,7 @@ redact_dmarc() {
 }
 
 printf 'check-dns %s: %s UTC, DNS from Cloudflare over HTTPS\n' "$DOMAIN" "$(date -u '+%Y-%m-%d %H:%M')"
+[[ -z "${WSL_DISTRO_NAME:-}" ]] || note "this is WSL, not Git Bash. $GIT_BASH_HINT"
 
 # --- DNS -------------------------------------------------------------------------------------------------------------
 section "DNS: the zone and DNSSEC"
@@ -154,6 +166,7 @@ query "$DOMAIN" SOA || true
 
 section "DNS: email records"
 
+spf=()
 if query "$DOMAIN" TXT; then
   mapfile -t spf < <(txt | grep -iE '^v=spf1( |$)' || true)
   if ((${#spf[@]} == 0)); then
@@ -162,19 +175,11 @@ if query "$DOMAIN" TXT; then
     result FAIL "row 17" "SPF" "${#spf[@]} v=spf1 records: SPF fails everywhere (section 11.9, step 3)"
   else
     value=$(redact_spf <<<"${spf[0]}")
-    case "${spf[0]}" in
-      "$SPF_CF")
-        result PASS "row 17" "SPF, one record" "$value"
-        result PENDING "row 23" "SPF with the provider" "no OCI include yet (section 11.4)"
-        ;;
-      "$SPF_OCI" | "$SPF_OCI_ALL")
-        result PASS "row 17" "SPF, one record"
-        result PASS "row 23" "SPF with the provider" "$value (the OCI page is checked by hand)"
-        ;;
-      *)
-        result FAIL "row 17" "SPF, one record" "unexpected content: $value"
-        ;;
-    esac
+    if [[ "${spf[0]}" == "$SPF_CF" ]]; then
+      result PASS "row 17" "SPF, one record" "$value"
+    else
+      result FAIL "row 17" "SPF, one record" "unexpected content: $value"
+    fi
   fi
 else
   no_answer "row 17" "SPF"
@@ -219,9 +224,7 @@ else
   no_answer "row 27" "Email Routing DKIM"
 fi
 
-if [[ -z "${DKIM_SELECTOR:-}" ]]; then
-  result PENDING "row 22" "OCI DKIM" "set DKIM_SELECTOR after section 11.3"
-elif query "$DKIM_SELECTOR._domainkey.$DOMAIN" CNAME; then
+if query "$DKIM_SELECTOR._domainkey.$DOMAIN" CNAME; then
   if [[ -n "$(data 5)" ]]; then
     result PASS "row 22" "OCI DKIM" "CNAME present, DNS only (target not shown; Active is checked in OCI)"
   elif query "$DKIM_SELECTOR._domainkey.$DOMAIN" A && [[ -n "$(data 1)" ]]; then
@@ -233,22 +236,51 @@ else
   no_answer "row 22" "OCI DKIM"
 fi
 
-if query "ruh.rp.$DOMAIN" MX; then
-  mapfile -t rp_mx < <(data 15)
-  if query "ruh.rp.$DOMAIN" TXT; then
-    rp_spf=$(txt | grep -ciE '^v=spf1( |$)' || true)
-    if ((${#rp_mx[@]} == 0 && rp_spf == 0)); then
-      result PENDING "row 33" "return path ruh.rp" "no records yet (section 11.4)"
-    elif ((${#rp_mx[@]} == 1 && rp_spf == 1)) && [[ "${rp_mx[0]}" == "$RETURN_PATH_MX" ]]; then
-      result PASS "row 33" "return path ruh.rp" "MX ${RETURN_PATH_MX%.}, one v=spf1 TXT (the OCI page is checked by hand)"
-    else
-      result FAIL "row 33" "return path ruh.rp" "${#rp_mx[@]} MX (${rp_mx[*]:-none}), $rp_spf v=spf1 TXT; expected MX ${RETURN_PATH_MX%.} and one TXT"
-    fi
-  else
+# Row 23 reads the SPF behind this CNAME: "ok" when the CNAME is right, "missing" when there is none yet.
+return_path=bad
+if query "ruh.rp.$DOMAIN" CNAME; then
+  rp_cname=$(data 5)
+  if [[ "${rp_cname,,}" == "$RETURN_PATH_TARGET" ]]; then
+    return_path=ok
+    # A CNAME can't share its name with any other record, so this also rules out an MX or TXT at ruh.rp.
+    result PASS "row 33" "return path ruh.rp" "one CNAME to ${RETURN_PATH_TARGET%.}, DNS only (Active is checked in OCI)"
+  elif [[ -n "$rp_cname" ]]; then
+    result FAIL "row 33" "return path ruh.rp" "CNAME to ${rp_cname%.}, expected ${RETURN_PATH_TARGET%.} (section 11.4)"
+  elif query "ruh.rp.$DOMAIN" A && [[ -n "$(data 1)" ]]; then
+    result FAIL "row 33" "return path ruh.rp" "proxied (orange cloud): set DNS only (section 11.4)"
+  elif ! query "ruh.rp.$DOMAIN" MX; then
     no_answer "row 33" "return path ruh.rp"
+  elif [[ -n "$(data 15)" ]]; then
+    result FAIL "row 33" "return path ruh.rp" "an MX at ruh.rp: replace it with OCI's one CNAME (section 11.4)"
+  elif ! query "ruh.rp.$DOMAIN" TXT; then
+    no_answer "row 33" "return path ruh.rp"
+  elif [[ -n "$(txt)" ]]; then
+    result FAIL "row 33" "return path ruh.rp" "a TXT at ruh.rp: replace it with OCI's one CNAME (section 11.4)"
+  else
+    return_path=missing
+    result PENDING "row 33" "return path ruh.rp" "no record yet (section 11.4)"
   fi
 else
   no_answer "row 33" "return path ruh.rp"
+fi
+
+# OCI's mail is checked against the SPF of its return path, so the main record doesn't need an OCI include. Oracle's
+# record lists its senders as ip4: ranges today, so any mechanism that names a sender counts, not only include:.
+if ((${#spf[@]} != 1)); then
+  result FAIL "row 23" "SPF with the provider" "the main SPF isn't one record (row 17)"
+elif [[ "$return_path" == missing ]]; then
+  result PENDING "row 23" "SPF with the provider" "no return path yet (section 11.4)"
+elif [[ "$return_path" != ok ]]; then
+  result FAIL "row 23" "SPF with the provider" "the return path isn't right (row 33)"
+elif ask "ruh.rp.$DOMAIN" TXT; then
+  mapfile -t rp_spf < <(txt | grep -iE '^v=spf1( |$)' || true)
+  if ((${#rp_spf[@]} == 1)) && [[ "${rp_spf[0]}" =~ [[:space:]](ip4:|ip6:|include:) ]]; then
+    result PASS "row 23" "SPF with the provider" "Oracle's at ruh.rp: $(redact_spf <<<"${rp_spf[0]}"); the main SPF is one record"
+  else
+    result FAIL "row 23" "SPF with the provider" "${#rp_spf[@]} v=spf1 records behind ruh.rp, expected one that names Oracle's senders"
+  fi
+else
+  no_answer "row 23" "SPF with the provider"
 fi
 
 if ((answered == 0)); then
@@ -260,7 +292,7 @@ else
 fi
 
 # --- HTTPS -----------------------------------------------------------------------------------------------------------
-section "HTTPS: staging hosts (after #2 deploys staging; Runbook 3, section 11)"
+section "HTTPS: staging hosts (Runbook 3, section 11)"
 
 # fetch NAME HOST PATH: GET with certificate checks on, redirects not followed. Headers go to $tmp/NAME.head and the
 # body to $tmp/NAME.body. Prints the status: 000 when there was no answer.
@@ -272,9 +304,24 @@ fetch() {
   printf '%s' "${code:-000}"
 }
 
+# header_all NAME FIELD: every value of that header in the response, one per line, or nothing.
+header_all() {
+  { grep -i "^$2:" "$tmp/$1.head" || true; } | cut -d: -f2- | tr -d '\r' | sed 's/^ *//'
+}
+
 # header NAME FIELD: the last value of that header in the response, or nothing.
 header() {
-  { grep -i "^$2:" "$tmp/$1.head" || true; } | tail -n 1 | cut -d: -f2- | tr -d '\r' | sed 's/^ *//'
+  header_all "$1" "$2" | tail -n 1
+}
+
+# hsts_ok VALUE...: at least one value, and each has the 6-month max-age and includeSubDomains, without preload. Every
+# line counts: Cloudflare and the backend can each send one, and browsers obey only the first.
+hsts_ok() {
+  (($# > 0)) || return 1
+  local value
+  for value in "$@"; do
+    [[ "$value" =~ $HSTS_MAX_AGE_RE && "$value" == *[Ii]nclude[Ss]ub[Dd]omains* && "$value" != *[Pp]reload* ]] || return 1
+  done
 }
 
 origin_down() {
@@ -293,7 +340,7 @@ not_up() {
   done
   for status in "$@"; do
     if origin_down "$status"; then
-      result PENDING "$row" "$label" "staging isn't deployed yet (HTTP $status): after #2"
+      result PENDING "$row" "$label" "staging isn't answering (HTTP $status): check the stack first (Runbook 5)"
       return 0
     fi
   done
@@ -305,15 +352,14 @@ api=$(fetch api "staging-api.$DOMAIN" /api/health/)
 api2=$(fetch api2 "staging-api.$DOMAIN" /api/health/)
 
 if ! not_up "row 19" "HSTS" "$app" "$api"; then
-  app_hsts=$(header app strict-transport-security)
-  api_hsts=$(header api strict-transport-security)
-  if [[ -z "$app_hsts" ]]; then
-    result PENDING "row 19" "HSTS" "no header on staging-app yet (section 7)"
-  elif [[ "$app_hsts" == *max-age=15552000* && "$app_hsts" == *[Ii]nclude[Ss]ub[Dd]omains* &&
-    "$api_hsts" == *max-age=15552000* && "$api_hsts" == *[Ii]nclude[Ss]ub[Dd]omains* ]]; then
-    result PASS "row 19" "HSTS" "staging-app and staging-api: $app_hsts"
+  mapfile -t app_hsts < <(header_all app strict-transport-security)
+  mapfile -t api_hsts < <(header_all api strict-transport-security)
+  if ((${#app_hsts[@]} == 0)); then
+    result PENDING "row 19" "HSTS" "no header on staging-app yet: the web app is live, HSTS is the last step of #35 (section 7)"
+  elif hsts_ok "${app_hsts[@]}" && hsts_ok "${api_hsts[@]}"; then
+    result PASS "row 19" "HSTS" "${#app_hsts[@]} header(s) on staging-app, ${#api_hsts[@]} on staging-api, all: ${app_hsts[0]}"
   else
-    result FAIL "row 19" "HSTS" "staging-app: ${app_hsts:-none}; staging-api: ${api_hsts:-none} (section 7)"
+    result FAIL "row 19" "HSTS" "staging-app: $(IFS='|'; printf '%s' "${app_hsts[*]:-none}"); staging-api: $(IFS='|'; printf '%s' "${api_hsts[*]:-none}") (section 7)"
   fi
 fi
 
@@ -341,7 +387,7 @@ fi
 
 # --- Summary ---------------------------------------------------------------------------------------------------------
 section "Summary"
-note "by hand (Runbook 2, section 12.2): rows 1-4, 6, 9-16, 21, 24, 25, 28-32 and 34; the OCI pages of rows 22, 23 and 33"
+note "by hand (Runbook 2, section 12.2): rows 1-4, 6, 9-16, 21, 24, 25, 28-32 and 34; the OCI pages of rows 22 and 33"
 printf '  %s PASS, %s FAIL, %s PENDING\n' "$pass" "$fail" "$pending"
 
 ((fail == 0)) || exit 1
