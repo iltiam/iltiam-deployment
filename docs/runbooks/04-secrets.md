@@ -148,7 +148,7 @@ Each one comes from its own runbook. Add it to **both** Environments, each with 
 
 No registry token is stored. The deploy job uses its own `GITHUB_TOKEN`, which only lives as long as the job. It logs in on the VM with `--password-stdin`, pulls, and logs out. For that, each image package must allow this repository to read it. Do this **once per package**, and again whenever a new package appears (the web image with WEB-03, name TO CONFIRM):
 
-1. github.com → **iltiam** organisation → **Packages** → the package (`iltiam-ai-api`, `iltiam-ai-worker` and `iltiam-backend`; all three have it since 2026-10-31).
+1. github.com → **iltiam** organisation → **Packages** → the package (`iltiam-ai-api`, `iltiam-ai-worker` and `iltiam-backend`, all three since 2026-10-31; `iltiam-web` since #41).
 2. **Package settings → Manage Actions access → Add Repository** → `iltiam-deployment` → role **Read.** **Not under Codespaces access:** that list looks the same, but it doesn't let the deploy job pull (the first backend deploy failed with `denied` that way, 2026-10-31).
 3. **What you should see:** `iltiam-deployment` listed with role **Read** under **Manage Actions access**.
 
@@ -180,10 +180,11 @@ These are the values to set. Every other `var` in the templates is `optional`: l
 | `ALLOW_SYNC` | `0` | `0` |
 | `AI_API_WORKERS`, `AI_WORKER_CONCURRENCY` | `1`, `1` | `1`, `1` |
 | `ILTIAM_TISSUE_ENABLED` | `0` | `0` |
-| `API_BASE_URL` (name TO CONFIRM, WEB-03) | `https://staging-api.iltiamcare.com/api` | `https://api.iltiamcare.com/api` |
-| `TURNSTILE_SITE_KEY` (name TO CONFIRM, WEB-03) | the staging widget's site key | the production widget's site key |
+| `API_BASE_URL` | `https://staging-api.iltiamcare.com` | `https://api.iltiamcare.com` (set with #36) |
+| `IMAGE_ORIGINS` | `https://*.compat.objectstorage.me-riyadh-1.oci.customer-oci.com` | same (set with #36). Keep the wildcard: the content security policy is public, and the storage namespace must stay out of it |
+| `TURNSTILE_SITE_KEY` | the staging widget's site key | the production widget's site key. The web image doesn't read it yet (iltiam/iltiam-web#28) |
 
-**`ACTIVATION_LINK_BASE_URL`: TO CONFIRM with the web team (WEB-05).** The backend emails `<ACTIVATION_LINK_BASE_URL>?token=<token>` to an invited clinic admin or Super Admin. The web app has no such page yet: an unknown path redirects to `/`, which drops the token. Until WEB-03 runs the web app, `staging-app` answers 502 anyway, and staging's console email backend writes the link only to the backend's log. Questions for the web team:
+**`ACTIVATION_LINK_BASE_URL`: TO CONFIRM with the web team (WEB-05).** The backend emails `<ACTIVATION_LINK_BASE_URL>?token=<token>` to an invited clinic admin or Super Admin. The web app has no such page yet: an unknown path redirects to `/`, which drops the token. Until #41 runs the web app, `staging-app` answers 502 anyway, and staging's console email backend writes the link only to the backend's log. Questions for the web team:
 
 1. Is the page's path `/activate`, or something else (for example `/set-password`)?
 2. Does it read the query parameter `token`? The base URL must not contain a `?` of its own.
@@ -197,7 +198,7 @@ Change the variable in both Environments once they answer, and deploy.
 
 **Type values exactly**, with no quotes around them and no trailing spaces. A value must not contain a single quote `'` or a line break; the deploy refuses those.
 
-**What a deploy needs today** ([Runbook 5](05-compose-stack.md)): `infra.env` and `ai.env` always; `backend.env` only while `env/<ENV>.versions` turns the backend on (staging now, production after DEP-13, DEP-14 and SMTP). `web.env` (`API_BASE_URL`, `TURNSTILE_SITE_KEY`) is written once the web service exists (WEB-03), so its variables can wait until then.
+**What a deploy needs today** ([Runbook 5](05-compose-stack.md)): `infra.env` and `ai.env` always; `backend.env` only while `env/<ENV>.versions` turns the backend on (staging now, production after DEP-13, DEP-14 and SMTP). `web.env` (`API_BASE_URL`, `IMAGE_ORIGINS`, `TURNSTILE_SITE_KEY`) only while it turns the web app on (staging now, production with #36).
 
 ## 10. Check your work
 

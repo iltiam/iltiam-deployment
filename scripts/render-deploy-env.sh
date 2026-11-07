@@ -10,8 +10,8 @@
 # missing required value. The output directory gets:
 #   infra.env, ai.env                always
 #   backend.env                      when env/<env>.versions enables the backend profile
+#   web.env                          when env/<env>.versions enables the web profile
 #   fcm-service-account.json         when the secret FCM_SERVICE_ACCOUNT_JSON is set (Runbook 11, DEP-13)
-# web.env joins once compose.yml has the web service (WEB-03).
 #
 # Prints file names and counts only, never a value: the workflow's log is public.
 
@@ -35,6 +35,9 @@ profiles="$(sed -n 's/^COMPOSE_PROFILES=//p' "env/$env_name.versions" | tr -d '\
 templates=(env/infra.env.example env/ai.env.example)
 if [[ ",$profiles," == *",backend,"* ]]; then
   templates+=(env/backend.env.example)
+fi
+if [[ ",$profiles," == *",web,"* ]]; then
+  templates+=(env/web.env.example)
 fi
 
 # The value of NAME from SECRETS_JSON (kind secret) or VARS_JSON (kind var); empty when not set. jq reads the JSON

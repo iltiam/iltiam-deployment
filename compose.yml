@@ -13,13 +13,15 @@
 # it with --quiet (scripts/compose.sh refuses it otherwise).
 #
 # Networks (no `ports:` anywhere; nothing listens on the VM's public address):
-#   edge      cloudflared and backend-web (web joins with WEB-03). The tunnel reaches only what is here.
+#   edge      cloudflared, backend-web and web. The tunnel reaches only what is here.
 #   internal  internal: true, no route out of the VM. Postgres, Redis, the AI service and the backend.
 #   egress    outbound only, for what must call the internet: weights-init (GitHub), ai-worker (mask upload to
 #             object storage), backend-worker (storage, Authentica, FCM, SMTP). backend-web goes out through edge.
 #
-# Profiles: `backend` (migrate, web, worker, beat). env/staging.versions enables it; production leaves it off until
-# DEP-13, DEP-14 and SMTP exist, because the production settings refuse to start without real delivery (Runbook 5).
+# Profiles, enabled by env/<env>.versions:
+#   backend   migrate, web, worker, beat. On in staging. Production leaves it off until DEP-13, DEP-14 and SMTP exist,
+#             because the production settings refuse to start without real delivery (Runbook 5).
+#   web       the web app. On in staging. Production leaves it off until #36.
 
 x-logging: &logging
   # Capped, or the logs of two environments fill the disk. Runbook 7 (#10) reads these files.
@@ -52,7 +54,7 @@ x-backend: &backend
     WEB_CONCURRENCY: "2"
     CELERY_CONCURRENCY: "2"
     # gunicorn trusts X-Forwarded-Proto only from these addresses. cloudflared's address is picked by Docker, and
-    # only cloudflared (and later web) can reach backend-web (Runbook 3, section 8).
+    # only cloudflared and web, which never calls it, can reach backend-web (Runbook 3, section 8).
     FORWARDED_ALLOW_IPS: "*"
 
 # --- AI service (iltiam-ai-service docs/production-image.md) ---------------------------------------------------
@@ -92,6 +94,25 @@ services:
       start_period: 30s
       retries: 3
     mem_limit: 128m
+
+  web:
+    # nginx as user 101, serving the web app on port 8080 (iltiam-web issue #25). No `ports:`, so only the tunnel on
+    # this network reaches it. At start it checks web.env and writes /config.js and the content security policy into
+    # /tmp, the only place it can write; a missing or malformed value stops the container.
+    <<: *app
+    image: ${WEB_IMAGE:?WEB_IMAGE is missing from env/<env>.versions}
+    profiles: [web]
+    env_file: ["${ENV_DIR:?set ENV_DIR to /srv/iltiam/<env>}/web.env"]
+    networks: [edge]
+    read_only: true
+    tmpfs: ["/tmp"]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/healthz"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+    mem_limit: 64m
 
   # --- Data ----------------------------------------------------------------------------------------------------
   postgres:

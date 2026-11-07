@@ -16,3 +16,7 @@ AI_WORKER_IMAGE=ghcr.io/iltiam/iltiam-ai-worker:sha-0d1861e
 # TO CONFIRM: the backend image is published (staging runs sha-4b5251d); production picks its tag when its backend is
 # turned on (#36). Not started while COMPOSE_PROFILES is empty, but Compose still needs a valid name here.
 BACKEND_IMAGE=ghcr.io/iltiam/iltiam-backend:to-confirm
+
+# TO CONFIRM: the web image is published (staging runs sha-a5faaa2); production picks its tag when its web app is turned
+# on (#36). Not started while COMPOSE_PROFILES leaves out `web`, but Compose still needs a valid name here.
+WEB_IMAGE=ghcr.io/iltiam/iltiam-web:to-confirm
