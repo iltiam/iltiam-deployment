@@ -146,7 +146,7 @@ A **published application route** (older dashboards: **public hostname**) sends 
 | `iltiam-prod` | `app` | `iltiamcare.com` | (empty) | HTTP | `web:8080` |
 | `iltiam-prod` | `api` | `iltiamcare.com` | (empty) | HTTP | `backend-web:8000` |
 
-- **Ports:** the backend listens on 8000 (backend `Dockerfile`, `docker/entrypoint.sh`). The web image's port is **8080, TO CONFIRM** with WEB-03 (iltiam/iltiam-web#25), which builds that image (tracked in #35). If WEB-03 picks another port, edit the two `web` routes (tunnel → **Published application routes** → **⋮ → Edit**).
+- **Ports:** the backend listens on 8000 (backend `Dockerfile`, `docker/entrypoint.sh`). The web image listens on **8080**, confirmed by WEB-03 (iltiam/iltiam-web#25). If a later image picks another port, edit the two `web` routes (tunnel → **Published application routes** → **⋮ → Edit**).
 - **HTTP, not HTTPS, inside the VM** is correct: the traffic between the containers never leaves the VM's Docker network, and the tunnel itself is encrypted.
 - **Nothing routes to the AI service.** There is no route for `ai-api`, and Runbook 5 keeps it off the `edge` network.
 - **Everything else gets 404.** A remotely managed tunnel ends its rules with a catch-all `http_status:404`, so a request that matches no route gets a 404, never another service.
@@ -601,7 +601,7 @@ Run both checks again once production runs too (#36).
 When Runbook 5 has deployed staging (and later production), the stand-ins are replaced by the real containers. Run these checks, rows 22 to 28 of section 13.
 
 - **Staging:** done on 2026-10-31 for everything that doesn't need the web app.
-- **The web app's checks and HSTS** (rows 22 and 25 for the app hosts, 24, 28) wait for iltiam/iltiam-web#25 and are tracked in #35.
+- **The web app's checks and HSTS** (rows 22 and 25 for the app hosts, 24, 28) wait for the web service (#41) and are tracked in #35.
 - **Production** (`app.` and `api.`) is tracked in #36.
 
 ### 11.1 The four hostnames
@@ -617,7 +617,8 @@ curl.exe -sI https://staging-app.iltiamcare.com/
 
 ```powershell
 1..2 | ForEach-Object { curl.exe -sI https://staging-api.iltiamcare.com/api/health/ | Select-String "cf-cache-status" }
-if ((curl.exe -s https://staging-app.iltiamcare.com/) -match '/assets/[^"]+\.js') { $a = $Matches[0]; 1..2 | ForEach-Object { curl.exe -sI "https://staging-app.iltiamcare.com$a" | Select-String "cf-cache-status" } }
+$html = curl.exe -s https://staging-app.iltiamcare.com/ | Out-String
+if ($html -match '/assets/[^"]+\.js') { $a = $Matches[0]; 1..2 | ForEach-Object { curl.exe -s -o NUL -D - "https://staging-app.iltiamcare.com$a" | Select-String "cf-cache-status" } } else { "no asset found" }
 curl.exe -sI https://staging-app.iltiamcare.com/config.js | Select-String "cf-cache-status|cache-control"
 ```
 
@@ -650,7 +651,7 @@ docker logs iltiam-staging-cloudflared-1 2>&1 | grep 'Updated to new configurati
 
 **What you should see:**
 - The networks: `iltiam-staging_edge`, `iltiam-staging_internal` and `iltiam-staging_egress` (and the same three for `iltiam-prod` once production runs).
-- On `edge`: only `iltiam-staging-cloudflared-1` and `iltiam-staging-backend-web-1`.
+- On `edge`: only `iltiam-staging-cloudflared-1`, `iltiam-staging-backend-web-1` and `iltiam-staging-web-1`.
 - For each of the five names: `curl: (6) Could not resolve host: <name>`, or `curl: (28) Resolving timed out …`. Both mean the name doesn't exist on the network `cloudflared` uses.
 - The backend: a status code (`200`, or `301` or `400`). Any of them proves the network works, so the failures above are real isolation, not a broken test.
 - The tunnel's own configuration: exactly `http://web:8080`, `http://backend-web:8000` and `http_status:404` (the catch-all). If the last command prints nothing (the log line was rotated away), check the routes in the dashboard instead: each tunnel still has only its two routes.
@@ -778,7 +779,7 @@ The **Verified** column records the date each row last passed.
 | 23 | API never cached | section 11.2 | `DYNAMIC` or `BYPASS` on `api.` and `staging-api.` | after #2; #36 (`api.`) | PASS 2026-10-31, `staging-api`: `cf-cache-status: DYNAMIC`. `api.`: #36 |
 | 24 | Assets cached, shell not | section 11.2 | asset `MISS` then `HIT`; `/config.js` `DYNAMIC`/`BYPASS` with `no-cache` | #35 | |
 | 25 | No rewriting | section 11.3 | no output (also Runbook 2, row 20) | after #2 (API); #35 (app) | PASS 2026-10-31, `staging-api` `/api/health/`: the backend's JSON unchanged, no injected script (Runbook 2, row 20). The app part: #35 |
-| 26 | AI unreachable | section 11.4 | on the VM: only `cloudflared` and `backend-web` on `edge`; `Could not resolve host` or `Resolving timed out` for `ai-api`, `ai-worker`, `ai-beat`, `postgres`, `redis`; the backend answers on the same network; the tunnel's configuration has only the two routes and the 404 catch-all. From outside: no DNS `Answer` for `ai`, `staging-ai`, `ai-api`, `staging-ai-api`; the AI paths give `404` on `staging-api` | after #2; #36 (`iltiam-prod_edge`) | PASS 2026-10-31 (VM; outside checks from the King Saud University network): exactly the three `iltiam-staging_` networks; `edge` holds only `cloudflared` and `backend-web`; the five names `Resolving timed out`; `backend-web` `/api/health/` `200`; tunnel configuration `http://web:8080`, `http://backend-web:8000`, `http_status:404`. `/health`, `/ready`, `/version`, `/capabilities`, `/v1/analyze` `404`; the four names `"Status":0` with no `Answer`. Production: #36 |
+| 26 | AI unreachable | section 11.4 | on the VM: only `cloudflared`, `backend-web` and `web` on `edge`; `Could not resolve host` or `Resolving timed out` for `ai-api`, `ai-worker`, `ai-beat`, `postgres`, `redis`; the backend answers on the same network; the tunnel's configuration has only the two routes and the 404 catch-all. From outside: no DNS `Answer` for `ai`, `staging-ai`, `ai-api`, `staging-ai-api`; the AI paths give `404` on `staging-api` | after #2; #36 (`iltiam-prod_edge`) | PASS 2026-10-31 (VM; outside checks from the King Saud University network): exactly the three `iltiam-staging_` networks; `edge` holds only `cloudflared` and `backend-web`; the five names `Resolving timed out`; `backend-web` `/api/health/` `200`; tunnel configuration `http://web:8080`, `http://backend-web:8000`, `http_status:404`. `/health`, `/ready`, `/version`, `/capabilities`, `/v1/analyze` `404`; the four names `"Status":0` with no `Answer`. Production: #36 |
 | 27 | `NUM_PROXIES` | section 11.5 | `NUM_PROXIES` `1` in GitHub and in the container; `429 application/json` after about 20 attempts despite fake addresses; right after, a different visitor gets `400` | after #2; #36 (production) | PASS 2026-10-31, staging: `1` in GitHub and in `backend-web`. From the VM with a fake `X-Forwarded-For` per request: 20 × `400 application/json`, then `429 application/json` (the backend's limit); right after, the laptop (a different visitor) got `400 application/json`. Production: #36 |
 | 28 | HSTS | section 11.6 | `max-age=15552000; includeSubDomains` on app and API (Runbook 2, rows 19 to 21) | #35; #36 (production header) | |
 
@@ -823,7 +824,7 @@ The **Verified** column records the date each row last passed.
 ## 16. What comes next
 
 - **[Runbook 5](05-compose-stack.md)** (#2): the two Compose projects, each with its `cloudflared` (`TUNNEL_TOKEN` from `CF_TUNNEL_TOKEN`), the `edge`, `internal` and `egress` networks, `FORWARDED_ALLOW_IPS` (section 8) and no `ports:`. Staging runs, and its section 11 checks without the web app passed on 2026-10-31.
-- **#35** (after WEB-03, iltiam/iltiam-web#25): rows 22 and 25 for the app hosts, row 24, then HSTS (section 11.6, row 28; Runbook 2, section 7 and rows 19 and 21). WEB-03 itself brings the web image's port (8080, TO CONFIRM), its content security policy and security headers, and its `Cache-Control` headers (section 6.2).
+- **#35** (after the web service, #41): rows 22 and 25 for the app hosts, row 24, then HSTS (section 11.6, row 28; Runbook 2, section 7 and rows 19 and 21). The web image (WEB-03, iltiam/iltiam-web#25) brings the port (8080), the content security policy and security headers, and the `Cache-Control` headers (section 6.2).
 - **#36** (production): section 11 and rows 7, 16, 20 to 28 on `app.` and `api.`.
 - **[Runbook 4](04-secrets.md)** (#3): `SECURE_HSTS_SECONDS` (section 11.6) in both Environments, with #35.
 - **Runbook 7** (#10): the `grafana.` route (on which tunnel) and `status.`, then row 17; the Access application already exists (section 9.3).

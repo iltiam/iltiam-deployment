@@ -5,7 +5,7 @@
 #   1. Lint every env/*.env.example (scripts/render-env.sh refuses a malformed template).
 #   2. scripts/bootstrap-secrets.sh prints values of the right shape (they are checked, never shown).
 #   3. Render staging and production with dummy values, then `docker compose config --quiet` against compose.yml
-#      (Runbook 5, #2) with env/<env>.versions and the backend profile on.
+#      (Runbook 5, #2) with env/<env>.versions and every profile on.
 #   4. scripts/render-deploy-env.sh, as the deploy workflow runs it: from JSON, the files each environment needs.
 #   5. Negative cases: what must be refused is refused.
 #
@@ -65,12 +65,12 @@ render_all() {
   done
 }
 
-# The real compose.yml, with every profile on so each env file is read (production's versions file leaves the
-# backend off). ENV_DIR and DATA_DIR come from the shell; interpolation from infra.env and the versions file only.
+# The real compose.yml, with every profile on so each env file is read (production's versions file leaves them all
+# off). ENV_DIR and DATA_DIR come from the shell; interpolation from infra.env and the versions file only.
 compose_config() {
   local env="$1" dir="$2"
   shift 2
-  COMPOSE_PROFILES=backend ENV_DIR="$(native "$dir")" DATA_DIR="$(native "$work/data-$env")" \
+  COMPOSE_PROFILES=backend,web ENV_DIR="$(native "$dir")" DATA_DIR="$(native "$work/data-$env")" \
     docker compose -f "$COMPOSE_FILE" -p "iltiam-check-$env" \
     --env-file "$(native "$dir/infra.env")" --env-file "env/$env.versions" config "$@"
 }
@@ -172,8 +172,10 @@ log "render-deploy-env.sh (the deploy workflow's renderer)"
 command -v jq >/dev/null 2>&1 || fail "jq not found"
 for env in staging production; do
   profiles="$(sed -n 's/^COMPOSE_PROFILES=//p' "env/$env.versions" | tr -d '\r' | tail -n 1)"
-  expected="ai.env infra.env"
-  if [[ ",$profiles," == *",backend,"* ]]; then expected="ai.env backend.env infra.env"; fi
+  expected="ai.env"
+  if [[ ",$profiles," == *",backend,"* ]]; then expected+=" backend.env"; fi
+  expected+=" infra.env"
+  if [[ ",$profiles," == *",web,"* ]]; then expected+=" web.env"; fi
   secrets_json="$(deploy_json "$env" secret)"
   vars_json="$(deploy_json "$env" var)"
   SECRETS_JSON="$secrets_json" VARS_JSON="$vars_json" \
@@ -182,7 +184,7 @@ for env in staging production; do
   [[ "${got% }" == "$expected" ]] || fail "render-deploy-env.sh $env wrote '$got', expected '$expected'"
   ok "$env: $expected (versions file: profiles '$profiles')"
 done
-# The backend profile on, from a copy of the repository: backend.env too.
+# The backend profile alone, from a copy of the repository: backend.env, no web.env.
 mkdir -p "$work/repo-backend"
 cp -r scripts env "$work/repo-backend/"
 sed -i 's/^COMPOSE_PROFILES=.*/COMPOSE_PROFILES=backend/' "$work/repo-backend/env/staging.versions"
@@ -192,7 +194,18 @@ SECRETS_JSON="$(deploy_json staging secret)" VARS_JSON="$(deploy_json staging va
 got="$(cd "$work/deploy-backend" && printf '%s ' *)"
 [[ "${got% }" == "ai.env backend.env infra.env" ]] \
   || fail "render-deploy-env.sh with the backend profile on wrote '$got', expected 'ai.env backend.env infra.env'"
-ok "staging, backend profile on: ai.env backend.env infra.env"
+ok "staging, backend profile alone: ai.env backend.env infra.env"
+# The web profile alone, from another copy: web.env, no backend.env.
+mkdir -p "$work/repo-web"
+cp -r scripts env "$work/repo-web/"
+sed -i 's/^COMPOSE_PROFILES=.*/COMPOSE_PROFILES=web/' "$work/repo-web/env/staging.versions"
+SECRETS_JSON="$(deploy_json staging secret)" VARS_JSON="$(deploy_json staging var)" \
+  bash "$work/repo-web/scripts/render-deploy-env.sh" staging "$work/deploy-web" >/dev/null \
+  || fail "render-deploy-env.sh staging with the web profile on failed"
+got="$(cd "$work/deploy-web" && printf '%s ' *)"
+[[ "${got% }" == "ai.env infra.env web.env" ]] \
+  || fail "render-deploy-env.sh with the web profile on wrote '$got', expected 'ai.env infra.env web.env'"
+ok "staging, web profile alone: ai.env infra.env web.env"
 secrets_json="$(deploy_json staging secret | jq -c '. + {FCM_SERVICE_ACCOUNT_JSON: "{\"type\": \"service_account\"}"}' | tr -d '\r')"
 SECRETS_JSON="$secrets_json" VARS_JSON="$(deploy_json staging var)" \
   bash scripts/render-deploy-env.sh staging "$work/deploy-fcm" >/dev/null || fail "render-deploy-env.sh with FCM failed"
@@ -237,6 +250,14 @@ deploy_without_service_token() {
     VARS_JSON="$(deploy_json staging var)" bash scripts/render-deploy-env.sh staging "$work/neg-deploy"
 }
 expect_fail "render-deploy-env.sh with AI_SERVICE_TOKEN missing from the Environment" deploy_without_service_token
+# web.env's two values the image can't start without, with the web profile on.
+deploy_without_web_var() {
+  SECRETS_JSON="$(deploy_json staging secret)" \
+    VARS_JSON="$(deploy_json staging var | jq -c --arg name "$1" 'del(.[$name])' | tr -d '\r')" \
+    bash "$work/repo-web/scripts/render-deploy-env.sh" staging "$work/neg-web"
+}
+expect_fail "render-deploy-env.sh with API_BASE_URL missing, web profile on" deploy_without_web_var API_BASE_URL
+expect_fail "render-deploy-env.sh with IMAGE_ORIGINS missing, web profile on" deploy_without_web_var IMAGE_ORIGINS
 bad_fcm() {
   SECRETS_JSON="$(deploy_json staging secret | jq -c '. + {FCM_SERVICE_ACCOUNT_JSON: "not json"}' | tr -d '\r')" \
     VARS_JSON="$(deploy_json staging var)" bash scripts/render-deploy-env.sh staging "$work/neg-fcm"

@@ -5,10 +5,10 @@
 #
 # Roll back: put the previous tags back (git log -p env/staging.versions), merge, and deploy again (Runbook 5, 9.4).
 
-# Services beyond the always-on ones (postgres, redis, cloudflared, weights-init and the AI service).
-# backend: migrate, web, worker and beat (Runbook 5, section 1). Production keeps it off (#36). Empty again means
-# AI-only; after that deploy, stop the backend containers by hand (Runbook 5, section 9.4).
-COMPOSE_PROFILES=backend
+# Services beyond the always-on ones (postgres, redis, cloudflared, weights-init and the AI service), separated by
+# commas. backend: migrate, web, worker and beat. web: the web app (Runbook 5, section 1). Production keeps both off
+# (#36). After a deploy that turns a profile off, stop its containers by hand (Runbook 5, section 9.4).
+COMPOSE_PROFILES=backend,web
 
 # sha-0d1861e: the first build that honours ILTIAM_TORCH_THREADS (#158); linux/arm64 and linux/amd64.
 AI_API_IMAGE=ghcr.io/iltiam/iltiam-ai-api:sha-0d1861e
@@ -16,3 +16,6 @@ AI_WORKER_IMAGE=ghcr.io/iltiam/iltiam-ai-worker:sha-0d1861e
 
 # sha-4b5251d: iltiam-backend#101 (#80 OCI storage checksums, #99 the published image); linux/arm64 and linux/amd64.
 BACKEND_IMAGE=ghcr.io/iltiam/iltiam-backend:sha-4b5251d
+
+# sha-a5faaa2: iltiam-web PR #57 (issue #25, the production image); linux/arm64 and linux/amd64.
+WEB_IMAGE=ghcr.io/iltiam/iltiam-web:sha-a5faaa2

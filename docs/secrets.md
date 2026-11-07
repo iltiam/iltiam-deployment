@@ -22,7 +22,7 @@ on the runner
 containers of the iltiam-staging / iltiam-prod Compose project
 ```
 
-The workflow is the only way a value gets from GitHub to the VM: GitHub can't show a secret again, so nobody types one onto the VM. `backend.env` is written only while `env/<env>.versions` enables the backend; `web.env` joins with the web service (WEB-03).
+The workflow is the only way a value gets from GitHub to the VM: GitHub can't show a secret again, so nobody types one onto the VM. `backend.env` is written only while `env/<env>.versions` enables the backend, and `web.env` only while it enables the web app.
 
 **Bitwarden** (free organisation "ILTIAM", collection "ILTIAM escrow", members ben-fatah and Omar-Nasri) keeps a copy of what can never be regenerated: see section 5.
 
@@ -217,7 +217,7 @@ Found while writing the templates (issue #3). Each one belongs to the issue name
 
 **Still TO CONFIRM:**
 
-10. **Web runtime config names** (`API_BASE_URL`, `TURNSTILE_SITE_KEY`): WEB-03.
+10. **How the web image uses `TURNSTILE_SITE_KEY`:** iltiam/iltiam-web#28 (it doesn't read it yet). WEB-03 confirmed `API_BASE_URL` and `IMAGE_ORIGINS`.
 11. **iltiam-mobile secret names** (google-services per flavor, upload keystore): MOB-02, MOB-03, MOB-28a. Keystore owner MYF25.
 12. **SMTP provider:** decided, OCI Email Delivery (ADR-0004 Decision 6), pending confirmation that it is offered in Riyadh. Set up with Runbook 2, section 11; Resend is the fallback.
 13. **Values and menus:**

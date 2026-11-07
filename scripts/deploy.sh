@@ -17,7 +17,7 @@
 #      backend-migrate (backend profile only). They run apart from `up --wait` on purpose: some Compose versions
 #      count a one-shot that exited 0 as a failure of `up --wait`, others wait for it. Run first, both behave alike.
 #   6. The long-running services, `up -d --wait --no-deps`, in dependency order: ai-api and backend-web, then the
-#      rest.
+#      rest, with web (web profile only) among them.
 #   7. What runs now: service, image, state, digest.
 #
 # Prints names, tags and states only, never a value: the workflow's log is public. Never `set -x` here.
@@ -44,8 +44,8 @@ repo="$(cd "$(dirname "$0")/.." && pwd)"
 
 # --- versions file ---------------------------------------------------------------------------------------------
 
-KNOWN_KEYS=(COMPOSE_PROFILES AI_API_IMAGE AI_WORKER_IMAGE BACKEND_IMAGE)
-KNOWN_PROFILES=(backend)
+KNOWN_KEYS=(COMPOSE_PROFILES AI_API_IMAGE AI_WORKER_IMAGE BACKEND_IMAGE WEB_IMAGE)
+KNOWN_PROFILES=(backend web)
 # registry/path:tag; the tag as Docker allows it.
 IMAGE_RE='^[a-z0-9.-]+(:[0-9]+)?(/[a-z0-9._-]+)+:([A-Za-z0-9_][A-Za-z0-9_.-]{0,127})$'
 declare -A V=()
@@ -76,14 +76,12 @@ check_versions() {
     [[ " ${KNOWN_PROFILES[*]} " == *" $profile "* ]] || die "$file: unknown profile '$profile' in COMPOSE_PROFILES"
   done
 
-  for name in AI_API_IMAGE AI_WORKER_IMAGE BACKEND_IMAGE; do
+  for name in AI_API_IMAGE AI_WORKER_IMAGE BACKEND_IMAGE WEB_IMAGE; do
     [[ "${V[$name]}" =~ $IMAGE_RE ]] || die "$file: $name must be registry/name:tag, got '${V[$name]}'"
     tag="${BASH_REMATCH[3]}"
     [[ "$tag" != latest ]] || die "$file: $name: never 'latest'; pin sha-<7> or X.Y.Z"
-    if [[ "$strict" == strict && "$tag" == to-confirm ]]; then
-      if [[ "$name" != BACKEND_IMAGE ]] || backend_on; then
-        die "$file: $name is still 'to-confirm': put the published tag in, merge, then deploy"
-      fi
+    if [[ "$strict" == strict && "$tag" == to-confirm ]] && image_runs "$name"; then
+      die "$file: $name is still 'to-confirm': put the published tag in, merge, then deploy"
     fi
   done
   # One build: weights-init uses the worker image's model registry, the api must check the same files.
@@ -93,6 +91,19 @@ check_versions() {
 
 backend_on() {
   [[ ",${V[COMPOSE_PROFILES]}," == *",backend,"* ]]
+}
+
+web_on() {
+  [[ ",${V[COMPOSE_PROFILES]}," == *",web,"* ]]
+}
+
+# Does this environment start the services of this image?
+image_runs() {
+  case "$1" in
+    BACKEND_IMAGE) backend_on ;;
+    WEB_IMAGE) web_on ;;
+    *) return 0 ;;
+  esac
 }
 
 # --- arguments --------------------------------------------------------------------------------------------------
@@ -125,15 +136,18 @@ ok "env/$env_name.versions: profiles '${V[COMPOSE_PROFILES]}'"
 [[ "$(stat -c '%a %U' "$env_dir")" == "700 $(id -un)" ]] || die "$env_dir must be mode 700, owned by $(id -un)"
 needed=(infra.env ai.env)
 if backend_on; then needed+=(backend.env); fi
+if web_on; then needed+=(web.env); fi
 for file in "${needed[@]}"; do
   [[ -f "$env_dir/$file" ]] || die "$env_dir/$file is missing: run the deploy workflow, which writes it"
   [[ "$(stat -c '%a' "$env_dir/$file")" == 600 ]] || die "$env_dir/$file must be mode 600"
 done
-if ! backend_on && [[ ! -e "$env_dir/backend.env" ]]; then
-  # The backend's services are off, but compose.yml still names their env file; some Compose versions want it to
-  # exist even then. An empty one is enough, and the next deploy with the backend on overwrites it.
-  (umask 077 && : >"$env_dir/backend.env")
-fi
+# A profile's services may be off, but compose.yml still names their env file; some Compose versions want it to exist
+# even then. An empty one is enough, and the next deploy with that profile on overwrites it.
+for file in backend.env web.env; do
+  if [[ " ${needed[*]} " != *" $file "* && ! -e "$env_dir/$file" ]]; then
+    (umask 077 && : >"$env_dir/$file")
+  fi
+done
 if [[ -e "$env_dir/fcm-service-account.json" ]]; then
   [[ "$(stat -c '%a' "$env_dir/fcm-service-account.json")" == 644 ]] \
     || die "$env_dir/fcm-service-account.json must be mode 644 (docs/secrets.md, section 1)"
@@ -188,6 +202,7 @@ if backend_on; then
   first+=(backend-web)
   rest+=(backend-worker backend-beat)
 fi
+if web_on; then rest+=(web); fi
 log "start: ${first[*]}"
 compose up -d --wait --wait-timeout "$WAIT_TIMEOUT" --no-deps "${first[@]}"
 log "start: ${rest[*]}"

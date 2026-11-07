@@ -5,14 +5,16 @@
 #
 #   1. env/<env>.versions is well formed (scripts/deploy.sh --check-versions).
 #   2. scripts/compose.sh refuses a `config` that would print secrets on the VM.
-#   3. For staging and production, each as its versions file says and with the backend profile on (from a copy of
-#      the repository, so the backend's rules hold before an environment turns it on), each with and without the FCM
+#   3. For staging and production, each as its versions file says and with every profile on (from a copy of the
+#      repository, so each profile's rules hold before an environment turns it on), each with and without the FCM
 #      file, through scripts/compose.sh:
-#      - exactly the expected services (no backend while the profile is off);
+#      - exactly the expected services (none of a profile that is off);
 #      - no published port, no host network, no privileged container;
-#      - every service on exactly its networks: only cloudflared and backend-web on edge; internal is internal: true;
+#      - every service on exactly its networks: only cloudflared, backend-web and web on edge; internal is
+#        internal: true;
 #      - mem_limit, capped json-file logs, the restart policy and no-new-privileges everywhere; cap_drop ALL on our
 #        own images and cloudflared;
+#      - web: read-only, a tmpfs on /tmp, a limit of exactly 64 MiB, a health check on /healthz at port 8080;
 #      - every image pinned to a tag, never latest;
 #      - host paths only under /srv/iltiam (and the repository's postgres/initdb); the weights read-only except in
 #        weights-init;
@@ -22,7 +24,8 @@
 #        never with a host path Docker would create (compared with how this Compose version renders an explicit
 #        create_host_path false and true: section 0 below).
 #   4. Negative cases: a published port, the AI api on edge, a secret in the wrong container, a latest tag, a missing
-#      mem_limit, an FCM mount that would create the host path, and a writable FCM mount are all caught.
+#      mem_limit, an FCM mount that would create the host path, a writable FCM mount, and each way the web service
+#      could break its rules are all caught.
 #
 # Usage: bash scripts/check-compose.sh
 # Needs bash, jq and the Docker Compose plugin. No image is pulled and no container started.
@@ -49,22 +52,31 @@ native() {
   if command -v cygpath >/dev/null 2>&1; then cygpath -m "$1"; else printf '%s' "$1"; fi
 }
 
-ALL_SERVICES='["cloudflared","postgres","redis","weights-init","ai-api","ai-worker","ai-beat",
-  "backend-migrate","backend-web","backend-worker","backend-beat"]'
-NO_BACKEND='["cloudflared","postgres","redis","weights-init","ai-api","ai-worker","ai-beat"]'
+ALWAYS_ON='"cloudflared","postgres","redis","weights-init","ai-api","ai-worker","ai-beat"'
+BACKEND_PROFILE='"backend-migrate","backend-web","backend-worker","backend-beat"'
+WEB_PROFILE='"web"'
+
+# The services an environment runs with these COMPOSE_PROFILES, as a JSON array.
+expected_services() {
+  local list="$ALWAYS_ON"
+  if [[ ",$1," == *",backend,"* ]]; then list+=",$BACKEND_PROFILE"; fi
+  if [[ ",$1," == *",web,"* ]]; then list+=",$WEB_PROFILE"; fi
+  printf '[%s]' "$list"
+}
+ALL_SERVICES="$(expected_services backend,web)"
 
 # The rules, as one jq program over `docker compose config --format json`. Prints one line per broken rule.
 cat >"$work/rules.jq" <<'JQ'
 def networks_of: {
-  "cloudflared": ["edge"], "backend-web": ["edge", "internal"],
+  "cloudflared": ["edge"], "backend-web": ["edge", "internal"], "web": ["edge"],
   "postgres": ["internal"], "redis": ["internal"],
   "ai-api": ["internal"], "ai-beat": ["internal"], "ai-worker": ["egress", "internal"], "weights-init": ["egress"],
   "backend-migrate": ["internal"], "backend-beat": ["internal"], "backend-worker": ["egress", "internal"]
 };
 def one_shots: ["weights-init", "backend-migrate"];
 def no_capabilities: ["cloudflared", "weights-init", "ai-api", "ai-worker", "ai-beat",
-  "backend-migrate", "backend-web", "backend-worker", "backend-beat"];
-def health_checked: ["cloudflared", "postgres", "redis", "ai-api", "ai-worker", "backend-web"];
+  "backend-migrate", "backend-web", "backend-worker", "backend-beat", "web"];
+def health_checked: ["cloudflared", "postgres", "redis", "ai-api", "ai-worker", "backend-web", "web"];
 def backend: ["backend-migrate", "backend-web", "backend-worker", "backend-beat"];
 # Which containers may hold each value of infra.env (the dummies are unique strings).
 def secret_holders: {
@@ -127,6 +139,12 @@ def fcm_target: "/run/secrets/fcm-service-account.json";
       | "\($s): \($k) must be 2"),
     (select($c.services["backend-web"] != null and $c.services["backend-web"].environment.FORWARDED_ALLOW_IPS != "*")
       | "backend-web: FORWARDED_ALLOW_IPS must be *"),
+    ($c.services.web // empty
+      | (if .read_only != true then "web: must be read_only" else empty end),
+        (if ((.tmpfs // []) | index("/tmp")) == null then "web: needs a tmpfs on /tmp" else empty end),
+        (if (.mem_limit | tostring) != "67108864" then "web: mem_limit must be exactly 64m" else empty end),
+        (if ((.healthcheck.test // []) | tostring | contains("http://127.0.0.1:8080/healthz")) | not
+         then "web: the health check must ask /healthz on port 8080" else empty end)),
     ($c.services | to_entries[] | .key as $s
       | ([.value.volumes // [] | .[] | select(.target == fcm_target)]) as $m
       | if $fcm and (backend | index($s)) != null then
@@ -201,30 +219,31 @@ for name in CF_TUNNEL_TOKEN POSTGRES_PASSWORD BACKEND_DB_PASSWORD AI_DB_PASSWORD
 done
 printf '}\n' >>"$work/dummies.json"
 
-# The same files with the backend profile on in both versions files.
-with_backend="$work/repo-backend"
-mkdir -p "$with_backend"
-cp -r compose.yml compose.fcm.yml postgres scripts env "$with_backend/"
-sed -i 's/^COMPOSE_PROFILES=.*/COMPOSE_PROFILES=backend/' "$with_backend"/env/*.versions
+# The same files with every profile on in both versions files.
+with_all="$work/repo-all"
+mkdir -p "$with_all"
+cp -r compose.yml compose.fcm.yml postgres scripts env "$with_all/"
+sed -i 's/^COMPOSE_PROFILES=.*/COMPOSE_PROFILES=backend,web/' "$with_all"/env/*.versions
 
 for env in staging production; do
   mkdir -p "$root/env/$env"
   jq -r 'to_entries[] | "\(.key)='"'"'\(.value)'"'"'"' "$work/dummies.json" | tr -d '\r' >"$root/env/$env/infra.env"
   : >"$root/env/$env/ai.env"
   : >"$root/env/$env/backend.env"
+  : >"$root/env/$env/web.env"
   profiles="$(sed -n 's/^COMPOSE_PROFILES=//p' "env/$env.versions" | tr -d '\r' | tail -n 1)"
   variants=(.)
-  [[ ",$profiles," == *",backend,"* ]] || variants+=("$with_backend")
+  [[ "$(expected_services "$profiles")" == "$ALL_SERVICES" ]] || variants+=("$with_all")
 
   for dir in "${variants[@]}"; do
-    label=core
-    expected="$NO_BACKEND"
-    if [[ "$dir" != . || ",$profiles," == *",backend,"* ]]; then
-      label=backend
+    what="as env/$env.versions"
+    expected="$(expected_services "$profiles")"
+    if [[ "$dir" != . ]]; then
+      what="every profile on"
       expected="$ALL_SERVICES"
     fi
-    what="as env/$env.versions"
-    [[ "$dir" == . ]] || what="backend profile on"
+    label=some
+    [[ "$expected" != "$ALL_SERVICES" ]] || label=all
     for fcm in false true; do
       if [[ "$fcm" == true ]]; then : >"$root/env/$env/fcm-service-account.json"; fi
       log "$env, $what, FCM file $([[ "$fcm" == true ]] && echo present || echo absent)"
@@ -242,9 +261,9 @@ done
 # --- 4. Negative cases -----------------------------------------------------------------------------------------------
 
 log "negative cases"
-# Staging with the backend profile on: every service is there. Without and with the FCM file.
-base="$work/staging-backend-false.json"
-base_fcm="$work/staging-backend-true.json"
+# Staging with every profile on: every service is there. Without and with the FCM file.
+base="$work/staging-all-false.json"
+base_fcm="$work/staging-all-true.json"
 jq '.services["ai-api"].ports = [{"target": 8000, "published": "8000"}]' "$base" >"$work/neg-ports.json"
 broken "$work/neg-ports.json" "$ALL_SERVICES" false | grep -q "ai-api: publishes ports" \
   || fail "a published port was not caught"
@@ -275,5 +294,34 @@ jq "$fcm_mount then .read_only = false else . end)" "$base_fcm" >"$work/neg-fcm-
 broken "$work/neg-fcm-rw.json" "$ALL_SERVICES" true | grep -q "backend-web: the FCM file must be mounted" \
   || fail "a writable FCM mount was not caught"
 ok "caught: a writable FCM mount"
+
+# must_catch <what> <the rule's line> <jq edit of the staging config>
+must_catch() {
+  local problems
+  jq "$3" "$base" >"$work/neg-web.json"
+  problems="$(broken "$work/neg-web.json" "$ALL_SERVICES" false)"
+  grep -qF -- "$2" <<<"$problems" || fail "$1 was not caught"
+  ok "caught: $1"
+}
+must_catch "the web app publishing a port" "web: publishes ports" \
+  '.services.web.ports = [{"target": 8080, "published": "8080"}]'
+must_catch "the web app on the internal network" "web: networks edge,internal" '.services.web.networks.internal = null'
+must_catch "the web app not read-only" "web: must be read_only" '.services.web.read_only = false'
+must_catch "the web app without its tmpfs" "web: needs a tmpfs on /tmp" 'del(.services.web.tmpfs)'
+must_catch "the web app over 64 MiB" "web: mem_limit must be exactly 64m" '.services.web.mem_limit = "134217728"'
+must_catch "the web app without cap_drop ALL" "web: cap_drop ALL missing" 'del(.services.web.cap_drop)'
+must_catch "the web app without no-new-privileges" "web: no no-new-privileges" 'del(.services.web.security_opt)'
+must_catch "the web app without a health check" "web: no health check" 'del(.services.web.healthcheck)'
+must_catch "a web health check that doesn't ask /healthz" "web: the health check must ask /healthz" \
+  '.services.web.healthcheck.test = ["CMD", "true"]'
+must_catch "a secret in the web app" "web: holds POSTGRES_PASSWORD" \
+  '.services.web.environment.X = "dummy-postgres_password"'
+must_catch "the web app tagged latest" "web: image 'ghcr.io/iltiam/iltiam-web:latest' is not pinned" \
+  '.services.web.image = "ghcr.io/iltiam/iltiam-web:latest"'
+must_catch "the web app missing while its profile is on" "services: expected" 'del(.services.web)'
+# The other way round: the service is there, but the versions file leaves its profile off.
+grep -qF "services: expected" <<<"$(broken "$base" "$(expected_services backend)" false)" \
+  || fail "the web app running with its profile off was not caught"
+ok "caught: the web app running with its profile off"
 
 log "all compose checks passed"
