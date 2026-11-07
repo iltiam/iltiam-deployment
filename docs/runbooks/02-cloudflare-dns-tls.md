@@ -4,7 +4,7 @@
 - **Who:** anyone on the team with Administrator rights on the Cloudflare account. No cloud experience needed; follow the steps in order.
 - **Time:** about 1.5 hours, plus 30 minutes for receiving mail (section 11.9). DNSSEC then turns active by itself within 1–2 days. Two parts wait:
   - **HSTS** (section 7) waits for #2 ([Runbook 3](03-cloudflare-tunnels.md), section 11).
-  - **The email provider:** sections 11.3 and 11.4 are done; sections 11.5 to 11.7 are next (#35).
+  - **The email provider:** staging is done (sections 11.3 to 11.7, #35). Production moved to #36.
 - **Result:** the zone `iltiamcare.com` on Cloudflare with:
   - two administrators with 2FA, and DNSSEC on;
   - Full (strict) TLS;
@@ -50,12 +50,18 @@ Cloudflare redesigned its dashboard in 2025 and still moves menus. If a menu bel
 | Under Attack mode | Off |
 | Turnstile widgets | `iltiam-staging` (`staging-app.iltiamcare.com`), `iltiam-prod` (`app.iltiamcare.com`); keys in both GitHub Environments |
 | SPF / DMARC | SPF: `v=spf1 -all` until 2026-10-29, then the row "SPF after section 11.9"; DMARC Management enabled, `_dmarc` with `p=quarantine` (unchanged by #28, checked 2026-10-29) |
-| SMTP provider | OCI Email Delivery (ADR-0004 Decision 6): available in `me-riyadh-1`, checked 2026-10-30 (section 11.2); sections 11.3 and 11.4 done 2026-11-07; sections 11.5 to 11.7 pending |
+| SMTP provider | OCI Email Delivery (ADR-0004 Decision 6): available in `me-riyadh-1`, checked 2026-10-30 (section 11.2); staging done 2026-11-07 (sections 11.3 to 11.7); production moved to #36 |
 | OCI email domain | `iltiamcare.com`, **Active** (Riyadh, compartment `iltiam`), 2026-11-07 |
 | OCI DKIM | Selector `iltiam-ruh-202611`, **Active**. CNAME `iltiam-ruh-202611._domainkey` → `iltiam-ruh-202611.iltiamcare.com.dkim.ruh1.oracleemaildelivery.com`, DNS only (2026-11-07) |
 | Approved sender | `no-reply@iltiamcare.com` (2026-11-07) |
 | Custom return path | `ruh.rp.iltiamcare.com`, **Active**. One CNAME → `ruh1.rp.oracleemaildelivery.com`, DNS only (2026-11-07) |
-| SMTP endpoint | `smtp.email.me-riyadh-1.oci.oraclecloud.com`, port 587, TLS required (STARTTLS) |
+| SMTP endpoint | `smtp.email.me-riyadh-1.oci.oraclecloud.com`, port 587, TLS required (STARTTLS). Host and port confirmed on the OCI **Configuration** page, 2026-11-07 |
+| SMTP group and policy | Group `iltiam-smtp-senders`; policy `iltiam-smtp-send`: use approved-senders in compartment `iltiam` (2026-11-07) |
+| SMTP users | `iltiam-smtp-staging`, with SMTP credentials (2026-11-07). `iltiam-smtp-prod`: moved to #36 |
+| Staging email settings | GitHub Environment `staging`: secrets `EMAIL_HOST_USER` and `EMAIL_HOST_PASSWORD`; variables `EMAIL_BACKEND` (SMTP), `EMAIL_HOST`, `EMAIL_PORT` `587` and `DEFAULT_FROM_EMAIL` `ILTIAM Staging <no-reply@iltiamcare.com>`. Deploy run `42395228990` green; `printenv` in `backend-worker` shows the 4 values (2026-11-07) |
+| Staging mail checks | Rows 24, 25 and 34 passed (2026-11-07) |
+| Staging first Super Admin | Invited with `bootstrap_superadmin` (2026-11-07). The link can't be used until iltiam/iltiam-web#29 is deployed; then resend it (section 11.7) |
+| Production email | Moved to #36 |
 | Email Routing (#28) | Enabled 2026-10-29; the SPF record was edited before onboarding (section 11.9, step 1) |
 | SPF after section 11.9 | One record: `v=spf1 include:_spf.mx.cloudflare.net -all` (2026-10-29). Section 11.4 leaves it unchanged |
 | MX records (Email Routing) | `route1.mx.cloudflare.net` (27), `route2.mx.cloudflare.net` (95), `route3.mx.cloudflare.net` (47) |
@@ -354,11 +360,9 @@ Until a provider is set up, nobody may send mail as `@iltiamcare.com`. Two recor
 - **DNS → Records** lists the TXT `iltiamcare.com` record `v=spf1 -all` (section 11.9 then changes it) and the TXT `_dmarc` record with `p=quarantine`.
 - **Email → DMARC Management** shows the DMARC record as valid. Reports appear only once mail is sent.
 
-### 11.2 Pending SMTP provider: check that Riyadh has Email Delivery (do this first)
+### 11.2 Check that Riyadh has Email Delivery (passed 2026-10-30)
 
-> **Status: the Riyadh check (this section) passed on 2026-10-30, and sections 11.3 and 11.4 are done (2026-11-07).** Sections 11.5 to 11.7 are not done yet. Until they are:
-> - **staging** prints email to its log (Runbook 4, section 7);
-> - **production** refuses to start, because the email settings are `prod-required`.
+> **Status: the Riyadh check (this section) passed on 2026-10-30, and sections 11.3 to 11.7 are done for staging (2026-11-07).** Staging sends real email through OCI. Production moved to #36. Until that is done, **production** refuses to start, because the email settings are `prod-required`.
 
 **This check is the only gate.**
 - **The backend is ready.** iltiam/iltiam-backend#74 (BE-20) shipped plain SMTP settings that work with any provider: `EMAIL_BACKEND`, `EMAIL_HOST`, `EMAIL_PORT`, `EMAIL_HOST_USER`, `EMAIL_HOST_PASSWORD`, `DEFAULT_FROM_EMAIL`, and STARTTLS on by default.
@@ -425,7 +429,9 @@ Do this only after DKIM is **Active**: OCI's docs say you can't create the appro
 - the custom return path **Active** on the email domain page;
 - `PASS row 17`, `PASS row 23` and `PASS row 33` from `scripts/check-dns.sh`.
 
-### 11.5 Pending SMTP provider: one SMTP user per environment
+### 11.5 One SMTP user per environment (staging done 2026-11-07)
+
+> **Status:** staging is done: the group, the user `iltiam-smtp-staging` with its SMTP credentials, the policy, and the staging secrets and variables. **The production parts moved to #36:** `iltiam-smtp-prod` (step 2), step 7 and the production column of step 8.
 
 Staging and production never share a credential (Runbook 4, section 3). OCI ties SMTP credentials to a user, so there are two users.
 
@@ -459,7 +465,7 @@ Staging and production never share a credential (Runbook 4, section 3). OCI ties
    | `EMAIL_PORT` | `587` | `587` |
    | `DEFAULT_FROM_EMAIL` | `ILTIAM Staging <no-reply@iltiamcare.com>` | `ILTIAM <no-reply@iltiamcare.com>` |
 
-### 11.6 Pending SMTP provider: mail-tester score from the VM
+### 11.6 mail-tester score from the VM (done 2026-11-07)
 
 This needs neither a deploy nor Runbook 3.
 
@@ -501,7 +507,11 @@ This needs neither a deploy nor Runbook 3.
 - a mail-tester score of **9/10 or more**, with SPF, DKIM and DMARC all passing in the "authenticated" section. Below 9: read that section first, then section 13;
 - the check email in the team mailbox's **Inbox**. Its **Show original** says `DMARC: 'PASS'`.
 
-### 11.7 Pending SMTP provider: go live
+**Result (2026-11-07):**
+- mail-tester from the VM: **9.1/10**, "properly authenticated", not blocklisted (row 24);
+- the test to `privacy@`: in the team mailbox's **Inbox**, and Gmail shows mailed-by and signed-by `iltiamcare.com` (row 34).
+
+### 11.7 Go live (staging done 2026-11-07)
 
 Only when all three hold:
 - DKIM is **Active** in OCI;
@@ -509,6 +519,22 @@ Only when all three hold:
 - mail-tester scored 9 or more.
 
 Then redeploy staging (Runbook 9). Check that a real email arrives in the inbox, not in spam: for example the first Super Admin's invitation (`bootstrap_superadmin`, backend `docs/deployment.md`).
+
+**Result, staging (2026-11-07):**
+- deploy run `42395228990` is green, and on the VM `printenv` in `backend-worker` shows the 4 values;
+- the invitation arrived in the **Inbox**, not in spam. Gmail shows mailed-by `ruh.rp.iltiamcare.com` and signed-by `iltiamcare.com` (row 25).
+
+**The invitation's link doesn't work yet.** It opens the home page, because the `/activate` page (iltiam/iltiam-web#29) isn't built. Row 25 still passes: it only checks that the email arrives.
+
+**When #29 is deployed, send the invitation again.** Each link works for only 24 hours, so a new one is needed anyway. First answer the `ACTIVATION_LINK_BASE_URL` questions in [Runbook 4](04-secrets.md), section 9, in case the page's path isn't `/activate`. Then, on the VM:
+
+```bash
+sudo -iu deploy
+iltiam staging exec -T backend-web python manage.py bootstrap_superadmin --phone <PHONE> --email <EMAIL> --resend
+exit
+```
+
+`<PHONE>` is the number the Super Admin was invited with. The new link goes to the email address already saved for that account. `--resend` works only until that Super Admin has activated.
 
 Rotation and revocation of the SMTP credentials: `docs/secrets.md`, section 2.
 
@@ -773,8 +799,8 @@ The **Verified** column records the date each row last passed. "DoH" means the D
 | 21 | SSL Labs | `https://www.ssllabs.com/ssltest/analyze.html?d=staging-app.iltiamcare.com` | Grade **A** or better (A+ once HSTS is on) | after #2 | 2026-11-07: grade A on all 4 addresses (2 IPv4, 2 IPv6), results hidden from the boards |
 | 22 | DKIM | `Resolve-DnsName <DKIM_SELECTOR>._domainkey.iltiamcare.com -Type CNAME -Server 1.1.1.1` / `dig CNAME … +short`; OCI email domain | The OCI target, DNS only; DKIM **Active** in OCI | after SMTP provider | 2026-11-07: CNAME to `iltiam-ruh-202611.iltiamcare.com.dkim.ruh1.oracleemaildelivery.com`, DNS only; DKIM **Active** in OCI; `check-dns.sh` PASS |
 | 23 | SPF with the provider | `scripts/check-dns.sh` (section 12.1) | Following the `ruh.rp` CNAME, Oracle's one `v=spf1` record, which names its senders; the main SPF is still one record, unchanged (section 11.4) | after SMTP provider | 2026-11-07 (`check-dns.sh` PASS): Oracle's `v=spf1 ip4:… ~all` behind `ruh.rp`; main SPF one record, not edited |
-| 24 | mail-tester | Section 11.6 | **9/10 or more**; SPF, DKIM and DMARC pass | after SMTP provider | |
-| 25 | A real email | An invitation from staging (section 11.7) | Arrives in the inbox, not in spam | after email setup (section 11.3 onward) and #2 | |
+| 24 | mail-tester | Section 11.6 | **9/10 or more**; SPF, DKIM and DMARC pass | after SMTP provider | 2026-11-07: **9.1/10** from the VM, "properly authenticated", not blocklisted |
+| 25 | A real email | An invitation from staging (section 11.7) | Arrives in the inbox, not in spam | after email setup (section 11.3 onward) and #2 | 2026-11-07: staging invitation (`bootstrap_superadmin`) in the Inbox, not in spam; Gmail shows mailed-by `ruh.rp.iltiamcare.com`, signed-by `iltiamcare.com`. The link opens the home page until iltiam/iltiam-web#29 is deployed; then resend it (section 11.7) |
 | 26 | MX records | `Resolve-DnsName iltiamcare.com -Type MX` / `dig MX` / DoH | Exactly three: `route1`, `route2` and `route3.mx.cloudflare.net` | after 11.9 | 2026-10-29 (DoH) |
 | 27 | Email Routing DKIM | `Resolve-DnsName cf2024-1._domainkey.iltiamcare.com -Type TXT` / `dig TXT …` / DoH | One TXT record containing `p=` | after 11.9 | 2026-10-29 (DoH) |
 | 28 | Destination | **Email Routing → Destination addresses** | The team mailbox, **Verified** | after 11.9 | 2026-10-29 |
@@ -783,7 +809,7 @@ The **Verified** column records the date each row last passed. "DoH" means the D
 | 31 | `security@` arrives | Section 11.9, step 7 | As row 30 | after 11.9 | |
 | 32 | Unknown address bounces | Section 11.9, step 7 (`nobody@`) | The outside account gets a bounce; Email Routing shows it rejected | after 11.9 | 2026-10-29 |
 | 33 | Return path | `Resolve-DnsName ruh.rp.iltiamcare.com -Type CNAME` (12.1); OCI email domain page | One CNAME to `ruh1.rp.oracleemaildelivery.com`, DNS only; no MX or TXT at `ruh.rp`; **Active** in OCI | after SMTP provider | 2026-11-07: CNAME to `ruh1.rp.oracleemaildelivery.com`, DNS only; **Active** in OCI; `check-dns.sh` PASS |
-| 34 | Our own mail to `privacy@` | Section 11.6, step 5 | In the team mailbox's **Inbox**; **Show original**: SPF, DKIM and DMARC pass | after SMTP provider | |
+| 34 | Our own mail to `privacy@` | Section 11.6, step 5 | In the team mailbox's **Inbox**; **Show original**: SPF, DKIM and DMARC pass | after SMTP provider | 2026-11-07: in the team mailbox's Inbox; Gmail shows mailed-by and signed-by `iltiamcare.com` (Gmail's summary; **Show original** not recorded) |
 
 **Record the results as a comment on issue #35** (#12 and #28 are closed). Pass or fail per row, with the date. **Never include** account IDs, zone IDs, dashboard URLs, keys, report addresses or email addresses (the team mailbox's address included).
 
@@ -840,7 +866,7 @@ The **Verified** column records the date each row last passed. "DoH" means the D
 - **[Runbook 3](03-cloudflare-tunnels.md)** (#9): the tunnels, public hostnames, cache rules and the sign-in rate limit. Bot Fight Mode, Rocket Loader and Email Obfuscation are already set here, so #9 only verifies them. After #2 (Runbook 3, section 11):
   - section 7 (HSTS);
   - checklist rows 11 and 19 to 21.
-- **SMTP provider:** sections 11.3 and 11.4 are done (rows 22, 23 and 33). Next are sections 11.5 to 11.7, then rows 24, 25 and 34, tracked in #35 for staging and #36 for production.
+- **SMTP provider:** staging is done (sections 11.3 to 11.7; rows 22 to 25, 33 and 34; #35). Production email is tracked in #36. When iltiam/iltiam-web#29 is deployed, resend the first Super Admin's invitation (section 11.7).
 - **Runbook 4** (#3): the Turnstile keys (section 10) and later the SMTP credentials (section 11.5) fill its sections 7 and 9.
 - **Receiving mail** (#28): section 11.9 now, then checklist rows 17 and 26 to 32. Follow-ups:
   - the backend names `privacy@iltiamcare.com` in its breach-notice docs and adds `Reply-To: privacy@` to breach notices;
