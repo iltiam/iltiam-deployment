@@ -29,7 +29,7 @@ Filled in when the steps are done. Names only: never a token, ID, team name or I
 | Item | Value |
 |---|---|
 | Tunnels | `iltiam-staging` and `iltiam-prod` created |
-| Published routes | `staging-app` → `web:8080`, `staging-api` → `backend-web:8000`, `app` → `web:8080`, `api` → `backend-web:8000`. Four proxied CNAMEs created; DoH shows DNSSEC validated |
+| Published routes | `staging-app` → `web:8080`, `staging-api` → `backend-web:8000`, `app` → `web:8080`, `api` → `backend-web:8000`. Four proxied CNAMEs created; DoH shows DNSSEC validated. Port `web:8080` confirmed 2026-11-07: `staging-app` answers `200` from the real web container through this route |
 | `CF_TUNNEL_TOKEN` in GitHub | Set in the `staging` and `production` Environments |
 | Temporary test (section 5) | Staging test with stand-ins and production test (`cloudflared` only) run 2026-10-28 on the OCI VM, then torn down; Compose file removed from the VM; no containers left |
 | Cache settings and rules | Browser Cache TTL "Respect Existing Headers", Always Online Off; Cache Rules `api-bypass`, `app-bypass-shell`, `app-cache-assets` active |
@@ -40,7 +40,8 @@ Filled in when the steps are done. Names only: never a token, ID, team name or I
 | Access applications | Self-hosted, `team-only`, One-time PIN only: `grafana` (`grafana.iltiamcare.com`, whole host), `api.iltiamcare.com` path `admin`, `staging-api.iltiamcare.com` path `admin` |
 | OCI ingress and VM ports | Default Security List: the 3 ingress rules of section 10.1, one egress rule (all protocols to `0.0.0.0/0`); no NSG on the primary VNIC. VM: only `sshd` on `:22` publicly, Oracle's iptables kept, no containers. External port scan from the laptop: only 22 open |
 | `NUM_PROXIES` | `1`, confirmed by the `whoami` headers (one `X-Forwarded-For` entry); behaviour on the real staging backend checked 2026-10-31 (row 27) |
-| Real stack (section 11) | Staging, 2026-10-31: every check that doesn't need the web app passes (section 13). The web-dependent checks and HSTS moved to #35, the production checks to #36, `grafana.` to #10 |
+| Real stack (section 11) | Staging, 2026-10-31: every check that doesn't need the web app passes (section 13). The web-dependent checks and HSTS moved to #35, the production checks to #36, `grafana.` to #10. Staging, 2026-11-07 (#41): the web app's checks pass too (rows 22, 24, 25); HSTS stays in #35 |
+| Script injection on the app hosts (section 11.3) | 2026-11-07: Cloudflare RUM off, Web Analytics automatic setup off |
 | HSTS (Runbook 2, section 7) | Moved to #35: it waits until `staging-app` serves the real web app (iltiam/iltiam-web#25) |
 
 ## 1. How it works
@@ -564,7 +565,7 @@ docker ps --format '{{.Names}}  {{.Ports}}'
 - `iptables -L INPUT`: ESTABLISHED/RELATED, ICMP, loopback and TCP 22 accepted, then `REJECT`.
 - `docker ps`: no containers running.
 
-**From your laptop.** Run this in **Windows PowerShell on the laptop**: not in Git Bash, and not inside the SSH session (from the VM itself the scan proves nothing). Connect the laptop to a **phone hotspot**, not the King Saud University network (section 14). It takes a few minutes, because each closed port waits for a timeout:
+**From your laptop.** Run this in **Windows PowerShell on the laptop**: not in Git Bash, and not inside the SSH session (from the VM itself the scan proves nothing). If your network gets in the way (section 14), run the check from the VM instead: the `ss`, `iptables` and `docker ps` commands above. Write in the results that the outside scan wasn't run. The scan takes a few minutes, because each closed port waits for a timeout:
 
 ```powershell
 foreach ($p in 22,80,443,111,2000,3000,5432,6379,7844,8000,8080,9090) { "{0,5}  {1}" -f $p, (Test-NetConnection <PUBLIC_IP> -Port $p -WarningAction SilentlyContinue).TcpTestSucceeded }
@@ -601,7 +602,8 @@ Run both checks again once production runs too (#36).
 When Runbook 5 has deployed staging (and later production), the stand-ins are replaced by the real containers. Run these checks, rows 22 to 28 of section 13.
 
 - **Staging:** done on 2026-10-31 for everything that doesn't need the web app.
-- **The web app's checks and HSTS** (rows 22 and 25 for the app hosts, 24, 28) wait for the web service (#41) and are tracked in #35.
+- **The web app's checks** (rows 22 and 25 for the app hosts, 24): done on `staging-app` on 2026-11-07 (#41).
+- **HSTS** (row 28) is tracked in #35.
 - **Production** (`app.` and `api.`) is tracked in #36.
 
 ### 11.1 The four hostnames
@@ -634,7 +636,15 @@ curl.exe -s https://staging-app.iltiamcare.com/ | Select-String "rocket-loader|e
 curl.exe -s https://staging-api.iltiamcare.com/api/health/ | Select-String "rocket-loader|email-decode|cloudflareinsights"
 ```
 
-**What you should see:** no output at all. `cloudflareinsights` would mean Cloudflare Web Analytics injects its script into the pages, which the content security policy forbids. If it appears: **Analytics & Logs → Web Analytics** → the site → turn automatic setup off (or remove the site).
+**What you should see:** no output at all. `cloudflareinsights` would mean Cloudflare Web Analytics injects its script into the pages, which the content security policy forbids. If it appears: turn Cloudflare RUM off, and **Analytics & Logs → Web Analytics** → the site → turn automatic setup off (or remove the site).
+
+**Then check in a real browser. `curl` alone is not enough:** Cloudflare can inject a script only for browsers, so plain `curl` shows nothing while a browser gets the script. On 2026-11-07 `curl` was clean on `staging-app`, but a browser got `https://static.cloudflareinsights.com/beacon.min.js`, which the content security policy blocked. **The fix:** Cloudflare RUM off and Web Analytics automatic setup off. After that, a browser-like `curl` of `/login` had no `cloudflareinsights`, and the browser console showed no content security policy error.
+
+1. Open `https://staging-app.iltiamcare.com/` in a browser and press F12.
+2. On the **Network** tab, reload the page and type `cloudflareinsights` in the filter box.
+3. On the **Console** tab, look for a `Content Security Policy` line.
+
+**What you should see:** nothing in the filtered **Network** list, and no `Content Security Policy` line in the **Console**. The check passes only when both `curl` and the browser are clean.
 
 ### 11.4 The AI service is unreachable
 
@@ -775,10 +785,10 @@ The **Verified** column records the date each row last passed.
 | 19 | OCI ingress | section 10.1 | TCP 22 and the two ICMP rules only; no NSG with other ingress | today | PASS 2026-10-28: 3 ingress rules, 1 egress rule (all to `0.0.0.0/0`), no NSG on the primary VNIC |
 | 20 | VM listens only on 22 | `sudo ss -tlnp`; `docker ps --format '{{.Names}}  {{.Ports}}'` | only `:22` on a public address; no `0.0.0.0:` port mapping | today, again after #2 | PASS 2026-10-28 (today's check): only `sshd` on `:22`; iptables accepts 22 then `REJECT`; no containers. Also during the test: no published container ports, only `sshd` on `:22`. PASS 2026-10-31 with the staging stack: only `sshd` on `:22` publicly (`systemd-resolved` on `127.0.0.53`, local only); iptables accepts 22 then `REJECT`; no published container ports. With production: #36 |
 | 21 | Port check from outside | `Test-NetConnection` or Git Bash loop (section 10.4); optional nmap | only `22 True` / `22 open` / `22/tcp open` | today, again after #2 | PASS 2026-10-28 (`Test-NetConnection` loop, Windows PowerShell on the laptop): `22 True`; 80, 443, 111, 3000, 5432, 6379, 8000, 8080, 9090 `False`. 2000 and 7844: not tested (no listener on the VM; `ss` shows only 22). PASS 2026-10-31 with the staging stack (Git Bash loop, King Saud University network): `22 open`; 80, 443, 111, 3000, 5432, 6379, 7844, 8000, 8080, 9090 `closed`; 2000 `open` from the university network itself, not the VM (section 14). With production: #36 |
-| 22 | Real app over HTTPS | section 11.1, all four hostnames | API `{"status": "ok"}`; app `200` with `content-security-policy` | after #2 (API); #35 (app); #36 (production) | PASS 2026-10-31, `staging-api` (Runbook 5, row 21): `{"status":"ok"}`, `/api/ready/` ready. The app part: #35. Production: #36 |
+| 22 | Real app over HTTPS | section 11.1, all four hostnames | API `{"status": "ok"}`; app `200` with `content-security-policy` | after #2 (API); #35 (app); #36 (production) | PASS 2026-10-31, `staging-api` (Runbook 5, row 21): `{"status":"ok"}`, `/api/ready/` ready. PASS 2026-11-07, `staging-app` (#41): `200`, `cf-cache-status: DYNAMIC`, `Cache-Control: no-cache`, the full `content-security-policy` with `connect-src 'self' https://staging-api.iltiamcare.com`, plus `nosniff`, `X-Frame-Options: DENY`, Referrer-Policy, Permissions-Policy, COOP and CORP. Production: #36 |
 | 23 | API never cached | section 11.2 | `DYNAMIC` or `BYPASS` on `api.` and `staging-api.` | after #2; #36 (`api.`) | PASS 2026-10-31, `staging-api`: `cf-cache-status: DYNAMIC`. `api.`: #36 |
-| 24 | Assets cached, shell not | section 11.2 | asset `MISS` then `HIT`; `/config.js` `DYNAMIC`/`BYPASS` with `no-cache` | #35 | |
-| 25 | No rewriting | section 11.3 | no output (also Runbook 2, row 20) | after #2 (API); #35 (app) | PASS 2026-10-31, `staging-api` `/api/health/`: the backend's JSON unchanged, no injected script (Runbook 2, row 20). The app part: #35 |
+| 24 | Assets cached, shell not | section 11.2 | asset `MISS` then `HIT`; `/config.js` `DYNAMIC`/`BYPASS` with `no-cache` | #35 | PASS 2026-11-07, `staging-app` (#41): `/assets/index-BteeYMH5.js` `MISS` then `HIT`, `public, max-age=31536000, immutable`; `/config.js` `200`, `DYNAMIC`, `no-cache`, `apiUrl` the staging API. Production: #36 |
+| 25 | No rewriting | section 11.3, with `curl` and, for the app hosts, a real browser | no output from `curl`, and no injected script in the browser (also Runbook 2, row 20) | after #2 (API); #35 (app) | PASS 2026-10-31, `staging-api` `/api/health/`: the backend's JSON unchanged, no injected script (Runbook 2, row 20). PASS 2026-11-07, `staging-app` (#41), after turning off Cloudflare RUM and Web Analytics automatic setup: a browser-like `curl` of `/login` has no `cloudflareinsights`, and the browser console shows no CSP error (section 11.3) |
 | 26 | AI unreachable | section 11.4 | on the VM: only `cloudflared`, `backend-web` and `web` on `edge`; `Could not resolve host` or `Resolving timed out` for `ai-api`, `ai-worker`, `ai-beat`, `postgres`, `redis`; the backend answers on the same network; the tunnel's configuration has only the two routes and the 404 catch-all. From outside: no DNS `Answer` for `ai`, `staging-ai`, `ai-api`, `staging-ai-api`; the AI paths give `404` on `staging-api` | after #2; #36 (`iltiam-prod_edge`) | PASS 2026-10-31 (VM; outside checks from the King Saud University network): exactly the three `iltiam-staging_` networks; `edge` holds only `cloudflared` and `backend-web`; the five names `Resolving timed out`; `backend-web` `/api/health/` `200`; tunnel configuration `http://web:8080`, `http://backend-web:8000`, `http_status:404`. `/health`, `/ready`, `/version`, `/capabilities`, `/v1/analyze` `404`; the four names `"Status":0` with no `Answer`. Production: #36 |
 | 27 | `NUM_PROXIES` | section 11.5 | `NUM_PROXIES` `1` in GitHub and in the container; `429 application/json` after about 20 attempts despite fake addresses; right after, a different visitor gets `400` | after #2; #36 (production) | PASS 2026-10-31, staging: `1` in GitHub and in `backend-web`. From the VM with a fake `X-Forwarded-For` per request: 20 × `400 application/json`, then `429 application/json` (the backend's limit); right after, the laptop (a different visitor) got `400 application/json`. Production: #36 |
 | 28 | HSTS | section 11.6 | `max-age=15552000; includeSubDomains` on app and API (Runbook 2, rows 19 to 21) | #35; #36 (production header) | |
@@ -809,7 +819,7 @@ The **Verified** column records the date each row last passed.
 | `Test-NetConnection` shows `True` for a port other than 22 | An OCI ingress rule or an NSG allows it (section 10.1), or a Compose file publishes it (`docker ps` shows `0.0.0.0:…`). Remove it and check again |
 | Port 2000 shows open from the King Saud University network, but `ss` on the VM shows nothing on it | The university network answers port 2000 itself, for every address: the same test against `1.1.1.1` also shows it open. Not the VM. Count the port as closed if `ss` and the OCI rules agree (section 10), or check it again from another network |
 | Tunnel shows **Degraded** | Some of its four connections dropped. Usually network trouble on the VM; `docker compose logs cloudflared`. It recovers by itself |
-| HTTPS checks (`curl` or a browser) to `*.iltiamcare.com` fail, or show a certificate not issued for Cloudflare, on the King Saud University network | Cisco Umbrella on the university network intercepts or filters the traffic; Cloudflare is not the cause. Run all verification from another network (a phone hotspot), and write in the results which network was used |
+| HTTPS checks (`curl` or a browser) to `*.iltiamcare.com` fail, or show a certificate not issued for Cloudflare, on the King Saud University network | Cisco Umbrella on the university network intercepts or filters the traffic; Cloudflare is not the cause. Run the check from the VM, and write in the results where it ran |
 
 ## 15. Security and PDPL notes
 
@@ -824,7 +834,7 @@ The **Verified** column records the date each row last passed.
 ## 16. What comes next
 
 - **[Runbook 5](05-compose-stack.md)** (#2): the two Compose projects, each with its `cloudflared` (`TUNNEL_TOKEN` from `CF_TUNNEL_TOKEN`), the `edge`, `internal` and `egress` networks, `FORWARDED_ALLOW_IPS` (section 8) and no `ports:`. Staging runs, and its section 11 checks without the web app passed on 2026-10-31.
-- **#35** (after the web service, #41): rows 22 and 25 for the app hosts, row 24, then HSTS (section 11.6, row 28; Runbook 2, section 7 and rows 19 and 21). The web image (WEB-03, iltiam/iltiam-web#25) brings the port (8080), the content security policy and security headers, and the `Cache-Control` headers (section 6.2).
+- **#35:** HSTS (section 11.6, row 28; Runbook 2, section 7 and rows 19 and 21). Rows 22 and 25 for the app hosts and row 24 passed on staging with #41. The web image (WEB-03, iltiam/iltiam-web#25) brings the port (8080), the content security policy and security headers, and the `Cache-Control` headers (section 6.2).
 - **#36** (production): section 11 and rows 7, 16, 20 to 28 on `app.` and `api.`.
 - **[Runbook 4](04-secrets.md)** (#3): `SECURE_HSTS_SECONDS` (section 11.6) in both Environments, with #35.
 - **Runbook 7** (#10): the `grafana.` route (on which tunnel) and `status.`, then row 17; the Access application already exists (section 9.3).
