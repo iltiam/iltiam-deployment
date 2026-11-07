@@ -18,4 +18,4 @@ AI_WORKER_IMAGE=ghcr.io/iltiam/iltiam-ai-worker:sha-0d1861e
 BACKEND_IMAGE=ghcr.io/iltiam/iltiam-backend:sha-4b5251d
 
 # sha-a5faaa2: iltiam-web PR #57 (issue #25, the production image); linux/arm64 and linux/amd64.
-WEB_IMAGE=ghcr.io/iltiam/iltiam-web:sha-a5faaa2
+WEB_IMAGE=ghcr.io/iltiam/iltiam-web:sha-2bcb0d2
