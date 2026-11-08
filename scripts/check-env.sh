@@ -8,6 +8,7 @@
 #      (Runbook 5, #2) with env/<env>.versions and every profile on.
 #   4. scripts/render-deploy-env.sh, as the deploy workflow runs it: from JSON, the files each environment needs.
 #   5. Negative cases: what must be refused is refused.
+#   6. The Authentica names (Runbook 12): the key stays a secret, the sender name a variable, staging runs without them.
 #
 # Usage: bash scripts/check-env.sh
 # Needs bash, openssl, jq and the Docker Compose plugin. No image is pulled and no container started.
@@ -266,5 +267,38 @@ expect_fail "render-deploy-env.sh with an FCM secret that is not JSON" bad_fcm
 [[ ! -e "$work/neg-1.env" && ! -e "$work/neg-2.env" && ! -e "$work/neg-3.env" ]] \
   || fail "a refused render still wrote its output file"
 ok "a refused render writes no file"
+
+# --- 6. Authentica (Runbook 12) --------------------------------------------------------------------------------------
+
+# Only names the published backend image reads. The names iltiam-backend#103 will add come with that image.
+log "Authentica names"
+declare -A authentica_kind=([AUTHENTICA_API_KEY]=secret [AUTHENTICA_SENDER_NAME]=var [SMS_BACKEND]=var)
+for name in "${!authentica_kind[@]}"; do
+  [[ "${kind_of[$name]:-}" == "${authentica_kind[$name]}" ]] \
+    || fail "$name must be a '${authentica_kind[$name]}' in env/backend.env.example, got '${kind_of[$name]:-nothing}'"
+done
+ok "the key is a secret; the sender name and SMS_BACKEND are variables"
+# Staging runs with no SMS_BACKEND and no sender name until the #103 image is deployed.
+staging_without_sms() {
+  export_dummies staging SMS_BACKEND AUTHENTICA_API_KEY AUTHENTICA_SENDER_NAME
+  bash "$RENDER" staging env/backend.env.example "$work/staging-no-sms.env" >/dev/null
+}
+(staging_without_sms) || fail "staging must render without SMS_BACKEND, AUTHENTICA_API_KEY and AUTHENTICA_SENDER_NAME"
+! grep -Eq '^(SMS_BACKEND|AUTHENTICA_API_KEY|AUTHENTICA_SENDER_NAME)=' "$work/staging-no-sms.env" \
+  || fail "an unset Authentica name still reached staging's backend.env"
+ok "staging renders without them, and leaves them out"
+production_without_key() {
+  export_dummies production AUTHENTICA_API_KEY
+  bash "$RENDER" production env/backend.env.example "$work/neg-4.env"
+}
+expect_fail "a production render with AUTHENTICA_API_KEY unset" production_without_key
+# The trap in the issue's wording: a sender name saved as a secret never reaches backend.env.
+SECRETS_JSON="$(deploy_json staging secret | jq -c '. + {AUTHENTICA_SENDER_NAME: "dummy-sender"}' | tr -d '\r')" \
+  VARS_JSON="$(deploy_json staging var | jq -c 'del(.AUTHENTICA_SENDER_NAME)' | tr -d '\r')" \
+  bash scripts/render-deploy-env.sh staging "$work/deploy-sender-secret" >/dev/null \
+  || fail "render-deploy-env.sh with the sender name saved as a secret failed"
+! grep -q '^AUTHENTICA_SENDER_NAME=' "$work/deploy-sender-secret/backend.env" \
+  || fail "a sender name saved as a secret reached backend.env; the renderer must read a var from variables only"
+ok "a sender name saved as a secret is ignored: it must be a variable"
 
 log "all checks passed"

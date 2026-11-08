@@ -9,6 +9,7 @@ Infrastructure for ILTIAM: hosting decisions, runbooks, environment templates an
   - [Runbook 3: Cloudflare Tunnels, cache and security rules](docs/runbooks/03-cloudflare-tunnels.md)
   - [Runbook 4: secrets and environment files](docs/runbooks/04-secrets.md)
   - [Runbook 5: staging and production as two Compose projects](docs/runbooks/05-compose-stack.md)
+  - [Runbook 12: Authentica account, default sender and API key for phone codes](docs/runbooks/12-authentica.md)
 - **The stack:** [`compose.yml`](compose.yml) (both environments), image tags in [`env/<env>.versions`](env/),
   deployed by **Actions → deploy** ([`.github/workflows/deploy.yml`](.github/workflows/deploy.yml),
   [`scripts/deploy.sh`](scripts/deploy.sh)). Day to day on the VM: [`scripts/compose.sh`](scripts/compose.sh).
