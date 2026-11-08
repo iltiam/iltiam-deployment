@@ -124,7 +124,7 @@ Do this **once for staging, then again for production**. The script makes new va
 Each one comes from its own runbook. Add it to **both** Environments, each with its own value, when that runbook is done.
 
 - **Needed before the first staging deploy** (`required` in the templates): the storage keys, `CF_TUNNEL_TOKEN`, `TURNSTILE_SECRET_KEY` and `WEIGHTS_READ_TOKEN`.
-- **Can wait on staging** (`prod-required`): Authentica and Firebase. Until they exist, the staging backend prints SMS and push to its log instead (section 9 table). SMTP is already set on staging (2026-11-07); production's is in #36.
+- **Can wait on staging** (`prod-required`): Authentica and Firebase. Until `SMS_BACKEND` and `PUSH_BACKEND` are set, the staging backend prints SMS and push to its log instead (section 9 table). Staging's `AUTHENTICA_API_KEY` is set (2026-11-07), but `SMS_BACKEND` stays unset until the iltiam-backend#103 image is deployed ([Runbook 12](12-authentica.md), section 8). SMTP is already set on staging (2026-11-07); production's is in #36.
 - **Production refuses to start** until every `prod-required` one is set.
 
 | Secret (Environment secret) | From | Runbook / issue |
@@ -132,7 +132,7 @@ Each one comes from its own runbook. Add it to **both** Environments, each with 
 | `STORAGE_ACCESS_KEY`, `STORAGE_SECRET_KEY` | OCI Customer Secret Key of the environment's storage user | [Runbook 8](08-object-storage.md) (DEP-02), sections 9.5 and 11 |
 | `STORAGE_ENDPOINT_URL`, `MASK_UPLOAD_ALLOWED_HOSTS` | Built from the Object Storage namespace; secrets only so the namespace never shows in this public repository's logs | [Runbook 8](08-object-storage.md), section 11 |
 | `CF_TUNNEL_TOKEN` | Cloudflare Zero Trust, tunnel `iltiam-staging` / `iltiam-prod` | [Runbook 3](03-cloudflare-tunnels.md) (#9), section 3 |
-| `AUTHENTICA_API_KEY` (plus the variable `AUTHENTICA_SENDER_NAME`) | Authentica dashboard | Runbook 12 (DEP-14) |
+| `AUTHENTICA_API_KEY` (staging set 2026-11-07, production in #36). The sender name is a **variable**, not a secret: section 9 | Authentica dashboard, the application's API keys | [Runbook 12](12-authentica.md) (DEP-14), sections 4.3 and 7 |
 | `TURNSTILE_SECRET_KEY` (plus the variable `TURNSTILE_SITE_KEY`) | Cloudflare → Turnstile, one widget per environment | [Runbook 2](02-cloudflare-dns-tls.md) (DEP-01), section 10 |
 | `EMAIL_HOST_USER`, `EMAIL_HOST_PASSWORD` | OCI Email Delivery SMTP credentials of the environment's own SMTP user (staging set 2026-11-07, production in #36) | [Runbook 2](02-cloudflare-dns-tls.md) (DEP-01), section 11.5 |
 | `FCM_SERVICE_ACCOUNT_JSON` | Firebase → Project settings → Service accounts → Generate new private key | Runbook 11 (DEP-13) |
@@ -170,8 +170,9 @@ These are the values to set. Every other `var` in the templates is `optional`: l
 | `STORAGE_BUCKET_WOUND_IMAGES`, `…_WOUND_MASKS`, `…_REPORTS`, `…_PRESCRIPTIONS`, `…_PROFILE_PHOTOS` | `iltiam-staging-wound-images`, `-wound-masks`, `-reports`, `-prescriptions`, `-profile-photos` | `iltiam-prod-wound-images`, `-wound-masks`, `-reports`, `-prescriptions`, `-profile-photos` ([Runbook 8](08-object-storage.md), section 7) |
 | `AI_MASK_UPLOAD_ENABLED` | `True` | `True` |
 | `ACTIVATION_LINK_BASE_URL` | `https://staging-app.iltiamcare.com/activate` (set 2026-10-31; TO CONFIRM, below) | `https://app.iltiamcare.com/activate` (TO CONFIRM, below) |
-| `SMS_BACKEND` | leave out until Runbook 12, then as production | `apps.notifications.sms.AuthenticaSMSBackend` |
-| `AUTHENTICA_SENDER_NAME` | the approved sender name | same |
+| `SMS_BACKEND` | **leave out** until the iltiam-backend#103 image is deployed ([Runbook 12](12-authentica.md), section 8), then as production | `apps.notifications.sms.AuthenticaSMSBackend` |
+| `AUTHENTICA_SENDER_NAME` | **leave out**: staging uses the default sender `Authentica` until a Commercial Registration exists ([Runbook 12](12-authentica.md), section 2) | the approved sender name (#36). A variable, not a secret: the deploy wouldn't read it from a secret |
+| `AUTHENTICA_SMS_CODE_MODE`, `AUTHENTICA_SMS_TEMPLATE_ID_AR`, `AUTHENTICA_SMS_TEMPLATE_ID_EN` | pending iltiam-backend#103, not in the templates yet. Then `send_otp`, `8`, `7` ([Runbook 12](12-authentica.md), section 8) | leave out (#36 decides) |
 | `PUSH_BACKEND` | leave out until Runbook 11, then as production | `apps.notifications.push.FCMPushBackend` |
 | `EMAIL_BACKEND` | `django.core.mail.backends.smtp.EmailBackend` (set 2026-11-07, #35) | same (set with #36) |
 | `EMAIL_HOST`, `EMAIL_PORT`, `DEFAULT_FROM_EMAIL` | OCI Email Delivery's Riyadh SMTP endpoint (Runbook 2, section 11.2), `587`, `ILTIAM Staging <no-reply@iltiamcare.com>` (set 2026-11-07, #35) | same host and port, `ILTIAM <no-reply@iltiamcare.com>` (set with #36) |
@@ -345,5 +346,6 @@ Every row must match before an environment is used. Record the result on the iss
 - **[Runbook 8](08-object-storage.md)** (DEP-02): storage keys, the storage endpoint and bucket names.
 - **Runbook 9** (DEP-03): starts the deploy workflow on its own for staging, then runs the smoke test.
 - **Runbook 10** (DEP-04): the same for production, behind the reviewer.
-- **Runbooks 11 and 12** (DEP-13, DEP-14): Firebase and Authentica.
+- **Runbook 11** (DEP-13): Firebase.
+- **[Runbook 12](12-authentica.md)** (DEP-14): Authentica, with the default sender until a Commercial Registration exists.
 - **Open items found here:** `docs/secrets.md`, section 8.
