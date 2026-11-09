@@ -14,8 +14,8 @@ COMPOSE_PROFILES=backend,web
 AI_API_IMAGE=ghcr.io/iltiam/iltiam-ai-api:sha-0d1861e
 AI_WORKER_IMAGE=ghcr.io/iltiam/iltiam-ai-worker:sha-0d1861e
 
-# sha-4b5251d: iltiam-backend#101 (#80 OCI storage checksums, #99 the published image); linux/arm64 and linux/amd64.
-BACKEND_IMAGE=ghcr.io/iltiam/iltiam-backend:sha-4b5251d
+# sha-93f5573: iltiam-backend PR #108 (#87 Django 5.2/DRF 3.18, #88 Idempotency-Key, #106 client mobile, #86 retention dry-run).
+BACKEND_IMAGE=ghcr.io/iltiam/iltiam-backend:sha-93f5573
 
 # sha-a5faaa2: iltiam-web PR #57 (issue #25, the production image); linux/arm64 and linux/amd64.
 WEB_IMAGE=ghcr.io/iltiam/iltiam-web:sha-2bcb0d2
