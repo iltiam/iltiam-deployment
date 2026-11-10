@@ -189,7 +189,7 @@ foreach ($h in "app","api","staging-app","staging-api") { $r = Invoke-RestMethod
 
 A tunnel shows **Healthy** as soon as one `cloudflared` is connected, whether or not anything answers behind it. So production is tested with the connector alone.
 
-[`scripts/tunnel-test.compose.yml`](../../scripts/tunnel-test.compose.yml) has:
+[`scripts/tunnel-test.compose.yml`](https://github.com/iltiam/iltiam-deployment/blob/main/scripts/tunnel-test.compose.yml) has:
 
 - `cloudflared` (pinned version);
 - two **stand-ins**, only with the `stand-ins` profile, under the real service names:

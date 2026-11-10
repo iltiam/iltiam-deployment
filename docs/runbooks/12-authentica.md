@@ -137,7 +137,7 @@ An SMS sent through `/send-otp` uses a template. `template_id` picks one, and **
 
 ## 6. The safe test from the VM
 
-[`scripts/check-authentica.sh`](../../scripts/check-authentica.sh) sends one real SMS, exactly as the backend will after iltiam-backend#103, and shows the balance before and after. **Each run costs 1 point.**
+[`scripts/check-authentica.sh`](https://github.com/iltiam/iltiam-deployment/blob/main/scripts/check-authentica.sh) sends one real SMS, exactly as the backend will after iltiam-backend#103, and shows the balance before and after. **Each run costs 1 point.**
 
 **Why it's a file you copy:** long pastes into the SSH terminal get scrambled, and a pasted line can end up typed into a hidden prompt.
 

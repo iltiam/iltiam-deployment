@@ -254,7 +254,7 @@ Sections 9.1 to 9.5 again, with:
 
 ## 10. Probe the key
 
-[`scripts/check-storage.sh`](../../scripts/check-storage.sh) uses the key exactly as the backend will, from your laptop: boto3, the backend's library, in a pinned container. It prints `PASS`, `FAIL`, `KEY`, `SKIP` and `NOTE` lines, and **never** a key, the namespace, an endpoint or a link.
+[`scripts/check-storage.sh`](https://github.com/iltiam/iltiam-deployment/blob/main/scripts/check-storage.sh) uses the key exactly as the backend will, from your laptop: boto3, the backend's library, in a pinned container. It prints `PASS`, `FAIL`, `KEY`, `SKIP` and `NOTE` lines, and **never** a key, the namespace, an endpoint or a link.
 
 1. In **Git Bash**, in this repository's folder, with Docker Desktop running. Each `read` takes a value without showing it: paste, Enter.
 

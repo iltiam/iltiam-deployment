@@ -3,7 +3,7 @@
 - **Issue:** iltiam/iltiam-deployment#3 (DEP#3). **Inventory, owners, rotation, revocation:** [`docs/secrets.md`](../secrets.md).
 - **Who:** anyone on the team with admin rights on `iltiam/iltiam-deployment`. No cloud experience needed; follow the steps in order.
 - **Time:** about 1.5 hours the first time, then a few minutes for each third-party secret as its runbook is done.
-- **Result:** two GitHub Environments, `staging` and `production` (production waits for a reviewer before any deploy). They hold every secret and setting the env templates in [`env/`](../../env/) name, plus an escrow copy in Bitwarden of what can't be regenerated. The deploy workflow ([Runbook 5](05-compose-stack.md); automated later by Runbooks 9 and 10) turns them into `/srv/iltiam/env/<staging|production>/*.env` on `iltiam-1`.
+- **Result:** two GitHub Environments, `staging` and `production` (production waits for a reviewer before any deploy). They hold every secret and setting the env templates in [`env/`](https://github.com/iltiam/iltiam-deployment/tree/main/env/) name, plus an escrow copy in Bitwarden of what can't be regenerated. The deploy workflow ([Runbook 5](05-compose-stack.md); automated later by Runbooks 9 and 10) turns them into `/srv/iltiam/env/<staging|production>/*.env` on `iltiam-1`.
 
 > **This repository is public. Never paste a secret into this runbook, an issue, a PR, a commit, a chat or a workflow log.** Use the placeholders below. A secret pasted anywhere public counts as leaked: rotate it (`docs/secrets.md`, section 7). Deleting the text doesn't help.
 
