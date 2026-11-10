@@ -7,6 +7,8 @@ site_dir: site
 strict: true
 theme:
   name: mkdocs
+  # highlight.js would also colour the Mermaid blocks; the docs have no other code worth highlighting.
+  highlightjs: false
 markdown_extensions:
   - tables
   - toc:
