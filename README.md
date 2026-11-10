@@ -2,6 +2,9 @@
 
 Infrastructure for ILTIAM: hosting decisions, runbooks, environment templates and deployment scripts.
 
+- **System documentation:** [architecture (C4)](docs/architecture.md), [integration guide](docs/integration.md) and
+  the [ADR index](docs/adr-index.md) across all repositories. `mkdocs build --strict` builds them as a site
+  (`pip install -r docs/requirements.txt`; CI: `.github/workflows/docs.yml`).
 - **Hosting decision:** [ADR-0004](docs/adr/0004-hosting.md) (Oracle Always Free in Riyadh, Cloudflare, one ARM VM).
 - **Runbooks:** [`docs/runbooks/`](docs/runbooks/), numbered in the order they are done.
   - [Runbook 1: OCI account and VM](docs/runbooks/01-oci-account-and-vm.md)

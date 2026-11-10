@@ -1,0 +1,3 @@
+# The docs build (iltiam-deployment#4): mkdocs build --strict
+mkdocs==1.6.1
+pymdown-extensions==10.14.3

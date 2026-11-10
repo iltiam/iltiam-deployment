@@ -4,7 +4,7 @@
 - **Who:** anyone on the team who can log in to `iltiam-1` as `ubuntu` (`ssh iltiam`, Runbook 1) and has admin rights on `iltiam/iltiam-deployment`. No cloud experience needed; follow the steps in order.
 - **Time:** about 2.5 hours the first time: 45 minutes to prepare the VM and GitHub, 20 minutes for the first staging deploy, about 1.5 hours of checks. A later deploy takes about 5 minutes.
 - **Result:**
-  - two Compose projects on `iltiam-1`, **`iltiam-staging`** and **`iltiam-prod`**, from one [`compose.yml`](../../compose.yml);
+  - two Compose projects on `iltiam-1`, **`iltiam-staging`** and **`iltiam-prod`**, from one [`compose.yml`](https://github.com/iltiam/iltiam-deployment/blob/main/compose.yml);
   - each with its own Postgres (databases `iltiam` and `iltiam_ai`), Redis, AI service, `cloudflared` and, on staging for now, the backend and the web app;
   - **no published port**, and the AI service on a network the tunnel can't reach;
   - a memory limit on every container, sized so both environments fit in 12 GB;
@@ -65,7 +65,7 @@ iltiam-1  (Ampere A1, arm64, 2 OCPU / 12 GB + 4 GB swap; only port 22 open)
 | | Comes from | Public? |
 |---|---|---|
 | Project name | `scripts/compose.sh`: `iltiam-staging` or `iltiam-prod` | yes |
-| Image tags, which services run | [`env/<ENV>.versions`](../../env/) in this repository | yes |
+| Image tags, which services run | [`env/<ENV>.versions`](https://github.com/iltiam/iltiam-deployment/tree/main/env/) in this repository | yes |
 | Secrets and settings | `/srv/iltiam/env/<ENV>/*.env` on the VM, written from the GitHub Environment ([Runbook 4](04-secrets.md)) | **no** |
 | Data | `/srv/iltiam/<ENV>/` on the VM | **no** |
 
@@ -96,14 +96,14 @@ The two projects share only the weights folder. Each has its own containers, net
 
 **Why production has no backend yet:** the production settings refuse to start with the console SMS, push and email backends. They need Firebase (Runbook 11, DEP-13), Authentica (Runbook 12, DEP-14) and the SMTP provider (Runbook 2, section 11). Until then `env/production.versions` leaves the `backend` profile off, and `api.iltiamcare.com` answers 502. The `web` profile stays off there too until #36, so `app.iltiamcare.com` also answers 502.
 
-**A deploy, step by step** ([`.github/workflows/deploy.yml`](../../.github/workflows/deploy.yml)):
+**A deploy, step by step** ([`.github/workflows/deploy.yml`](https://github.com/iltiam/iltiam-deployment/blob/main/.github/workflows/deploy.yml)):
 
-1. On GitHub's runner, [`scripts/render-deploy-env.sh`](../../scripts/render-deploy-env.sh) writes the env files from the Environment's secrets and variables. GitHub never shows a secret again, so this is the only way they reach the VM.
-2. [`scripts/remote-deploy.sh`](../../scripts/remote-deploy.sh) logs in to the VM as `deploy` with the environment's own SSH key. It:
+1. On GitHub's runner, [`scripts/render-deploy-env.sh`](https://github.com/iltiam/iltiam-deployment/blob/main/scripts/render-deploy-env.sh) writes the env files from the Environment's secrets and variables. GitHub never shows a secret again, so this is the only way they reach the VM.
+2. [`scripts/remote-deploy.sh`](https://github.com/iltiam/iltiam-deployment/blob/main/scripts/remote-deploy.sh) logs in to the VM as `deploy` with the environment's own SSH key. It:
    - checks out the workflow's commit in `/srv/iltiam/repo`;
    - copies the env files into `/srv/iltiam/env/<ENV>/` (over SSH's input, never on a command line);
    - logs in to GHCR with the job's own short-lived token.
-3. [`scripts/deploy.sh`](../../scripts/deploy.sh) on the VM:
+3. [`scripts/deploy.sh`](https://github.com/iltiam/iltiam-deployment/blob/main/scripts/deploy.sh) on the VM:
    - checks everything it can (section 13 lists its messages);
    - pulls the images;
    - starts Postgres and Redis;
@@ -255,7 +255,7 @@ echo "alias iltiam='bash /srv/iltiam/repo/scripts/compose.sh'" >> ~/.bashrc
 exit
 ```
 
-From then on, after `sudo -iu deploy`, `iltiam staging ps` is the same as `bash /srv/iltiam/repo/scripts/compose.sh staging ps`. [`scripts/compose.sh`](../../scripts/compose.sh) adds the project name, the env files and the paths for you. **Always use it instead of plain `docker compose`.**
+From then on, after `sudo -iu deploy`, `iltiam staging ps` is the same as `bash /srv/iltiam/repo/scripts/compose.sh staging ps`. [`scripts/compose.sh`](https://github.com/iltiam/iltiam-deployment/blob/main/scripts/compose.sh) adds the project name, the env files and the paths for you. **Always use it instead of plain `docker compose`.**
 
 ## 5. GitHub: the deploy key and the VM's address (once per environment)
 

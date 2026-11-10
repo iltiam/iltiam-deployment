@@ -30,3 +30,6 @@ key.properties
 .idea/
 .DS_Store
 Thumbs.db
+
+# MkDocs output (mkdocs build)
+site/

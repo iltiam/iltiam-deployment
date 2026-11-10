@@ -1,7 +1,7 @@
 # Secrets: inventory, owners, rotation and revocation
 
 - **Issue:** iltiam/iltiam-deployment#3 (DEP#3). **How to set them up:** [Runbook 4](runbooks/04-secrets.md).
-- **Templates:** [`env/`](../env/): every variable name with a one-line comment, no values.
+- **Templates:** [`env/`](https://github.com/iltiam/iltiam-deployment/tree/main/env/): every variable name with a one-line comment, no values.
 - **Owner of every secret:** ben-fatah. **Backup:** Omar-Nasri. The exception is the Android upload keystore (section 3).
 
 > **This repository is public.** No secret value goes into it, into an issue, a PR, a commit message, a chat or an Actions log. Use placeholders (such as `<NAMESPACE>`) and secret **names** only.

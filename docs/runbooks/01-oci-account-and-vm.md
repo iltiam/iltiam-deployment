@@ -224,7 +224,7 @@ From then on, `ssh iltiam` and `scp file iltiam:~` are enough. This file holds t
 
 ## 9. Bootstrap the VM
 
-[`scripts/bootstrap-vm.sh`](../../scripts/bootstrap-vm.sh) does everything on the VM in one go. It is **safe to run again**: a second run changes nothing and just prints the summary. It:
+[`scripts/bootstrap-vm.sh`](https://github.com/iltiam/iltiam-deployment/blob/main/scripts/bootstrap-vm.sh) does everything on the VM in one go. It is **safe to run again**: a second run changes nothing and just prints the summary. It:
 
 - **Updates packages:** `apt update` and `upgrade`, without prompts.
 - **Sets the hostname to `iltiam-1`,** and keeps it there:

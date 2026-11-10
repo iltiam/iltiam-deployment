@@ -1,0 +1,55 @@
+# The system documentation (iltiam-deployment#4). Build: mkdocs build --strict (CI: .github/workflows/docs.yml).
+site_name: ILTIAM system documentation
+site_url: https://github.com/iltiam/iltiam-deployment
+repo_url: https://github.com/iltiam/iltiam-deployment
+docs_dir: docs
+site_dir: site
+strict: true
+theme:
+  name: mkdocs
+  # highlight.js would also colour the Mermaid blocks; the docs have no other code worth highlighting.
+  highlightjs: false
+markdown_extensions:
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.superfences:
+      custom_fences:
+        # Mermaid diagrams render on GitHub as they are, and in the built site through mermaid.js.
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+extra_javascript:
+  - https://unpkg.com/mermaid@11.4.1/dist/mermaid.min.js
+  - js/mermaid-init.js
+validation:
+  # Links to files outside docs/ (compose.yml, scripts/) are GitHub links in the source; anything else must resolve.
+  omitted_files: warn
+  absolute_links: info
+  unrecognized_links: warn
+  anchors: warn
+nav:
+  - Home: index.md
+  - Architecture (C4): architecture.md
+  - Integration guide: integration.md
+  - ADR index: adr-index.md
+  - SRS divergences: srs-divergences.md
+  - Secrets: secrets.md
+  - ADRs:
+      - ADR-0004 hosting: adr/0004-hosting.md
+  - Runbooks:
+      - 1. OCI account and VM: runbooks/01-oci-account-and-vm.md
+      - 2. Cloudflare DNS and TLS: runbooks/02-cloudflare-dns-tls.md
+      - 3. Cloudflare Tunnels: runbooks/03-cloudflare-tunnels.md
+      - 4. Secrets: runbooks/04-secrets.md
+      - 5. Compose stack: runbooks/05-compose-stack.md
+      - 8. Object storage: runbooks/08-object-storage.md
+      - 12. Authentica: runbooks/12-authentica.md
+  - Planning:
+      - Overview: planning/README.md
+      - Plan: planning/plan.md
+      - Issue index: planning/issue_index.md
+      - Gap list: planning/gap-list.md
+      - Existing issues: planning/existing-issues.md
+exclude_docs: |
+  planning/issues/
