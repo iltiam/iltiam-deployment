@@ -270,15 +270,32 @@ ok "a refused render writes no file"
 
 # --- 6. Authentica (Runbook 12) --------------------------------------------------------------------------------------
 
-# Only names the published backend image reads. The names iltiam-backend#103 will add come with that image.
+# Only names the published backend image reads. iltiam-backend#103 added the code mode and the two template ids.
 log "Authentica names"
-declare -A authentica_kind=([AUTHENTICA_API_KEY]=secret [AUTHENTICA_SENDER_NAME]=var [SMS_BACKEND]=var)
+declare -A authentica_kind=([AUTHENTICA_API_KEY]=secret [AUTHENTICA_SENDER_NAME]=var [SMS_BACKEND]=var
+  [AUTHENTICA_SMS_CODE_MODE]=var [AUTHENTICA_SMS_TEMPLATE_ID_AR]=var [AUTHENTICA_SMS_TEMPLATE_ID_EN]=var)
 for name in "${!authentica_kind[@]}"; do
   [[ "${kind_of[$name]:-}" == "${authentica_kind[$name]}" ]] \
     || fail "$name must be a '${authentica_kind[$name]}' in env/backend.env.example, got '${kind_of[$name]:-nothing}'"
 done
-ok "the key is a secret; the sender name and SMS_BACKEND are variables"
-# Staging runs with no SMS_BACKEND and no sender name until the #103 image is deployed.
+ok "the key is a secret; the sender name, SMS_BACKEND and the #103 settings are variables"
+# Optional, so production (send_sms, the backend's default) leaves them out, and an empty template id never reaches
+# env.int.
+production_backend="$(bash "$RENDER" --list production env/backend.env.example | tr -d '\r')"
+for name in AUTHENTICA_SMS_CODE_MODE AUTHENTICA_SMS_TEMPLATE_ID_AR AUTHENTICA_SMS_TEMPLATE_ID_EN; do
+  grep -qx "var may $name" <<<"$production_backend" || fail "$name must be '# var, optional:' in env/backend.env.example"
+done
+ok "the #103 settings are optional"
+# The renderer copies only listed names: staging's send_otp settings must reach backend.env.
+VARS_JSON="$(deploy_json staging var | jq -c '. + {AUTHENTICA_SMS_CODE_MODE: "send_otp",
+    AUTHENTICA_SMS_TEMPLATE_ID_AR: "8", AUTHENTICA_SMS_TEMPLATE_ID_EN: "7"}' | tr -d '\r')" \
+  SECRETS_JSON="$(deploy_json staging secret)" bash scripts/render-deploy-env.sh staging "$work/deploy-send-otp" >/dev/null \
+  || fail "render-deploy-env.sh with the send_otp settings failed"
+for line in "AUTHENTICA_SMS_CODE_MODE='send_otp'" "AUTHENTICA_SMS_TEMPLATE_ID_AR='8'" "AUTHENTICA_SMS_TEMPLATE_ID_EN='7'"; do
+  grep -qx "$line" "$work/deploy-send-otp/backend.env" || fail "$line did not reach staging's backend.env"
+done
+ok "staging's send_otp settings reach backend.env"
+# Staging can still render with no SMS_BACKEND and no sender name (console delivery, before Authentica is on).
 staging_without_sms() {
   export_dummies staging SMS_BACKEND AUTHENTICA_API_KEY AUTHENTICA_SENDER_NAME
   bash "$RENDER" staging env/backend.env.example "$work/staging-no-sms.env" >/dev/null
@@ -300,5 +317,21 @@ SECRETS_JSON="$(deploy_json staging secret | jq -c '. + {AUTHENTICA_SENDER_NAME:
 ! grep -q '^AUTHENTICA_SENDER_NAME=' "$work/deploy-sender-secret/backend.env" \
   || fail "a sender name saved as a secret reached backend.env; the renderer must read a var from variables only"
 ok "a sender name saved as a secret is ignored: it must be a variable"
+
+# --- 7. Web environment (iltiam/iltiam-web#63) ----------------------------------------------------------------------
+
+# Optional: the image treats an unset ILTIAM_ENVIRONMENT as production. Staging sets it, so the code step shows the
+# backend's test code; the renderer copies only listed names.
+log "ILTIAM_ENVIRONMENT"
+production_web="$(bash "$RENDER" --list production env/web.env.example | tr -d '\r')"
+grep -qx 'var may ILTIAM_ENVIRONMENT' <<<"$production_web" \
+  || fail "ILTIAM_ENVIRONMENT must be '# var, optional:' in env/web.env.example"
+VARS_JSON="$(deploy_json staging var | jq -c '. + {ILTIAM_ENVIRONMENT: "staging"}' | tr -d '\r')" \
+  SECRETS_JSON="$(deploy_json staging secret)" \
+  bash "$work/repo-web/scripts/render-deploy-env.sh" staging "$work/deploy-web-env" >/dev/null \
+  || fail "render-deploy-env.sh with ILTIAM_ENVIRONMENT set failed"
+grep -qx "ILTIAM_ENVIRONMENT='staging'" "$work/deploy-web-env/web.env" \
+  || fail "ILTIAM_ENVIRONMENT did not reach staging's web.env"
+ok "it is optional, and staging's value reaches web.env"
 
 log "all checks passed"

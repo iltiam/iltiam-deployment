@@ -244,7 +244,7 @@ gh variable list --env staging -R iltiam/iltiam-deployment --json name -q '.[].n
 - iltiam-backend#103 is merged, and its image `<NEW_TAG>` is published;
 - section 6 has passed.
 
-The three new setting names below are **pending iltiam-backend#103**. Check them against the merged code, because they can change.
+The three setting names below come from iltiam-backend#103 (merged in `c6e16a6`, `config/settings/base.py`). Step 1's template names and `check-env.sh` checks are done.
 
 1. **Open a PR in this repository** that:
    - adds the three new names to `env/backend.env.example`, each tagged `# var, optional:`;
@@ -349,7 +349,7 @@ Do this only when the project has a Commercial Registration.
 3. When it's approved:
    - send a test through `/send-sms` with the new name. The script has no mode for this yet, so add one, with the body `phone`, `message`, `sender_name`;
    - set the **variable** `AUTHENTICA_SENDER_NAME` to the exact approved name;
-   - change `AUTHENTICA_SMS_CODE_MODE` to `send_sms` (pending iltiam-backend#103), and deploy.
+   - change `AUTHENTICA_SMS_CODE_MODE` to `send_sms` (iltiam-backend#103), and deploy.
 4. Run section 9 again. Welcome messages and password-changed messages should now arrive too.
 
 ## 13. Rotate the key, or respond to a leak

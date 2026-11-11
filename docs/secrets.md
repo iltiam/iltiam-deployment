@@ -214,7 +214,7 @@ Found while writing the templates (issue #3). Each one belongs to the issue name
 7. ~~Health check vs `ALLOWED_HOSTS`.~~ **Worked around in #2, confirmed:** the image's own check gets `400` under production settings (and would get a redirect to https after that). `compose.yml` overrides the `backend-web` health check to send the first `ALLOWED_HOSTS` name as `Host` and `X-Forwarded-Proto: https`, which answers `200`. No backend change is needed; exempting the probe in the backend would let compose drop the override.
 8. **`FIELD_ENCRYPTION_KEY` rotation:** follow-up issue (MultiFernet plus a re-encrypt command), section 6.2.
 9. **`STAGING_TEST_PASSWORD`:** document the password policy, so the value can be generated.
-9a. **Phone codes without a sender name:** iltiam-backend#103 sends codes through `/send-otp`. Until its image is deployed, `SMS_BACKEND` stays unset on staging. The setting names `AUTHENTICA_SMS_CODE_MODE`, `AUTHENTICA_SMS_TEMPLATE_ID_AR` and `AUTHENTICA_SMS_TEMPLATE_ID_EN` are pending #103 ([Runbook 12](runbooks/12-authentica.md), section 8).
+9a. **Phone codes without a sender name:** iltiam-backend#103 sends codes through `/send-otp`. Staging sets `AUTHENTICA_SMS_CODE_MODE=send_otp`, `AUTHENTICA_SMS_TEMPLATE_ID_AR=8` and `AUTHENTICA_SMS_TEMPLATE_ID_EN=7` (optional variables in `env/backend.env.example`), then `SMS_BACKEND` last ([Runbook 12](runbooks/12-authentica.md), section 8).
 9b. **Reserved test numbers:** iltiam-backend#104 keeps `+96659999xxxx` away from Authentica. Until it is deployed, seeded accounts aren't used with Authentica on.
 
 **Still TO CONFIRM:**

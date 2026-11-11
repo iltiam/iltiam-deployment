@@ -170,9 +170,9 @@ These are the values to set. Every other `var` in the templates is `optional`: l
 | `STORAGE_BUCKET_WOUND_IMAGES`, `…_WOUND_MASKS`, `…_REPORTS`, `…_PRESCRIPTIONS`, `…_PROFILE_PHOTOS` | `iltiam-staging-wound-images`, `-wound-masks`, `-reports`, `-prescriptions`, `-profile-photos` | `iltiam-prod-wound-images`, `-wound-masks`, `-reports`, `-prescriptions`, `-profile-photos` ([Runbook 8](08-object-storage.md), section 7) |
 | `AI_MASK_UPLOAD_ENABLED` | `True` | `True` |
 | `ACTIVATION_LINK_BASE_URL` | `https://staging-app.iltiamcare.com/activate` (set 2026-10-31; TO CONFIRM, below) | `https://app.iltiamcare.com/activate` (TO CONFIRM, below) |
-| `SMS_BACKEND` | **leave out** until the iltiam-backend#103 image is deployed ([Runbook 12](12-authentica.md), section 8), then as production | `apps.notifications.sms.AuthenticaSMSBackend` |
+| `SMS_BACKEND` | as production, set **last**, after the three settings below ([Runbook 12](12-authentica.md), section 8) | `apps.notifications.sms.AuthenticaSMSBackend` |
 | `AUTHENTICA_SENDER_NAME` | **leave out**: staging uses the default sender `Authentica` until a Commercial Registration exists ([Runbook 12](12-authentica.md), section 2) | the approved sender name (#36). A variable, not a secret: the deploy wouldn't read it from a secret |
-| `AUTHENTICA_SMS_CODE_MODE`, `AUTHENTICA_SMS_TEMPLATE_ID_AR`, `AUTHENTICA_SMS_TEMPLATE_ID_EN` | pending iltiam-backend#103, not in the templates yet. Then `send_otp`, `8`, `7` ([Runbook 12](12-authentica.md), section 8) | leave out (#36 decides) |
+| `AUTHENTICA_SMS_CODE_MODE`, `AUTHENTICA_SMS_TEMPLATE_ID_AR`, `AUTHENTICA_SMS_TEMPLATE_ID_EN` | `send_otp`, `8`, `7` (iltiam-backend#103; [Runbook 12](12-authentica.md), section 8) | leave out (#36 decides) |
 | `PUSH_BACKEND` | leave out until Runbook 11, then as production | `apps.notifications.push.FCMPushBackend` |
 | `EMAIL_BACKEND` | `django.core.mail.backends.smtp.EmailBackend` (set 2026-11-07, #35) | same (set with #36) |
 | `EMAIL_HOST`, `EMAIL_PORT`, `DEFAULT_FROM_EMAIL` | OCI Email Delivery's Riyadh SMTP endpoint (Runbook 2, section 11.2), `587`, `ILTIAM Staging <no-reply@iltiamcare.com>` (set 2026-11-07, #35) | same host and port, `ILTIAM <no-reply@iltiamcare.com>` (set with #36) |
@@ -185,6 +185,7 @@ These are the values to set. Every other `var` in the templates is `optional`: l
 | `API_BASE_URL` | `https://staging-api.iltiamcare.com` | `https://api.iltiamcare.com` (set with #36) |
 | `IMAGE_ORIGINS` | `https://*.compat.objectstorage.me-riyadh-1.oci.customer-oci.com` | same (set with #36). Keep the wildcard: the content security policy is public, and the storage namespace must stay out of it |
 | `TURNSTILE_SITE_KEY` | the staging widget's site key | the production widget's site key. The web image doesn't read it yet (iltiam/iltiam-web#28) |
+| `ILTIAM_ENVIRONMENT` | `staging`: the sign-in code step shows the backend's test code (iltiam/iltiam-web#63) | leave out (`production`) |
 
 **`ACTIVATION_LINK_BASE_URL`: TO CONFIRM with the web team (WEB-05).** The backend emails `<ACTIVATION_LINK_BASE_URL>?token=<token>` to an invited clinic admin or Super Admin. The web app has no such page yet (iltiam/iltiam-web#29): an unknown path redirects to `/`, which drops the token. Staging emails the link through OCI since 2026-11-07, and it opens the home page until #29 is deployed; then resend the invitation ([Runbook 2](02-cloudflare-dns-tls.md), section 11.7). Questions for the web team:
 
