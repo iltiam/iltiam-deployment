@@ -20,5 +20,6 @@ AI_WORKER_IMAGE=ghcr.io/iltiam/iltiam-ai-worker:sha-a8447a3
 # written). Step-up is enforced: mobile consent withdrawal and deletion get 403 STEP_UP_REQUIRED until iltiam-mobile#44.
 BACKEND_IMAGE=ghcr.io/iltiam/iltiam-backend:sha-8097a18
 
-# sha-d6049aa: iltiam-web main, #62 (retry after refresh), #63 (staging test code) and #65 (api-v0.4.0 types).
-WEB_IMAGE=ghcr.io/iltiam/iltiam-web:sha-d6049aa
+# sha-c3552ff: iltiam-web main, Super Admin overview, clinics, doctors, audit log and AI model (read-only),
+# doctor messaging and progression (#35, #38, #45, #46, #48, #49, #50).
+WEB_IMAGE=ghcr.io/iltiam/iltiam-web:sha-c3552ff
