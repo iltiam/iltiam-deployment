@@ -10,12 +10,15 @@
 # (#36). After a deploy that turns a profile off, stop its containers by hand (Runbook 5, section 9.4).
 COMPOSE_PROFILES=backend,web
 
-# sha-0d1861e: the first build that honours ILTIAM_TORCH_THREADS (#158); linux/arm64 and linux/amd64.
-AI_API_IMAGE=ghcr.io/iltiam/iltiam-ai-api:sha-0d1861e
-AI_WORKER_IMAGE=ghcr.io/iltiam/iltiam-ai-worker:sha-0d1861e
+# sha-a8447a3: ai-service main after #161 (per-request manual-review threshold) and #162 (registry metrics in
+# /capabilities), contract-v1.1.0; linux/arm64 and linux/amd64.
+AI_API_IMAGE=ghcr.io/iltiam/iltiam-ai-api:sha-a8447a3
+AI_WORKER_IMAGE=ghcr.io/iltiam/iltiam-ai-worker:sha-a8447a3
 
-# sha-93f5573: iltiam-backend PR #108 (#87 Django 5.2/DRF 3.18, #88 Idempotency-Key, #106 client mobile, #86 retention dry-run).
-BACKEND_IMAGE=ghcr.io/iltiam/iltiam-backend:sha-93f5573
+# sha-d136af4: iltiam-backend main, api-v0.4.0 plus #121 (#109-#119: step-up, refills, breach notices, deletion cancel,
+# corrected boundary, seed_staging Super Admin). Step-up is enforced: mobile consent withdrawal and deletion get 403
+# STEP_UP_REQUIRED until iltiam-mobile#44.
+BACKEND_IMAGE=ghcr.io/iltiam/iltiam-backend:sha-d136af4
 
-# sha-a5faaa2: iltiam-web PR #57 (issue #25, the production image); linux/arm64 and linux/amd64.
-WEB_IMAGE=ghcr.io/iltiam/iltiam-web:sha-2bcb0d2
+# sha-d6049aa: iltiam-web main, #62 (retry after refresh), #63 (staging test code) and #65 (api-v0.4.0 types).
+WEB_IMAGE=ghcr.io/iltiam/iltiam-web:sha-d6049aa
