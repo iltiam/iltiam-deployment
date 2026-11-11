@@ -15,10 +15,10 @@ COMPOSE_PROFILES=backend,web
 AI_API_IMAGE=ghcr.io/iltiam/iltiam-ai-api:sha-a8447a3
 AI_WORKER_IMAGE=ghcr.io/iltiam/iltiam-ai-worker:sha-a8447a3
 
-# sha-d136af4: iltiam-backend main, api-v0.4.0 plus #121 (#109-#119: step-up, refills, breach notices, deletion cancel,
-# corrected boundary, seed_staging Super Admin). Step-up is enforced: mobile consent withdrawal and deletion get 403
-# STEP_UP_REQUIRED until iltiam-mobile#44.
-BACKEND_IMAGE=ghcr.io/iltiam/iltiam-backend:sha-d136af4
+# sha-8097a18: iltiam-backend main, api-v0.4.0 (#109-#119: step-up, refills, breach notices, deletion cancel, corrected
+# boundary, seed_staging Super Admin) plus #121 and #122 (a value starting with $, like the Authentica key, is read as
+# written). Step-up is enforced: mobile consent withdrawal and deletion get 403 STEP_UP_REQUIRED until iltiam-mobile#44.
+BACKEND_IMAGE=ghcr.io/iltiam/iltiam-backend:sha-8097a18
 
 # sha-d6049aa: iltiam-web main, #62 (retry after refresh), #63 (staging test code) and #65 (api-v0.4.0 types).
 WEB_IMAGE=ghcr.io/iltiam/iltiam-web:sha-d6049aa
