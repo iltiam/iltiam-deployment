@@ -9,6 +9,9 @@
 #   4. scripts/render-deploy-env.sh, as the deploy workflow runs it: from JSON, the files each environment needs.
 #   5. Negative cases: what must be refused is refused.
 #   6. The Authentica names (Runbook 12): the key stays a secret, the sender name a variable, staging runs without them.
+#   7. The web's ILTIAM_ENVIRONMENT (iltiam-web#63).
+#   8. Automatic staging deploys (Runbook 9): set-version.sh on a copy of the repository, and what the backup, health
+#      check and remote-deploy scripts refuse before they reach the VM.
 #
 # Usage: bash scripts/check-env.sh
 # Needs bash, openssl, jq and the Docker Compose plugin. No image is pulled and no container started.
@@ -333,5 +336,60 @@ VARS_JSON="$(deploy_json staging var | jq -c '. + {ILTIAM_ENVIRONMENT: "staging"
 grep -qx "ILTIAM_ENVIRONMENT='staging'" "$work/deploy-web-env/web.env" \
   || fail "ILTIAM_ENVIRONMENT did not reach staging's web.env"
 ok "it is optional, and staging's value reaches web.env"
+
+# --- 8. Automatic staging deploys (Runbook 9, issue #16) -----------------------------------------------------------
+
+# On a copy of the repository: set-version.sh changes only the named service's lines and keeps the file valid.
+log "set-version.sh and the automatic deploy's guards"
+auto="$work/repo-auto"
+mkdir -p "$auto"
+cp -r scripts env "$auto/"
+versions="$auto/env/staging.versions"
+before="$(cat "$versions")"
+sha_a=1111111aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+sha_b=2222222bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+out="$(bash "$auto/scripts/set-version.sh" staging web "$sha_a")" || fail "set-version.sh staging web failed"
+grep -qx 'changed=true' <<<"$out" || fail "set-version.sh web: expected changed=true"
+grep -qx 'tag=sha-1111111' <<<"$out" || fail "set-version.sh web: expected tag=sha-1111111"
+grep -qx "previous=$(sed -n 's/^WEB_IMAGE=.*://p' <<<"$before")" <<<"$out" || fail "set-version.sh web: wrong previous tag"
+grep -qx 'WEB_IMAGE=ghcr.io/iltiam/iltiam-web:sha-1111111' "$versions" || fail "set-version.sh did not set WEB_IMAGE"
+for key in COMPOSE_PROFILES AI_API_IMAGE AI_WORKER_IMAGE BACKEND_IMAGE; do
+  [[ "$(grep "^$key=" "$versions")" == "$(grep "^$key=" <<<"$before")" ]] || fail "set-version.sh web changed $key"
+done
+[[ "$(grep -B1 '^WEB_IMAGE=' "$versions" | head -n 1)" == "# sha-1111111: iltiam-web main, commit $sha_a;"* ]] \
+  || fail "set-version.sh web: the line above WEB_IMAGE must name the commit"
+[[ "$(grep -c "^# sha-1111111" "$versions")" == 1 && "$(grep -B2 '^WEB_IMAGE=' "$versions" | head -n 1)" != \#* ]] \
+  || fail "set-version.sh web: the old comment above WEB_IMAGE must be replaced, not kept"
+bash "$auto/scripts/deploy.sh" --check-versions staging >/dev/null || fail "the versions file is invalid after set-version.sh"
+ok "web: only WEB_IMAGE and its comment change, the file stays valid"
+snapshot="$(cat "$versions")"
+out="$(bash "$auto/scripts/set-version.sh" staging web "$sha_a")" || fail "set-version.sh web, same tag, failed"
+grep -qx 'changed=false' <<<"$out" || fail "set-version.sh with the running tag: expected changed=false"
+[[ "$(cat "$versions")" == "$snapshot" ]] || fail "set-version.sh with the running tag changed the file"
+ok "the same tag again: changed=false, file untouched"
+bash "$auto/scripts/set-version.sh" staging ai "$sha_b" >/dev/null || fail "set-version.sh staging ai failed"
+grep -qx 'AI_API_IMAGE=ghcr.io/iltiam/iltiam-ai-api:sha-2222222' "$versions" || fail "set-version.sh ai: AI_API_IMAGE"
+grep -qx 'AI_WORKER_IMAGE=ghcr.io/iltiam/iltiam-ai-worker:sha-2222222' "$versions" || fail "set-version.sh ai: AI_WORKER_IMAGE"
+grep -qx 'WEB_IMAGE=ghcr.io/iltiam/iltiam-web:sha-1111111' "$versions" || fail "set-version.sh ai changed WEB_IMAGE"
+bash "$auto/scripts/deploy.sh" --check-versions staging >/dev/null || fail "the versions file is invalid after set-version.sh ai"
+ok "ai: both AI images get the same tag, the file stays valid"
+bash "$auto/scripts/set-version.sh" staging backend "$sha_b" >/dev/null || fail "set-version.sh staging backend failed"
+grep -qx 'BACKEND_IMAGE=ghcr.io/iltiam/iltiam-backend:sha-2222222' "$versions" || fail "set-version.sh backend"
+ok "backend: BACKEND_IMAGE"
+expect_fail "set-version.sh for production" bash "$auto/scripts/set-version.sh" production web "$sha_a"
+expect_fail "set-version.sh with a short commit hash" bash "$auto/scripts/set-version.sh" staging web 1111111
+expect_fail "set-version.sh with an unknown service" bash "$auto/scripts/set-version.sh" staging mobile "$sha_a"
+sed -i 's#^WEB_IMAGE=.*#WEB_IMAGE=ghcr.io/someone/else:sha-1111111#' "$versions"
+expect_fail "set-version.sh over an unexpected image name" bash "$auto/scripts/set-version.sh" staging web "$sha_b"
+# The other scripts refuse before they touch the VM (no SSH, no Docker here).
+expect_fail "pre-deploy-backup.sh for production" bash scripts/pre-deploy-backup.sh production backend-sha-1111111
+expect_fail "pre-deploy-backup.sh with a malformed label" bash scripts/pre-deploy-backup.sh staging 'backend-sha-1;x'
+expect_fail "health-check.sh for production" bash scripts/health-check.sh production web
+expect_fail "health-check.sh for an unknown service" bash scripts/health-check.sh staging mobile
+expect_fail "remote-deploy.sh --backup for production" bash scripts/remote-deploy.sh --backup production backend-sha-1111111
+expect_fail "remote-deploy.sh --backup with a malformed label" bash scripts/remote-deploy.sh --backup staging 'x;y'
+expect_fail "remote-deploy.sh --check for an unknown service" env DEPLOY_HOST=h DEPLOY_SHA="$sha_a" \
+  bash scripts/remote-deploy.sh --check staging 'web;x'
+unset auto versions before snapshot out sha_a sha_b
 
 log "all checks passed"

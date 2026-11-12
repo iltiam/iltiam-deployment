@@ -44,6 +44,7 @@ nav:
       - 4. Secrets: runbooks/04-secrets.md
       - 5. Compose stack: runbooks/05-compose-stack.md
       - 8. Object storage: runbooks/08-object-storage.md
+      - 9. Automatic staging deploys: runbooks/09-cd-staging.md
       - 12. Authentica: runbooks/12-authentica.md
   - Planning:
       - Overview: planning/README.md

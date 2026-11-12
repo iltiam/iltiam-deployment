@@ -536,6 +536,8 @@ A restart keeps the container and its settings. **A changed secret or variable n
 
 ### 9.4 Roll back to an earlier image
 
+An automatic staging deploy does this by itself when its health check fails ([Runbook 9](09-cd-staging.md), section 6), and saves the database before a backend deploy (section 7 there). By hand:
+
 Never retag images by hand. Put the earlier tags back into the versions file instead:
 
 1. In your clone on the laptop: `git log -p env/staging.versions` shows every tag that was deployed.
@@ -833,7 +835,7 @@ The **Verified** column records the date each row last passed.
 - **The AI service is private:** it is on `internal` only, a network with no route out and no tunnel. The tunnel's network doesn't even know its name (section 10).
 - **Each secret goes only where it is needed:** the tunnel token only to `cloudflared`, the weights token only to `weights-init`, each database password only to Postgres and its own service. `scripts/check-compose.sh` checks this on every pull request.
 - **Secrets on the VM:** only in `/srv/iltiam/env/<ENV>/` (`700`, files `600`, owner `deploy`), written by the deploy. Anyone in the `docker` group can read container settings with `docker inspect`, so the group has only `ubuntu` and `deploy` (Runbook 1). Keep it that way.
-- **The deploy keys are as strong as root:** a key that can run Docker can do anything on the VM. One key per environment, `restrict`ed, only in GitHub; remove it from `authorized_keys` on a leak or staff change (`docs/secrets.md`, section 2). Runbook 9 (DEP-03) adds a forced command that limits each key to its own project.
+- **The deploy keys are as strong as root:** a key that can run Docker can do anything on the VM. One key per environment, `restrict`ed, only in GitHub; remove it from `authorized_keys` on a leak or staff change (`docs/secrets.md`, section 2). A forced command that limits each key to its own project is still to come (a later issue; Runbook 9 left it out).
 - **GHCR:** no registry token is stored. The deploy logs in with the job's own token, which dies with the job, and logs out on any exit.
 - **Containers:** our images and `cloudflared` run as non-root users with every Linux capability dropped and `no-new-privileges`. Postgres and Redis keep the capabilities their own start-up scripts need. `web` also runs with a read-only file system and writes only to `/tmp`, which is in memory.
 - **Logs** are capped and stay on the VM. They can contain personal data: describe, never paste.
@@ -847,6 +849,6 @@ The **Verified** column records the date each row last passed.
 - **DEP-13, DEP-14 and SMTP:** production's backend (section 8, "later").
 - **Runbook 6** (#8): backups and the weekly restore test (section 12).
 - **Runbook 7** (#10): monitoring on a network shared with both projects, memory and disk alerts, Redis memory.
-- **Runbook 9** (DEP-03, #16): starts this deploy automatically for staging, then the smoke test (DEP-10, #17), with rollback on failure and the forced-command guard for the deploy keys.
+- **[Runbook 9](09-cd-staging.md)** (DEP-03, #16): starts this deploy automatically for staging after a merge to an app's `main`, with a health check, a database backup before backend deploys, and rollback on failure. Still to come: the end-to-end smoke test (DEP-10, #17) and the forced-command guard for the deploy keys.
 - **Runbook 10** (DEP-04, #19): production releases with approval and rollback.
 - **#5:** the local development stack, from the same images.

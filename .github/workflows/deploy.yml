@@ -1,11 +1,18 @@
-# Deploy one environment's Compose project on iltiam-1, started by hand (Runbook 5, issue #2):
-#   Actions -> deploy -> Run workflow -> environment staging | production.
-# Production waits for its required reviewer (Runbook 4, section 5.2). Both environments deploy from main only.
-# Runbook 9 (DEP-03) adds the automatic staging trigger, the smoke test and rollback; Runbook 10 (DEP-04) releases.
+# Deploy one environment's Compose project on iltiam-1.
 #
-# What it does: render the env files from the Environment's secrets and variables (scripts/render-deploy-env.sh),
-# then over SSH as deploy: check out this commit in /srv/iltiam/repo, copy the files into /srv/iltiam/env/<env>/,
-# log in to GHCR with this job's own token, run scripts/deploy.sh, log out (scripts/remote-deploy.sh).
+#   deploy  started by hand (Runbook 5, issue #2): Actions -> deploy -> Run workflow -> environment staging | production.
+#           Production waits for its required reviewer (Runbook 4, section 5.2). Both environments deploy from main only.
+#   auto    started by the image workflows of iltiam-ai-service, iltiam-backend and iltiam-web after they publish a
+#           build of main (Runbook 9, docs/runbooks/09-cd-staging.md, issue #16): repository_dispatch deploy-staging,
+#           client_payload {service: ai|backend|web, sha: <40-character commit>}. Staging only, one service, and only
+#           while the repository variable AUTO_DEPLOY is "true" (otherwise the run shows the job as skipped).
+#
+# What a deploy does: render the env files from the Environment's secrets and variables (scripts/render-deploy-env.sh),
+# then over SSH as deploy: check out this repository's commit in /srv/iltiam/repo, copy the files into
+# /srv/iltiam/env/<env>/, log in to GHCR with this job's own token, run scripts/deploy.sh, log out
+# (scripts/remote-deploy.sh). `auto` first sets the service's tag in env/staging.versions and commits it to main (for a
+# backend build: after a database backup), then checks the service's health, and on a failure reverts its commit and
+# deploys again: Runbook 5, section 9.4, done for you.
 #
 # THIS REPOSITORY IS PUBLIC, SO THIS LOG IS PUBLIC. The rules of env-check.yml hold here: no `set -x`, no echo, cat or
 # env of a value or a rendered file, `docker compose config` only with --quiet, `docker login` only with
@@ -20,23 +27,25 @@ on:
         type: choice
         options: [staging, production]
         required: true
+  repository_dispatch:
+    types: [deploy-staging]
 
 permissions:
   contents: read
   packages: read
 
-# One deploy per environment at a time; a second one waits instead of cancelling the first.
-# scripts/deploy.sh also takes a lock on the VM, so staging and production never deploy at the same moment.
-concurrency:
-  group: deploy-${{ inputs.environment }}
-  cancel-in-progress: false
-
 jobs:
   deploy:
     name: Deploy ${{ inputs.environment }}
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     environment: ${{ inputs.environment }}
+    # One deploy per environment at a time, manual or automatic; a second one waits instead of cancelling the first.
+    # scripts/deploy.sh also takes a lock on the VM, so staging and production never deploy at the same moment.
+    concurrency:
+      group: deploy-${{ inputs.environment }}
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
         with:
@@ -78,3 +87,218 @@ jobs:
       - name: Clean up
         if: always()
         run: rm -rf "$RUNNER_TEMP/rendered" ~/.ssh/iltiam_deploy
+
+  auto:
+    name: Auto-deploy ${{ github.event.client_payload.service }} to staging
+    # The switch: Settings -> Secrets and variables -> Actions -> Variables -> AUTO_DEPLOY. Anything but "true" skips.
+    if: github.event_name == 'repository_dispatch' && vars.AUTO_DEPLOY == 'true'
+    runs-on: ubuntu-24.04
+    # A deploy, and in the worst case a rollback deploy: scripts/deploy.sh waits up to 10 minutes per start.
+    timeout-minutes: 60
+    environment: staging
+    # The same queue as a manual staging deploy. GitHub keeps one run going and one waiting: a third that arrives
+    # meanwhile replaces the waiting one, which then shows as cancelled. Re-run it (Runbook 9, section 8).
+    concurrency:
+      group: deploy-staging
+      cancel-in-progress: false
+    permissions:
+      contents: write  # the commit to env/staging.versions, and its revert
+      packages: read   # GHCR: the image check here, and the VM's pull
+    # The payload only ever reaches a shell through these variables, and is checked in the first step.
+    env:
+      SERVICE: ${{ github.event.client_payload.service }}
+      SHA: ${{ github.event.client_payload.sha }}
+      SIMULATE_FAILURE: ${{ (github.event.client_payload.simulate_failure == true || github.event.client_payload.simulate_failure == 'true') && 'true' || 'false' }}
+    steps:
+      - name: Check the request
+        id: request
+        run: |
+          case "$SERVICE" in
+            ai) echo "images=iltiam-ai-api iltiam-ai-worker" >> "$GITHUB_OUTPUT"; echo "repo=iltiam-ai-service" >> "$GITHUB_OUTPUT" ;;
+            backend) echo "images=iltiam-backend" >> "$GITHUB_OUTPUT"; echo "repo=iltiam-backend" >> "$GITHUB_OUTPUT" ;;
+            web) echo "images=iltiam-web" >> "$GITHUB_OUTPUT"; echo "repo=iltiam-web" >> "$GITHUB_OUTPUT" ;;
+            *) echo "::error::client_payload.service must be ai, backend or web"; exit 1 ;;
+          esac
+          [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::client_payload.sha must be a full 40-character commit hash"; exit 1; }
+          echo "tag=sha-${SHA:0:7}" >> "$GITHUB_OUTPUT"
+          echo "Request: $SERVICE sha-${SHA:0:7} (simulate_failure: $SIMULATE_FAILURE)"
+
+      # Credentials kept: this job pushes its commit (and a revert) to main with its own GITHUB_TOKEN.
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      # Before anything changes: the build exists, with the VM's architecture. Nothing is committed otherwise.
+      - name: The image is published
+        env:
+          IMAGES: ${{ steps.request.outputs.images }}
+          TAG: ${{ steps.request.outputs.tag }}
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ github.token }}
+        run: |
+          printf '%s' "$GHCR_TOKEN" | docker login ghcr.io --username "$GHCR_USER" --password-stdin >/dev/null
+          trap 'docker logout ghcr.io >/dev/null 2>&1 || true' EXIT
+          for image in $IMAGES; do
+            ref="ghcr.io/iltiam/$image:$TAG"
+            docker buildx imagetools inspect "$ref" --format '{{json .Manifest}}' > "$RUNNER_TEMP/manifest.json" \
+              || { echo "::error::$ref is not published (or this repository has no read access to the package)"; exit 1; }
+            jq -e '[.manifests[]?.platform.architecture] | index("arm64")' "$RUNNER_TEMP/manifest.json" >/dev/null \
+              || { echo "::error::$ref has no linux/arm64"; exit 1; }
+            echo "$ref: published, linux/arm64"
+          done
+
+      - name: Set the tag in env/staging.versions
+        id: version
+        run: |
+          bash scripts/set-version.sh staging "$SERVICE" "$SHA" | tee -a "$GITHUB_OUTPUT"
+          bash scripts/deploy.sh --check-versions staging
+
+      - name: Render the env files
+        id: render
+        env:
+          SECRETS_JSON: ${{ toJSON(secrets) }}
+          VARS_JSON: ${{ toJSON(vars) }}
+        run: bash scripts/render-deploy-env.sh staging "$RUNNER_TEMP/rendered"
+
+      - name: SSH key and host key
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_SSH_KNOWN_HOSTS: ${{ secrets.DEPLOY_SSH_KNOWN_HOSTS }}
+        run: |
+          if [ -z "$DEPLOY_SSH_KEY" ] || [ -z "$DEPLOY_SSH_KNOWN_HOSTS" ]; then
+            echo "::error::DEPLOY_SSH_KEY or DEPLOY_SSH_KNOWN_HOSTS is not set (Runbook 5, section 5)"
+            exit 1
+          fi
+          install -d -m 700 ~/.ssh
+          umask 077
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/iltiam_deploy
+          printf '%s\n' "$DEPLOY_SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+
+      # Nothing to deploy: the tag already runs. Check its health anyway, and leave everything as it is.
+      - name: Health check only (no change)
+        if: steps.version.outputs.changed == 'false'
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+        run: |
+          DEPLOY_SHA="$(git rev-parse HEAD)"
+          export DEPLOY_SHA
+          bash scripts/remote-deploy.sh --check staging "$SERVICE"
+
+      # A backend build may migrate the database, and a migration never rolls back by itself. A failed backup stops
+      # here: nothing is committed and the VM is left as it was. Restore: Runbook 9, section 7.
+      - name: Back up the database (backend only)
+        id: backup
+        if: steps.version.outputs.changed == 'true' && env.SERVICE == 'backend'
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          TAG: ${{ steps.request.outputs.tag }}
+        run: |
+          bash scripts/remote-deploy.sh --backup staging "backend-$TAG" | tee "$RUNNER_TEMP/backup.log"
+          file="$(sed -n 's/^BACKUP_FILE=//p' "$RUNNER_TEMP/backup.log" | tail -n 1)"
+          [[ "$file" =~ ^[0-9]{8}T[0-9]{6}Z-backend-sha-[0-9a-f]{7}\.sql\.gz$ ]] \
+            || { echo "::error::the backup did not report its file; nothing was deployed"; exit 1; }
+          echo "file=$file" >> "$GITHUB_OUTPUT"
+
+      - name: Commit env/staging.versions to main
+        id: commit
+        if: steps.version.outputs.changed == 'true'
+        env:
+          TAG: ${{ steps.request.outputs.tag }}
+          SOURCE_REPO: ${{ steps.request.outputs.repo }}
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add env/staging.versions
+          git commit -q -m "chore(staging): deploy $SERVICE $TAG (auto)" \
+            -m "iltiam/$SOURCE_REPO@$SHA, deploy run $GITHUB_RUN_ID (Runbook 9)."
+          for attempt in 1 2 3; do
+            git push -q origin HEAD:main && break
+            [[ $attempt -lt 3 ]] || { echo "::error::could not push to main"; exit 1; }
+            git pull -q --rebase origin main
+          done
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy over SSH, then the health check
+        id: deploy
+        if: steps.commit.outcome == 'success'
+        # A failure here goes to the rollback below instead of ending the job.
+        continue-on-error: true
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_SHA: ${{ steps.commit.outputs.sha }}
+          DEPLOY_CHECK_SERVICE: ${{ env.SERVICE }}
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ github.token }}
+        run: bash scripts/remote-deploy.sh staging "$RUNNER_TEMP/rendered"
+
+      # Runbook 9, section 5: the payload's simulate_failure fails a healthy deploy, to test the rollback.
+      - name: Simulated failure
+        id: simulate
+        if: steps.deploy.outcome == 'success' && env.SIMULATE_FAILURE == 'true'
+        continue-on-error: true
+        run: |
+          echo "::warning::simulate_failure is set: treating a healthy deploy as failed, to test the rollback"
+          exit 1
+
+      - name: Roll back (revert the commit)
+        id: revert
+        if: ${{ !cancelled() && steps.commit.outcome == 'success' && (steps.deploy.outcome == 'failure' || steps.simulate.outcome == 'failure') }}
+        env:
+          COMMIT: ${{ steps.commit.outputs.sha }}
+          TAG: ${{ steps.request.outputs.tag }}
+          PREVIOUS: ${{ steps.version.outputs.previous }}
+        run: |
+          git revert --no-commit "$COMMIT"
+          git commit -q -m "chore(staging): roll back $SERVICE $TAG to $PREVIOUS (auto)" \
+            -m "Reverts $COMMIT: the deploy or its health check failed in deploy run $GITHUB_RUN_ID (Runbook 9)."
+          for attempt in 1 2 3; do
+            git push -q origin HEAD:main && break
+            [[ $attempt -lt 3 ]] || { echo "::error::could not push the revert to main"; exit 1; }
+            git pull -q --rebase origin main
+          done
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Roll back (deploy the previous tag, then the health check)
+        id: rollback
+        if: ${{ !cancelled() && steps.revert.outcome == 'success' }}
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_SHA: ${{ steps.revert.outputs.sha }}
+          DEPLOY_CHECK_SERVICE: ${{ env.SERVICE }}
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ github.token }}
+        run: bash scripts/remote-deploy.sh staging "$RUNNER_TEMP/rendered"
+
+      - name: Summary
+        if: always()
+        env:
+          TAG: ${{ steps.request.outputs.tag }}
+          PREVIOUS: ${{ steps.version.outputs.previous }}
+          CHANGED: ${{ steps.version.outputs.changed }}
+          BACKUP: ${{ steps.backup.outputs.file }}
+          CHECK: ${{ steps.deploy.outcome }}
+          SIMULATED: ${{ steps.simulate.outcome }}
+          ROLLBACK: ${{ steps.rollback.outcome }}
+        run: |
+          if [[ "$CHANGED" == false ]]; then
+            result="unchanged: $TAG already runs (health check above)"
+          elif [[ "$CHECK" == success && "$SIMULATED" != failure ]]; then
+            result="deployed and healthy"
+          elif [[ "$ROLLBACK" == success ]]; then
+            result="FAILED, rolled back to ${PREVIOUS:-the previous tag}"
+          elif [[ "$CHECK" == failure || "$SIMULATED" == failure ]]; then
+            result="FAILED, and the rollback failed too: follow Runbook 9, section 6"
+          else
+            result="FAILED before anything changed (see the failed step)"
+          fi
+          {
+            echo "### Staging: ${SERVICE:-?} ${PREVIOUS:-?} -> ${TAG:-?}"
+            echo "- Result: $result"
+            if [[ -n "$BACKUP" ]]; then echo "- Database backup: \`/srv/iltiam/backups/pre-deploy/$BACKUP\`"; fi
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+          [[ "$result" != FAILED* ]]
+
+      - name: Clean up
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/rendered" "$RUNNER_TEMP/backup.log" "$RUNNER_TEMP/manifest.json" ~/.ssh/iltiam_deploy
