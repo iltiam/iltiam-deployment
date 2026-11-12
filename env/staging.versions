@@ -18,10 +18,8 @@ COMPOSE_PROFILES=backend,web
 AI_API_IMAGE=ghcr.io/iltiam/iltiam-ai-api:sha-a8447a3
 AI_WORKER_IMAGE=ghcr.io/iltiam/iltiam-ai-worker:sha-a8447a3
 
-# sha-8097a18: iltiam-backend main, api-v0.4.0 (#109-#119: step-up, refills, breach notices, deletion cancel, corrected
-# boundary, seed_staging Super Admin) plus #121 and #122 (a value starting with $, like the Authentica key, is read as
-# written). Step-up is enforced: mobile consent withdrawal and deletion get 403 STEP_UP_REQUIRED until iltiam-mobile#44.
-BACKEND_IMAGE=ghcr.io/iltiam/iltiam-backend:sha-8097a18
+# sha-cf883a4: iltiam-backend main, commit cf883a45d51acc20bef06a5317a30b2f5714d88c; deployed automatically on 2026-11-12 (Runbook 9).
+BACKEND_IMAGE=ghcr.io/iltiam/iltiam-backend:sha-cf883a4
 
 # sha-9cb6268: iltiam-web main, commit 9cb6268424ad9870f7c90d00cdc1338f4909807d; deployed automatically on 2026-11-12 (Runbook 9).
 WEB_IMAGE=ghcr.io/iltiam/iltiam-web:sha-9cb6268
