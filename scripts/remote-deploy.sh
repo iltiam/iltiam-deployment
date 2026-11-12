@@ -7,7 +7,8 @@
 #   bash scripts/remote-deploy.sh <staging|production> <directory written by scripts/render-deploy-env.sh>
 #       The deploy. With DEPLOY_CHECK_SERVICE=ai|backend|web set, scripts/health-check.sh for that service after it.
 #   bash scripts/remote-deploy.sh --backup staging backend-sha-<7>
-#       Only scripts/pre-deploy-backup.sh, sent on SSH's stdin: it runs before the VM's clone or anything else moves.
+#       Only scripts/pre-deploy-backup.sh, copied to a temporary file on the VM and run from it: it runs before the
+#       VM's clone or anything else moves.
 #   bash scripts/remote-deploy.sh --check staging <ai|backend|web>
 #       Check out DEPLOY_SHA and run scripts/health-check.sh: an automatic deploy that changed no tag.
 #
@@ -75,8 +76,13 @@ remote() { ssh "${ssh_opts[@]}" "deploy@$DEPLOY_HOST" "$@"; }
 echo "==> connect"
 remote true || die "SSH as deploy failed: key, known_hosts or host (Runbook 5, section 13)"
 
+# SSH's stdin carries data only (a script to copy, an env file, the GHCR token), never a script that runs from it:
+# bash reads such a script line by line from that same stdin, so any command in it that reads stdin (docker compose
+# exec/run do) swallows the rest, and the script ends early with exit 0 (#16, run 43175962736). So the backup script
+# is copied to a temporary file first and runs from there, and the scripts run from the clone get </dev/null.
 if [[ "$run_mode" == backup ]]; then
-  remote "bash -s -- $env_name $label" <"$here/pre-deploy-backup.sh"
+  remote "f=\$(mktemp) && cat >\"\$f\" && bash \"\$f\" $env_name $label; rc=\$?; rm -f \"\$f\"; exit \$rc" \
+    <"$here/pre-deploy-backup.sh"
   exit 0
 fi
 
@@ -85,7 +91,7 @@ remote "test -d $REPO/.git" || die "$REPO is not a clone of this repository (Run
 remote "git -C $REPO fetch --quiet origin && git -C $REPO checkout --quiet --detach $DEPLOY_SHA"
 
 if [[ "$run_mode" == check ]]; then
-  remote "bash $REPO/scripts/health-check.sh $env_name $check_service"
+  remote "bash $REPO/scripts/health-check.sh $env_name $check_service" </dev/null
   exit 0
 fi
 
@@ -107,8 +113,8 @@ trap 'remote "docker logout ghcr.io" >/dev/null 2>&1 || true' EXIT
 printf '%s' "$GHCR_TOKEN" | remote "docker login ghcr.io --username $GHCR_USER --password-stdin" >/dev/null
 echo "    logged in"
 
-remote "bash $REPO/scripts/deploy.sh $env_name"
+remote "bash $REPO/scripts/deploy.sh $env_name" </dev/null
 
 if [[ -n "${check_service:-}" ]]; then
-  remote "bash $REPO/scripts/health-check.sh $env_name $check_service"
+  remote "bash $REPO/scripts/health-check.sh $env_name $check_service" </dev/null
 fi

@@ -2,7 +2,7 @@
 # A copy of the staging backend database, taken before an automatic backend deploy (Runbook 9, section 6; issue #16).
 #
 # Usage, from the deploy workflow only: scripts/remote-deploy.sh --backup staging backend-sha-<7>
-# remote-deploy.sh sends this file to iltiam-1 on SSH's stdin and runs it there as deploy, BEFORE the commit and
+# remote-deploy.sh copies this file to a temporary file on iltiam-1 and runs it there as deploy, BEFORE the commit and
 # before the VM's clone moves: so it dumps the database the running backend uses, and it does not depend on which
 # commit the VM has checked out.
 #
@@ -58,7 +58,9 @@ umask 077
 tmp="$DIR/.$name.tmp"
 trap 'rm -f "$tmp"' EXIT
 
-compose exec -T postgres pg_dump --username postgres --no-password --dbname iltiam | gzip -c >"$tmp" \
+# </dev/null: `compose exec` forwards its stdin into the container. Without it, a caller's stdin would go to pg_dump
+# (#16: run over SSH, that was the rest of this script).
+compose exec -T postgres pg_dump --username postgres --no-password --dbname iltiam </dev/null | gzip -c >"$tmp" \
   || die "pg_dump failed; nothing was deployed"
 gzip -t "$tmp" || die "the dump is not a valid gzip file"
 # Near the end, not the last line: pg_dump 16.10 and newer write a `\unrestrict` line after it.

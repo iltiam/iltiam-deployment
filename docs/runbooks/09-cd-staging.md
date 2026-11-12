@@ -166,6 +166,7 @@ And on the laptop: `git -C iltiam-deployment pull; git -C iltiam-deployment log 
 **The job is red, the summary says `FAILED, rolled back to sha-…`.** Staging runs the previous version again and `main` says so. Nothing to do on the VM. Find out why in the failed step's log (and on the VM, `iltiam staging logs --tail 100 <service>`), fix it in the app repository, and merge again.
 
 **The summary says `FAILED before anything changed`.** The image check, the backup or the push failed. `main` and the VM are as they were. Read the failed step; fix; send the request again (section 8, re-run).
+- **`the backup script ended without reporting its file`:** read the lines above it (the script's own `ERROR:` line, if any), then on the VM `ls -l /srv/iltiam/backups/pre-deploy/` and `df -h /srv/iltiam`. A script sent to the VM must never run from SSH's input: that made the first T8 end silently (#16).
 
 **The summary says `FAILED, and the rollback failed too`.** Staging may run a broken service. Turn `AUTO_DEPLOY` off (section 3), then:
 
