@@ -12,7 +12,7 @@
 
 ILTIAM v1.0 goes live before 2026-12-01. It is a graduation project paid from a personal card, so **about $300 a month is not acceptable**. The target is **$0 a month**, with a small, known paid step only if the free path fails.
 
-The data is identifiable health data (sensitive under the PDPL), so it stays in Saudi Arabia.
+The data is identifiable health data (sensitive under the PDPL), so it stays in Saudi Arabia. The data classes, processors and retention are recorded in the [ROPA](../privacy/ropa.md) and the [retention schedule](../privacy/retention.md) (#6).
 
 **Workloads, measured:**
 - AI compute per analysis on a 4-thread **x86** laptop CPU: 0.68 s p50 with ALG-03 off, 1.46 s with it on (`iltiam-ai-service/docs/benchmarks/tissue_classifier.md`).
