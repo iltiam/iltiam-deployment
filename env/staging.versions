@@ -23,5 +23,5 @@ AI_WORKER_IMAGE=ghcr.io/iltiam/iltiam-ai-worker:sha-a8447a3
 # written). Step-up is enforced: mobile consent withdrawal and deletion get 403 STEP_UP_REQUIRED until iltiam-mobile#44.
 BACKEND_IMAGE=ghcr.io/iltiam/iltiam-backend:sha-8097a18
 
-# sha-d6049aa: iltiam-web main, commit d6049aa8fdf68d416e7963b563d8bfaf29e1cc37; deployed automatically on 2026-11-12 (Runbook 9).
-WEB_IMAGE=ghcr.io/iltiam/iltiam-web:sha-d6049aa
+# sha-c3552ff: iltiam-web main, commit c3552ff4d0b6d1e2fae8a5a2c8711bd057750c68; deployed automatically on 2026-11-12 (Runbook 9).
+WEB_IMAGE=ghcr.io/iltiam/iltiam-web:sha-c3552ff
