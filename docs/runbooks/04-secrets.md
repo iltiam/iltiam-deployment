@@ -135,14 +135,14 @@ Each one comes from its own runbook. Add it to **both** Environments, each with 
 | `AUTHENTICA_API_KEY` (staging set 2026-11-07, production in #36). The sender name is a **variable**, not a secret: section 9 | Authentica dashboard, the application's API keys | [Runbook 12](12-authentica.md) (DEP-14), sections 4.3 and 7 |
 | `TURNSTILE_SECRET_KEY` (plus the variable `TURNSTILE_SITE_KEY`) | Cloudflare → Turnstile, one widget per environment | [Runbook 2](02-cloudflare-dns-tls.md) (DEP-01), section 10 |
 | `EMAIL_HOST_USER`, `EMAIL_HOST_PASSWORD` | OCI Email Delivery SMTP credentials of the environment's own SMTP user (staging set 2026-11-07, production in #36) | [Runbook 2](02-cloudflare-dns-tls.md) (DEP-01), section 11.5 |
-| `FCM_SERVICE_ACCOUNT_JSON` | Firebase → Project settings → Service accounts → Generate new private key | Runbook 11 (DEP-13) |
+| `FCM_SERVICE_ACCOUNT_JSON` | Firebase → Project settings → Service accounts → Generate new private key | [Runbook 11](11-firebase.md) (DEP-13), section 8 |
 | `WEIGHTS_READ_TOKEN` | Fine-grained PAT, **one per environment**: only `iltiam-ai-service`, Contents read-only, 1-year expiry | `docs/secrets.md`, section 6.6 |
 | `STAGING_TEST_PASSWORD` (staging only) | You choose it; it must meet the password policy | backend `docs/deployment.md` |
 | `DEPLOY_SSH_KEY`, `DEPLOY_SSH_KNOWN_HOSTS`, `DEPLOY_HOST` | The environment's own deploy key, the VM's host key line, the VM's address | [Runbook 5](05-compose-stack.md) (#2), section 5 |
 
 **A JSON key file** (Firebase): don't paste it by hand. Use `gh secret set FCM_SERVICE_ACCOUNT_JSON --env staging -R iltiam/iltiam-deployment < <FILE>.json`, then delete the file from Downloads and empty the recycle bin.
 
-**Mobile secrets** (`google-services.json` per flavor, the Android upload keystore) go into the **iltiam-mobile** repository's secrets, not here (`docs/secrets.md`, section 3).
+**Mobile secrets** (`google-services.json` per flavor as `GOOGLE_SERVICES_JSON_DEV`, `_STAGING` and `_PROD`, [Runbook 11](11-firebase.md), section 6; the Android upload keystore) go into the **iltiam-mobile** repository's secrets, not here (`docs/secrets.md`, section 3).
 
 ## 8. Let the deploy job pull images from GHCR
 
@@ -173,7 +173,7 @@ These are the values to set. Every other `var` in the templates is `optional`: l
 | `SMS_BACKEND` | as production, set **last**, after the three settings below ([Runbook 12](12-authentica.md), section 8) | `apps.notifications.sms.AuthenticaSMSBackend` |
 | `AUTHENTICA_SENDER_NAME` | **leave out**: staging uses the default sender `Authentica` until a Commercial Registration exists ([Runbook 12](12-authentica.md), section 2) | the approved sender name (#36). A variable, not a secret: the deploy wouldn't read it from a secret |
 | `AUTHENTICA_SMS_CODE_MODE`, `AUTHENTICA_SMS_TEMPLATE_ID_AR`, `AUTHENTICA_SMS_TEMPLATE_ID_EN` | `send_otp`, `8`, `7` (iltiam-backend#103; [Runbook 12](12-authentica.md), section 8) | leave out (#36 decides) |
-| `PUSH_BACKEND` | leave out until Runbook 11, then as production | `apps.notifications.push.FCMPushBackend` |
+| `PUSH_BACKEND` | leave out until [Runbook 11](11-firebase.md), then as production: set it **after** `FCM_SERVICE_ACCOUNT_JSON`, and deploy by hand (Runbook 11, section 9) | `apps.notifications.push.FCMPushBackend` |
 | `EMAIL_BACKEND` | `django.core.mail.backends.smtp.EmailBackend` (set 2026-11-07, #35) | same (set with #36) |
 | `EMAIL_HOST`, `EMAIL_PORT`, `DEFAULT_FROM_EMAIL` | OCI Email Delivery's Riyadh SMTP endpoint (Runbook 2, section 11.2), `587`, `ILTIAM Staging <no-reply@iltiamcare.com>` (set 2026-11-07, #35) | same host and port, `ILTIAM <no-reply@iltiamcare.com>` (set with #36) |
 | `SECURE_HSTS_SECONDS` | `15552000` (set 2026-11-07, #35) | `15552000` (set with #36) |
@@ -347,6 +347,6 @@ Every row must match before an environment is used. Record the result on the iss
 - **[Runbook 8](08-object-storage.md)** (DEP-02): storage keys, the storage endpoint and bucket names.
 - **Runbook 9** (DEP-03): starts the deploy workflow on its own for staging, then runs the smoke test.
 - **Runbook 10** (DEP-04): the same for production, behind the reviewer.
-- **Runbook 11** (DEP-13): Firebase.
+- **[Runbook 11](11-firebase.md)** (DEP-13): Firebase, the app files per flavor and the backend's push key.
 - **[Runbook 12](12-authentica.md)** (DEP-14): Authentica, with the default sender until a Commercial Registration exists.
 - **Open items found here:** `docs/secrets.md`, section 8.

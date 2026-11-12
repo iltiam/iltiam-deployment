@@ -374,7 +374,7 @@ Do this only when the project has a Commercial Registration.
 | Phone numbers leave our servers | Authentica receives users' phone numbers, and it is a Saudi provider | It belongs in the ROPA as a processor (#6). Test numbers only with the person's consent |
 | SMS accepted but not delivered | HTTP 200 means accepted, not delivered, so a user may wait | The backend tells the apps to offer other channels after 30 seconds, once the apps can (iltiam/iltiam-web#28, iltiam/iltiam-mobile#25) |
 | Seeded test numbers | Real sends to `+96659999xxxx`: cost, and possibly a stranger | Don't use those accounts until iltiam-backend#104 is deployed |
-| Alerts have no SMS copy | Critical alerts go only by their other channels, and push isn't set up on staging yet (Runbook 11) | Accepted for the demo. Solved by a sender name (section 12) |
+| Alerts have no SMS copy | Critical alerts go only by their other channels. On staging, push works only once [Runbook 11](11-firebase.md) is done | Accepted for the demo. Push per [Runbook 11](11-firebase.md); the SMS copy needs a sender name (section 12) |
 | The default sender stops working | Codes stop | Section 6 finds it quickly. Ask support, then section 15 |
 
 ## 15. Undo
