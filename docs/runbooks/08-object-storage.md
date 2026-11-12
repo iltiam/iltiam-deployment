@@ -41,8 +41,11 @@ Filled in when the steps are done. Names and dates only: never the namespace, an
 | Staging key in GitHub (section 11) | `STORAGE_ACCESS_KEY`, `STORAGE_SECRET_KEY` set 2026-10-29 |
 | Staging storage settings in GitHub (section 11) | `STORAGE_ENDPOINT_URL` and `MASK_UPLOAD_ALLOWED_HOSTS` (secrets), `STORAGE_REGION`, the five `STORAGE_BUCKET_*`, `AI_MASK_UPLOAD_ENABLED=True` (variables), 2026-10-29; no stale variables. `STORAGE_ENDPOINT_URL` and `MASK_UPLOAD_ALLOWED_HOSTS` set again 2026-10-31: the endpoint had been saved with an empty namespace (Runbook 4, section 13) |
 | Probe objects (section 14.3) | removed from every staging bucket, 2026-10-29 |
-| Alarms (section 12) | not done yet |
-| Vault keys last rotated (section 15.1) | |
+| Alarm topic (section 12.1) | `iltiam-alerts`, Active, two email subscriptions Active (two team members), 2026-11-12 |
+| Alarms (section 12.2) | `iltiam-object-storage-70pct` (`StoredBytes` > 15032385536) and `iltiam-object-storage-requests` (`AllRequests[1d]` > 1600): Active, state OK, repeat every 24 hours, destination `iltiam-alerts`, 2026-11-12 |
+| Space used | about 42 MiB, 2026-11-12 |
+| Decisions, 2026-11-12 | No exports bucket until BE-13; the `-backups` buckets stay on Standard, because the account is free-only (section 7) |
+| Vault keys last rotated (section 15.1) | Not yet. A yearly calendar reminder "Rotate OCI Vault keys and storage keys (Runbook 8)" runs from 2026-10-29 |
 
 ## 1. How it works
 
@@ -178,7 +181,9 @@ For each one: **☰ → Storage → Object Storage & Archive Storage → Buckets
 
 **Why versioning on the backend's buckets:** the backend never overwrites or deletes a file, so versions cost almost nothing, and they protect against a bug that would. The backend's own `check_storage` expects it. The `-backups` buckets have no versioning, so that a deleted dump is really gone.
 
-**No exports bucket yet:** the backend has no setting for one. It comes with BE-13, with a rule that deletes exports after 7 days.
+**No exports bucket yet (decided 2026-11-12):** the backend has no setting for one. It comes with BE-13, with a rule that deletes exports after 7 days.
+
+**The `-backups` buckets stay on Standard (decided 2026-11-12):** the account is free-only, and Infrequent Access or Archive would add fees and minimum storage periods (section 2).
 
 ## 8. Lifecycle rules (once, the 10 versioned buckets)
 
@@ -369,13 +374,13 @@ Runbook 7 (#10) adds the Grafana panel "object storage used vs 20 GB" next to th
 
 **The staging backend must include iltiam-backend#80's checksum fix.** boto3 1.36 and later add a checksum to every upload, which OCI refuses with `501 NotImplemented`. The probe (section 10) sets `when_required`; the backend does the same since `sha-4b5251d` (iltiam-backend PR #101, 2026-10-31), the tag `env/staging.versions` deploys. That image also teaches `check_storage` OCI's answers (`aws:kms`, `404` for an anonymous read) and reuses a passing `/api/ready/` storage check for 60 s (`READY_STORAGE_CACHE_S`).
 
-On the VM, as `deploy` ([Runbook 5](05-compose-stack.md), section 4.4 for the `iltiam` shortcut):
+On the VM, after `ssh iltiam`, as the `ubuntu` user. Each command runs `compose.sh` as `deploy` and starts with `cd /tmp`: `sudo -u deploy` keeps your current folder, and `deploy` can't read `/home/ubuntu`, so without it `compose.sh` stops with `stat .: permission denied`.
 
 1. **Readiness** from your laptop: [Runbook 5](05-compose-stack.md), section 7.3. `/api/ready/` shows `storage` `ok`.
 2. **From inside the backend worker, with its own key:** its own bucket answers, production's doesn't. Nothing secret is printed:
 
    ```bash
-   iltiam staging exec backend-worker python -c "
+   cd /tmp && sudo -u deploy /srv/iltiam/repo/scripts/compose.sh staging exec -T backend-worker python -c "
    import os, boto3
    from botocore.config import Config
    from botocore.exceptions import ClientError
@@ -390,11 +395,11 @@ On the VM, as `deploy` ([Runbook 5](05-compose-stack.md), section 4.4 for the `i
    "
    ```
 
-   **What you should see:** `iltiam-staging-wound-images reachable`, then `iltiam-prod-wound-images refused, HTTP 404`. This also proves the network path from the VM.
+   **What you should see:** `iltiam-staging-wound-images reachable`, then `iltiam-prod-wound-images refused, HTTP 404`. This also proves the network path from the VM. **Passed on staging, 2026-11-12,** with exactly those two lines (backend `sha-14223c2`).
 3. **`check_storage`** (acceptance criterion; every bucket of the backend's `STORAGE_BUCKET_*`, five lines each):
 
    ```bash
-   iltiam staging exec backend-web python manage.py check_storage
+   cd /tmp && sudo -u deploy /srv/iltiam/repo/scripts/compose.sh staging exec -T backend-web python manage.py check_storage
    ```
 
    **What you should see:** a `✓` on every line, then `All storage checks passed.` **Passed on staging, 2026-10-31:** the 5 buckets, each with exists, default encryption `aws:kms`, versioning `Enabled`, object encrypted `aws:kms` and anonymous read refused (`404`); this proves iltiam-backend#80 on OCI. Each run overwrites `.healthcheck/check_storage.txt` in every bucket. The storage user can't delete objects (section 9.4), so each run leaves one tiny old version, which the 30-day rule removes (section 8).
@@ -477,6 +482,7 @@ The `--prefix .healthcheck/` keeps these commands away from real files. For prod
 | Creating a bucket with a customer-managed key fails, "not authorized to use the key" | Section 6, line 1 (`use keys`) is missing |
 | Section 1 of the probe: a domain `does not work` | Use the one that works. Both worked on 2026-10-29; the templates use `oci.customer-oci.com` |
 | Refusals answer 404, not 403 | Normal: OCI doesn't confirm that a bucket exists to a key without rights on it |
+| `stat .: permission denied` from `compose.sh` | `sudo -u deploy` was run from your home folder, which `deploy` can't read. Start the command with `cd /tmp &&` (section 13) |
 | `/api/ready/` shows `storage` failing | A wrong key, endpoint or bucket name in the Environment (section 11), or a key that was deleted. Run the probe with the same values |
 | Uploads fail in the app, `501` in the backend log | The backend image lacks iltiam-backend#80's checksum fix |
 | `check_storage`: `default encryption is AES-256 — aws:kms`, or `anonymous read refused — HTTP 404` | Expected until iltiam-backend#80: OCI reports `aws:kms` and answers 404. Not a storage problem |
@@ -498,7 +504,7 @@ The **Verified** column records the date each row last passed.
 
 | # | Check | How | Expected | When | Verified |
 |---|---|---|---|---|---|
-| 1 | CI | the pull request's checks | `env-check` green: shellcheck (including `check-storage.sh`), `check-env.sh`, gitleaks | this PR | |
+| 1 | CI | the pull request's checks | `env-check` green: shellcheck (including `check-storage.sh`), `check-env.sh`, gitleaks | this PR | 2026-10-30 (PR #33); again 2026-11-12 (the PR that recorded rows 13 to 21) |
 | 2 | S3 compartment | section 4.2 | `iltiam` | console | 2026-10-29 |
 | 3 | Vault and keys | section 5 | vault `iltiam` (not virtual private); two keys Enabled, Software, AES 256 | console | 2026-10-29 |
 | 4 | Service policy | section 6 | both lines in `iltiam-objectstorage-key-policy` | console | 2026-10-29 |
@@ -510,15 +516,15 @@ The **Verified** column records the date each row last passed.
 | 10 | AES256 header | section 10, part 3 | `OCI ACCEPTS the AES256 header`, twice | console | 2026-10-29 |
 | 11 | Cross-environment and backups refusal | section 10, parts 7 and 8 | every line `refused` | console | 2026-10-29 |
 | 12 | Staging values in GitHub | section 11; Runbook 4, section 10.2 | four secrets, seven variables; the `comm` commands print nothing | console | 2026-10-29 |
-| 13 | Alarms | section 12 | 2 alarms OK; topic with 2 confirmed emails | console | |
+| 13 | Alarms | section 12 | 2 alarms OK; topic with 2 confirmed emails | console | 2026-11-12: topic `iltiam-alerts` Active, 2 email subscriptions Active; both alarms Active, state OK, repeat 24 hours |
 | 14 | `/api/ready/` storage | section 13, step 1 | `storage` `ok` | after the first deploy | 2026-10-31 |
-| 15 | From inside the worker | section 13, step 2 | own bucket reachable; production's refused | after the first deploy | |
+| 15 | From inside the worker | section 13, step 2 | own bucket reachable; production's refused | after the first deploy | 2026-11-12: `iltiam-staging-wound-images reachable`, `iltiam-prod-wound-images refused, HTTP 404` |
 | 16 | `check_storage` on staging (AC 1) | section 13, step 3 | `All storage checks passed.` | after #80 | 2026-10-31 (5 buckets × 5 checks, backend `sha-4b5251d`) |
-| 17 | Customer-managed key on objects (AC 2) | section 13, step 5 | `iltiam-staging-objects` | after the first deploy (first seen on a probe object) | 2026-10-29 (probe object) |
-| 18 | Production access and probe | section 9.6, section 10 with `production` | as rows 7 to 11 | later | |
-| 19 | `check_storage` on production (AC 1) | section 13 with `production` | `All storage checks passed.` | later | |
-| 20 | No charges (AC 2) | **Billing & Cost Management → Cost Analysis**, a week after section 12 | $0.00 | console | |
-| 21 | Key rotation reminder | section 15.1 | a calendar entry a year ahead | console | |
+| 17 | Customer-managed key on objects (AC 2) | section 13, steps 4 and 5 | `iltiam-staging-objects` | after the first deploy (first seen on a probe object) | 2026-11-12: a real wound photo uploaded on staging and analysed end to end; bucket `iltiam-staging-wound-images` encrypted with `iltiam-staging-objects` (customer-managed). First seen on a probe object, 2026-10-29 |
+| 18 | Production access and probe | section 9.6, section 10 with `production` | as rows 7 to 11 | later | moved to #36 |
+| 19 | `check_storage` on production (AC 1) | section 13 with `production` | `All storage checks passed.` | later | moved to #36 |
+| 20 | No charges (AC 2) | **Billing & Cost Management → Cost Analysis**, a week after section 12 | $0.00 | console | 2026-11-12: 0.00 for 1 October to 12 November |
+| 21 | Key rotation reminder | section 15.1 | a calendar entry a year ahead | console | 2026-11-12: yearly reminder "Rotate OCI Vault keys and storage keys (Runbook 8)" from 2026-10-29 |
 
 **Record the results as a comment on issue #13:** pass or fail per row, with the date. **Never include** the namespace, an OCID, a key, an endpoint or a link. The probe's output may be pasted as it is.
 
@@ -534,7 +540,7 @@ The **Verified** column records the date each row last passed.
 
 ## 19. What comes next
 
-- **iltiam-backend#80 (BE-21):** the boto3 checksum setting (it blocks every upload), and `check_storage` accepting `aws:kms` and 404. Then the first staging deploy ([Runbook 5](05-compose-stack.md), section 6) and section 13 here.
+- **#36:** production's storage user and key (section 9.6), the probe and `check_storage` on production (rows 18 and 19).
 - **Runbook 6 (#8):** a backup user per environment that can only write to its `-backups` bucket, the lifecycle rules for the dumps, and the weekly restore test.
 - **Runbook 7 (#10):** the Grafana panel for space and requests, and alerts to the same topic.
 - **Production** (section 9.6), when Runbook 5 turns production's backend on.

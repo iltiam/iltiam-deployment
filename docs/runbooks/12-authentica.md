@@ -1,13 +1,13 @@
 # Runbook 12: Authentica account, default sender and API key for phone codes
 
-- **Issue:** iltiam/iltiam-deployment#15 (DEP-14). **Decision record:** [ADR-0004](../adr/0004-hosting.md), Decision 5, with one change for now (section 2). **Backend side:** iltiam/iltiam-backend#74 (done), #103 and #104 (open).
+- **Issue:** iltiam/iltiam-deployment#15 (DEP-14). **Decision record:** [ADR-0004](../adr/0004-hosting.md), Decision 5, with one change for now (section 2). **Backend side:** iltiam/iltiam-backend#74, #103 and #104 (done); the doctor activation flow came with iltiam-backend#127 and iltiam/iltiam-web#68. **WhatsApp:** #61.
 - **Who:** the person who can log in to the Authentica account (today only ben-fatah), with admin rights on `iltiam/iltiam-deployment` and SSH to the VM. No cloud experience needed; follow the steps in order.
-- **Time:** about 30 minutes for sections 4 to 7. Section 8 waits for iltiam-backend#103. A custom sender name (section 12) takes 1 to 2 weeks.
+- **Time:** about 30 minutes for sections 4 to 7, and about an hour for sections 8 and 9. A custom sender name (section 12) takes 1 to 2 weeks.
 - **Result:**
   - an Authentica application for ILTIAM, with its own API key;
   - the key in the staging GitHub Environment, and never anywhere else;
   - a safe test that proves our own code reaches a Saudi phone;
-  - once iltiam-backend#103 is deployed, real SMS codes for sign-in, password reset and a new user's first password.
+  - real SMS codes on staging for sign-in, password reset and a new user's first password (since 2026-11-11, checked end to end on 2026-11-12).
 
 > **This repository is public. Never paste a secret or a real phone number into this runbook, an issue, a PR, a commit or a chat.** Use the placeholders below. When you record a test, mask the number: first five characters and last two only.
 
@@ -32,8 +32,11 @@ Filled in when the steps are done. Names and dates only: never a key or a full p
 | Templates (section 5) | 8 (Arabic) and 7 (English) |
 | Safe test (section 6) | Passed from the VM, 2026-11-07 |
 | Staging key in GitHub (section 7) | `AUTHENTICA_API_KEY` set 2026-11-07 |
-| `SMS_BACKEND` on staging (section 8) | **Not set.** It must stay unset until the iltiam-backend#103 image is deployed |
-| Production | Later, in #36 |
+| `SMS_BACKEND` on staging (section 8) | `apps.notifications.sms.AuthenticaSMSBackend`, set 2026-11-11, with the variables `AUTHENTICA_SMS_CODE_MODE=send_otp`, `AUTHENTICA_SMS_TEMPLATE_ID_AR=8`, `AUTHENTICA_SMS_TEMPLATE_ID_EN=7` |
+| Staging images | Backend `sha-14223c2` (iltiam-backend#127, API `api-v0.5.0`) and web `sha-5f1283f` (iltiam/iltiam-web#68), deployed 2026-11-12. The current tags are always in `env/staging.versions` |
+| First password and password reset | On the web at `/set-password` (new users) and `/forgot-password`: one page, the same `password/reset/request/` and `password/reset/confirm/` calls, with an SMS code. A Clinic Admin or Super Admin can press **Resend invite** on a pending doctor: a new SMS code, and a bilingual email with the `/set-password` link. Since iltiam-backend#127 and iltiam/iltiam-web#68, 2026-11-12 |
+| WhatsApp | **Not working: blocked by Authentica/Meta template review.** Authentica answers HTTP 422 while the portal shows "WhatsApp: In review". `AUTHENTICA_WHATSAPP_TEMPLATE_ID` is not set. Retest after approval: #61 |
+| Production | Later, in #36: its own application and API key, and the sender name |
 | Key last rotated (section 13) | |
 
 ## 1. How it works
@@ -55,10 +58,11 @@ The user types the code. The backend checks it against its own hash
 
 **Authentica only delivers the message.** The backend makes and checks every code (ADR-0004), and never calls Authentica's `/verify-otp`.
 
-**What runs today:**
-- Staging's backend image is `sha-4b5251d`. It can only send SMS through `/send-sms`, which we can't use (section 2).
-- So `SMS_BACKEND` stays unset, and the staging backend **prints codes to its own log** instead of sending them. Nothing reaches a phone yet.
-- iltiam-backend#103 adds the `/send-otp` route. Section 8 turns it on.
+**What runs today on staging:**
+- `SMS_BACKEND` is the Authentica backend in `send_otp` mode (section 8), so codes reach phones from the default sender. The backend no longer prints codes to its log.
+- The reserved test numbers `+96659999xxxx` (in `OTP_DEV_ECHO_NUMBERS`) are never sent to Authentica (iltiam-backend#104). Their code comes back in the API's `dev_otp_code`, only on staging, and they cost nothing.
+- A new doctor or patient sets a first password on the web at `/set-password` with an SMS code, not with a link (iltiam-backend#127, iltiam/iltiam-web#68).
+- WhatsApp codes go to the same `/send-otp` with `method: whatsapp`. They fail until Authentica and Meta approve the WhatsApp templates (#61).
 
 ## 2. Why we use the default sender
 
@@ -236,9 +240,9 @@ gh variable list --env staging -R iltiam/iltiam-deployment --json name -q '.[].n
 
 **Production:** its own key in its own application, in #36.
 
-## 8. Turn on real SMS (waits for iltiam-backend#103)
+## 8. Turn on real SMS
 
-**Don't do this section yet.** With today's image, setting `SMS_BACKEND` either makes the deploy fail (no sender name) or leaves every code undelivered. The web app can't offer another channel until iltiam/iltiam-web#28.
+**Done on staging on 2026-11-11,** with backend `sha-8097a18` (iltiam-backend#103 and #122). The steps stay here for production (#36) and in case it has to be done again.
 
 **Do it only when all of this is true:**
 - iltiam-backend#103 is merged, and its image `<NEW_TAG>` is published;
@@ -265,51 +269,54 @@ The three setting names below come from iltiam-backend#103 (merged in `c6e16a6`,
 
 3. **Deploy:** GitHub → **Actions → deploy → Run workflow**, environment `staging`.
 
-4. **Check the setting on the VM,** without showing the key:
+4. **Check the setting on the VM,** without showing the key. After `ssh iltiam`, as the `ubuntu` user:
 
    ```bash
-   ssh iltiam
-   sudo -iu deploy
-   iltiam staging exec -T backend-web python manage.py shell -c "from django.conf import settings as s; print(s.SMS_BACKEND, bool(s.AUTHENTICA_API_KEY))"
+   cd /tmp && sudo -u deploy /srv/iltiam/repo/scripts/compose.sh staging exec -T backend-web python manage.py shell -c "from django.conf import settings as s; print(s.SMS_BACKEND, bool(s.AUTHENTICA_API_KEY))"
    ```
 
    **What you should see:** `apps.notifications.sms.AuthenticaSMSBackend True`.
 
+   **Why `cd /tmp` first:** `sudo -u deploy` keeps your current folder, and `deploy` can't read `/home/ubuntu`, so `compose.sh` stops with `stat .: permission denied`. Every VM command in this runbook starts this way.
+
 5. **Run section 9.**
 
-**Until iltiam-backend#104 is deployed,** don't sign in with seeded accounts (`+96659999xxxx`). Each code would cost a point and could reach a stranger, because nothing has proved that those numbers are unused. If Authentica refuses such a number, the test account can't get its code at all.
+**Seeded accounts (`+96659999xxxx`)** are safe since iltiam-backend#104: their codes never go to Authentica and cost nothing (checked 2026-11-12). Their code comes back as `dev_otp_code`, only on staging and only for numbers listed in `OTP_DEV_ECHO_NUMBERS`.
 
 ## 9. End-to-end checks
 
 Do these after section 8 and fill in section 17.
 
 **Where to run them:**
-- **The web app:** `https://staging-app.iltiamcare.com`. It does password and code sign-in today, but not resend, a channel choice or the fallback prompt (iltiam/iltiam-web#28).
-- **The API docs page:** `https://staging-api.iltiamcare.com/api/docs/`, for flows with no screen yet: password reset, first password and the mobile sign-in calls. Open an endpoint, press **Try it out**, fill in the fields and press **Execute**, with no long terminal pastes. Never share a screenshot of this page: it can show passwords and tokens.
-- **The mobile app:** it still runs on test data, so its real test waits for iltiam/iltiam-mobile#25.
+- **The web app:** `https://staging-app.iltiamcare.com`. Since iltiam/iltiam-web#68 it does sign-in with a code, a new code after a 60-second countdown, the other channels when a send fails, `/set-password` for a new user's first password, `/forgot-password`, and **Resend invite** on the doctor lists.
+- **The API docs page:** `https://staging-api.iltiamcare.com/api/docs/`, for the mobile sign-in calls. Open an endpoint, press **Try it out**, fill in the fields and press **Execute**, with no long terminal pastes. Never share a screenshot of this page: it can show passwords and tokens.
+- **The mobile app:** row 13 (iltiam/iltiam-mobile#25).
 
 **Limits to remember while testing:**
-- 60 seconds between resends, and 5 code sends per hour for one user.
-- After that limit, a password reset still answers normally but sends nothing, so it can look like a failed SMS. Wait for the hour to pass.
+- 60 seconds between resends, and **5 codes per hour for one user**. Sign-in, resend, Resend invite and password codes all count.
+- After that limit, sign-in shows "too many requests". `/forgot-password` and `/set-password` still answer "If this number has an account…" but send nothing. That is on purpose: the page answers the same for every number, so it doesn't reveal which numbers have accounts. Wait an hour.
 - 5 wrong tries on a code ends that code; 5 failures on an account lock it for 10 minutes.
+- Each real SMS costs 1 point. Plan the tests so one number doesn't need more than 5 codes in an hour.
 
 **The checks:**
 
 1. **Super Admin sign-in.** Sign in on the web app. A code reaches the Super Admin's phone. This costs a point even if you then use the authenticator app.
-2. **New doctor, first password.** As Super Admin, create a doctor with `<DOCTOR_PHONE>`, using the web app or `POST /api/clinics/{id}/doctors/`. The code SMS arrives. There's no welcome SMS in this mode. Set the password with `POST /api/auth/password/reset/confirm/` (fields `phone_number`, `otp_code`, `new_password`).
-3. **Doctor sign-in on the web.** The right code signs in. A wrong code is refused.
+2. **New doctor, first password.** As Clinic Admin or Super Admin, create a doctor with `<DOCTOR_PHONE>` and an email address, or press **Resend invite** on a doctor whose status is pending. The code SMS arrives, and the doctor's inbox gets the bilingual invitation with the `/set-password` link. There's no welcome SMS in this mode. On `/set-password`, enter the phone, the code and a new password: the page says the account is active, and the doctor list shows **Active**.
+3. **Doctor sign-in on the web.** The right code signs in and the doctor's dashboard opens. A wrong code shows "That code is not right…". On the code screen, after the 60-second countdown, **Send a new code by SMS** sends a new one.
 4. **Language.** A user with `preferred_language` `ar` gets template 8, and one with `en` gets template 7. The Arabic reads correctly.
-5. **Password reset.** `POST /api/auth/password/reset/request/` with `phone_number`, then the `confirm` call as in check 2.
+5. **Password reset.** **Forgot password?** on the sign-in page (`/forgot-password`): the same page and the same calls as check 2. An unknown number gets the same "If this number has an account…" answer.
 6. **New patient.** The doctor registers a patient with `<PATIENT_PHONE>`. Set the password as in check 5.
 7. **Patient sign-in, stand-in for the app.** The calls the app will make: `POST /api/auth/login/`, then `POST /api/auth/login/verify/`.
-8. **WhatsApp.** After a sign-in, wait 60 seconds, then `POST /api/auth/login/resend/` with `channel` `WHATSAPP`. **The code must work.** The backend offers this channel, but it hasn't been tested with the real service yet.
-9. **No codes in the logs.** On the VM, as `deploy`:
+8. **WhatsApp.** After a sign-in, wait for the 60-second countdown, then press **Send by WhatsApp** (or `POST /api/auth/login/resend/` with `channel` `WHATSAPP`). **The code must work.** **Today it fails: WhatsApp is blocked by Authentica/Meta template review.** Authentica answers HTTP 422 and the log shows `OTP delivery by WHATSAPP failed for user …: Authentica refused the message: HTTP 422`. Retest after approval (#61).
+9. **No codes in the logs.** On the VM, after `ssh iltiam`:
 
    ```bash
-   iltiam staging logs --since 30m backend-web backend-worker | grep -cE 'SMS to|WHATSAPP code to'
+   cd /tmp && sudo -u deploy /srv/iltiam/repo/scripts/compose.sh staging logs --since 3h backend-web backend-worker | grep -cE 'SMS to|WHATSAPP code to'
    ```
 
    **What you should see:** `0`.
+
+   **What this proves, and what it doesn't:** `SMS to …` and `WHATSAPP code to …` are the lines the console backend writes, with the code, when `SMS_BACKEND` is unset. So `0` shows that the console backend is off. The Authentica backend never logs a code, so with it on the count is always `0`. A non-zero count can also come from a failure line such as `Welcome SMS to patient … failed`, which holds no code: read the matching lines on the VM before you worry, and never paste them anywhere.
 
 10. **Cost.** The balance dropped by the number of messages sent, and no more.
 
@@ -328,7 +335,8 @@ Do these after section 8 and fill in section 17.
 
 | Item | Cost | Source |
 |---|---|---|
-| One local SMS with template 7 or 8 | 1 point | Measured 2026-11-07, and support |
+| One local SMS with template 7 or 8 | 1 point | Measured 2026-11-07, and support. Again 2026-11-12 through the backend: **SMS → Logs** shows "Paid, 1 pt" per SMS |
+| A code for a seeded `+96659999xxxx` account | Free: never sent | Measured 2026-11-12 |
 | One point | 0.11 SAR | Support. The [public price list](https://authentica.sa/en/pricing-en/) starts at 240 SAR for 2,000 credits, about 0.12 SAR each |
 | 100 SMS | about 11 SAR | Calculated |
 | Reading the balance | Free | Measured 2026-11-07 |
@@ -367,13 +375,13 @@ Do this only when the project has a Commercial Registration.
 
 | Risk | What could happen | What we do |
 |---|---|---|
-| Points run out during the demo | Sign-in fails, and the web app has no other channel until iltiam/iltiam-web#28 | Section 10: check that morning, keep at least 200, and top up at least 3 days before, because the FAQ shows recharges can be delayed. Backups: patients on a remembered device skip the code; Super Admins can use the authenticator app |
+| Points run out during the demo | Sign-in fails, and WhatsApp doesn't work yet (#61) | Section 10: check that morning, keep at least 200, and top up at least 3 days before, because the FAQ shows recharges can be delayed. Backups: patients on a remembered device skip the code; Super Admins can use the authenticator app |
 | Shared account with Nakhlah | Both projects spend one balance. A leaked key from either project spends it too | Separate keys per application, and only one person logs in. Ask #36 to use a separate account for real patients |
 | Rate limits | Authentica publishes none. The backend retries a 429 once, then reports a failed send | Our own limits keep sends low (section 9). Ask support before any large test |
 | Codes in logs | While `SMS_BACKEND` is unset, the staging backend logs codes. Authentica's SMS logs may show them too **(check on screen)** | Check 9 proves the backend stops. Never paste logs into an issue or chat. Only one person logs in to the portal |
 | Phone numbers leave our servers | Authentica receives users' phone numbers, and it is a Saudi provider | It belongs in the ROPA as a processor (#6). Test numbers only with the person's consent |
 | SMS accepted but not delivered | HTTP 200 means accepted, not delivered, so a user may wait | The backend tells the apps to offer other channels after 30 seconds, once the apps can (iltiam/iltiam-web#28, iltiam/iltiam-mobile#25) |
-| Seeded test numbers | Real sends to `+96659999xxxx`: cost, and possibly a stranger | Don't use those accounts until iltiam-backend#104 is deployed |
+| Seeded test numbers | Real sends to `+96659999xxxx`: cost, and possibly a stranger | Since iltiam-backend#104 they are never sent to Authentica (checked 2026-11-12) |
 | Alerts have no SMS copy | Critical alerts go only by their other channels. On staging, push works only once [Runbook 11](11-firebase.md) is done | Accepted for the demo. Push per [Runbook 11](11-firebase.md); the SMS copy needs a sender name (section 12) |
 | The default sender stops working | Codes stop | Section 6 finds it quickly. Ask support, then section 15 |
 
@@ -404,8 +412,11 @@ Do this only when the project has a Commercial Registration.
 | HTTP 401 | Wrong or deleted key | Check the key in the dashboard, or create a new one |
 | HTTP 200 but no SMS | Delivery problem | **SMS → Logs** on the dashboard, then ask support with the time of the send |
 | Deploy: `backend migrations failed`, and the log says `Delivery settings ...: AUTHENTICA_API_KEY is not set` or `AUTHENTICA_SENDER_NAME is not set` | `SMS_BACKEND` is set, but something it needs is missing. With the old image, a sender name is always needed | The old backend keeps running. Delete `SMS_BACKEND`, and read section 8 before setting it again |
-| Web sign-in sits on the code screen, and no SMS arrives | The send failed, and the web app can't offer another channel yet | Check the balance and **SMS → Logs**. For the error, on the VM as `deploy`: `iltiam staging logs --tail 100 backend-web \| grep 'OTP delivery'`. Don't paste the output anywhere |
-| `RATE_LIMITED` | Resend too soon, or 5 sends in an hour | Wait, as in section 9 |
+| Web sign-in sits on the code screen, and no SMS arrives | The send failed, or it is slow | The code screen offers a new code after 60 seconds, and the other channels at once when the send failed. Check the balance and **SMS → Logs**. For the error, on the VM: `cd /tmp && sudo -u deploy /srv/iltiam/repo/scripts/compose.sh staging logs --tail 100 backend-web \| grep 'OTP delivery'`. Don't paste the output anywhere |
+| No code arrives on `/forgot-password` or `/set-password`, and the page still says "If this number has an account…" | **Check the limit of 5 codes per hour for one user** (sign-in, resend, Resend invite and reset codes all count). The page answers the same either way, so it doesn't reveal which numbers have accounts. Or the number has no account | **Wait 1 hour,** then try again. Sign-in with the same number shows "too many requests" while the limit lasts. **SMS → Logs** shows the codes already sent |
+| `RATE_LIMITED`, "too many requests" | Resend too soon, or 5 sends in an hour | Wait, as in section 9 |
+| **Send by WhatsApp** fails; the log says `OTP delivery by WHATSAPP failed …: Authentica refused the message: HTTP 422` | **WhatsApp is blocked by Authentica/Meta template review** (portal: "WhatsApp: In review"). Support: no fixed time, nothing missing on our side | Use SMS. Retest after approval (#61) |
+| `stat .: permission denied` from `compose.sh` | `sudo -u deploy` was run from your home folder, which `deploy` can't read | Start the command with `cd /tmp &&` |
 
 ## 17. Verified
 
@@ -413,25 +424,26 @@ This table is for the end-to-end checks in section 9. They run after section 8. 
 
 | # | Check | How | Expected | When | Verified |
 |---|---|---|---|---|---|
-| 1 | Setting on staging | Section 8, step 4 | `...AuthenticaSMSBackend True` | after iltiam-backend#103 | |
-| 2 | Super Admin sign-in | Section 9, check 1 | Code arrives from `Authentica` | after iltiam-backend#103 | |
-| 3 | New doctor, first password | Check 2 | Code arrives; the password is set | after iltiam-backend#103 | |
-| 4 | Doctor sign-in on the web | Check 3 | Right code signs in; wrong code refused | after iltiam-backend#103 | |
-| 5 | Arabic and English | Check 4 | Templates 8 and 7 by the user's language; Arabic reads correctly | after iltiam-backend#103 | |
-| 6 | Password reset | Check 5 | Code arrives; the new password works | after iltiam-backend#103 | |
+| 1 | Setting on staging | Section 8, step 4 | `...AuthenticaSMSBackend True` | after iltiam-backend#103 | 2026-11-11 (backend `sha-8097a18`) |
+| 2 | Super Admin sign-in | Section 9, check 1 | Code arrives from `Authentica` | after iltiam-backend#103 | 2026-11-12: from `Authentica`, Arabic template |
+| 3 | New doctor, first password | Check 2 | Code arrives; the password is set | after iltiam-backend#127 and iltiam/iltiam-web#68 | 2026-11-12: Resend invite sent the SMS and the bilingual email with the `/set-password` link; the page said the account is active, the list showed Active, the doctor's dashboard opened (backend `sha-14223c2`, web `sha-5f1283f`) |
+| 4 | Doctor sign-in on the web | Check 3 | Right code signs in; wrong code refused; a new code after 60 s | after iltiam/iltiam-web#68 | 2026-11-12: wrong code gave "code is not right"; after the countdown, "A new code is on its way by SMS" |
+| 5 | Arabic and English | Check 4 | Templates 8 and 7 by the user's language; Arabic reads correctly | after iltiam-backend#103 | Arabic 2026-11-12. **English not tested** through the backend (the hourly limit was reached); template 7 itself passed on 2026-11-07 (section 6). Retest in #61 |
+| 6 | Password reset | Check 5 | Code arrives; the new password works | after iltiam/iltiam-web#68 | 2026-11-12, by row 3: `/forgot-password` and `/set-password` are the same page with the same calls. A separate full run was stopped by the hourly limit (row 14) |
 | 7 | New patient | Check 6 | Code arrives; the password is set | after iltiam-backend#103 | |
 | 8 | Patient sign-in through the API | Check 7 | Right code signs in | after iltiam-backend#103 | |
-| 9 | WhatsApp code | Check 8 | The code arrives and works | after iltiam-backend#103 | |
-| 10 | No codes in the logs | Check 9 | `0` | after iltiam-backend#103 | |
-| 11 | Cost | Check 10 | Balance drop equals messages sent | after iltiam-backend#103 | |
-| 12 | Seeded account | A listed `+96659999xxxx` account signs in with `dev_otp_code` | The balance doesn't change | after iltiam-backend#104 | |
+| 9 | WhatsApp code | Check 8 | The code arrives and works | after Authentica approves the WhatsApp templates | **Fail 2026-11-12: blocked by Authentica/Meta template review** (HTTP 422, portal "WhatsApp: In review"; support: nothing missing on our side). Retest after approval (#61) |
+| 10 | No codes in the logs | Check 9 | `0` | after iltiam-backend#103 | 2026-11-12: `0` over 3 hours (this pattern only matches the console backend, check 9) |
+| 11 | Cost | Check 10 | Balance drop equals messages sent | after iltiam-backend#103 | 2026-11-12: 1 point per real SMS ("Paid, 1 pt" in **SMS → Logs**); balance 414 before the tests |
+| 12 | Seeded account | A listed `+96659999xxxx` account signs in with `dev_otp_code` | The balance doesn't change | after iltiam-backend#104 | 2026-11-12: seeded numbers cost nothing |
 | 13 | Mobile app, patient and doctor | The real app on staging | Code arrives and signs in | tracked on iltiam/iltiam-mobile#25 | |
+| 14 | Hourly limit | 5 codes to one number in an hour, then sign-in and `/forgot-password` | Sign-in: "too many requests". Reset page: the neutral "If this number has an account…", and no SMS | after iltiam/iltiam-web#68 | 2026-11-12: both as expected (no account enumeration) |
+| 15 | Unknown number | `/forgot-password` with a number that has no account | The same neutral answer, no SMS | after iltiam/iltiam-web#68 | 2026-11-12 |
 
 **Record the results as a comment on issue #15:** pass or fail per row, with the date and a masked number. **Never include** a key, a code or a full phone number.
 
 ## 18. What comes next
 
-- **iltiam-backend#103 and #104** (Omar-Nasri): the `/send-otp` route and the guard for test numbers. Then sections 8 and 9.
-- **iltiam/iltiam-web#28:** resend, the channel choice and the fallback prompt.
-- **iltiam/iltiam-mobile#25:** real sign-in in the app.
-- **#36:** production's application and key, and whether production gets a Commercial Registration or a separate account.
+- **#61:** WhatsApp codes once Authentica and Meta approve the templates (`AUTHENTICA_WHATSAPP_TEMPLATE_ID`, one id per language in the backend, Authentica's error text in the log, the web hides **Send by WhatsApp** until it works), and the English SMS retest (row 5).
+- **Rows 7, 8 and 13:** the patient checks, with the mobile app (iltiam/iltiam-mobile#25).
+- **#36:** production's application and API key, the sender name, and whether production gets a Commercial Registration or a separate account.
