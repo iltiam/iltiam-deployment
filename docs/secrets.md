@@ -57,7 +57,7 @@ Each environment has **its own value** for every secret (run `scripts/bootstrap-
 | `AUTHENTICA_API_KEY` | backend.env | Authentica dashboard, the environment's own application ([Runbook 12](runbooks/12-authentica.md), section 4.3; staging set 2026-11-07, production in #36) | staff change, leak | [Runbook 12](runbooks/12-authentica.md), section 13: create a new key, update the secret, redeploy, delete the old key | Delete the key in the dashboard; check the balance and the SMS logs for misuse (the balance is shared with Nakhlah) |
 | `TURNSTILE_SECRET_KEY` | backend.env | Cloudflare dashboard → Turnstile → the environment's widget, `iltiam-staging` / `iltiam-prod` (Runbook 2, DEP-01) | staff change, leak | Turnstile → widget → **Rotate secret key** (keep the old key valid for a grace period), update the secret, redeploy | Rotate with immediate expiry |
 | `EMAIL_HOST_USER`, `EMAIL_HOST_PASSWORD` | backend.env | OCI Email Delivery SMTP credentials of the environment's own user, `iltiam-smtp-staging` / `iltiam-smtp-prod` (Runbook 2, section 11.5; staging set 2026-11-07, production in #36) | yearly, staff change | OCI console → the user → **SMTP credentials → Generate credentials** (the old one keeps working meanwhile), update both secrets, redeploy, delete the old credential | OCI console → the user → **SMTP credentials** → delete it |
-| `FCM_SERVICE_ACCOUNT_JSON` | file `fcm-service-account.json` (section 1) | Firebase → Project settings → Service accounts → Generate new private key (Runbook 11, DEP-13) | yearly, staff change | 6.5 | Google Cloud console → IAM & Admin → Service accounts → the Firebase account → **Keys** → delete the key |
+| `FCM_SERVICE_ACCOUNT_JSON` | file `fcm-service-account.json` (section 1) | Firebase → Project settings → Service accounts → Generate new private key ([Runbook 11](runbooks/11-firebase.md), section 8, DEP-13) | yearly, staff change | 6.5 | Google Cloud console → IAM & Admin → Service accounts → the Firebase account → **Keys** → delete the key |
 | `WEIGHTS_READ_TOKEN` | infra.env (→ weights-init's `GITHUB_TOKEN`) | Fine-grained PAT, one **per environment**: resource owner `iltiam`, only `iltiam-ai-service`, **Contents: Read-only**, expiry **1 year** | yearly (it expires) | 6.6 | github.com → Settings → Developer settings → Personal access tokens → Fine-grained tokens → the token → **Delete** |
 | `STAGING_TEST_PASSWORD` (staging only) | backend.env | Chosen by whoever runs `manage.py seed_staging`; must meet the password policy | staff change | Set a new one, update, run `seed_staging` again | Same |
 | `DEPLOY_SSH_KEY` | the deploy workflow only (`~/.ssh/iltiam_deploy` on the runner) | `ssh-keygen -t ed25519`, **one key per environment**, no passphrase ([Runbook 5](runbooks/05-compose-stack.md), section 5.1) | staff change, leak | Runbook 5, section 5.1 with a new key, then delete the old line from `authorized_keys` | Remove its line from `/home/deploy/.ssh/authorized_keys` on the VM. A deploy key reaches Docker on the VM, which is as good as root: treat a leak as an incident (DEP-09) |
@@ -72,7 +72,7 @@ Non-secret values (host names, bucket names, backends, `AUTHENTICA_SENDER_NAME`)
 
 | Secret | Lives in | Owner | Rotate | Notes |
 |---|---|---|---|---|
-| `google-services.json`, one per Android flavor (dev, staging, prod) | iltiam-mobile **repository secrets**, base64; names **TO CONFIRM** (MOB-02, MOB-03) | ben-fatah | not needed | Low sensitivity (the API key in it is restricted to the app), but never committed (DEP-13) |
+| `google-services.json`, one per Android flavor (dev, staging, prod) | iltiam-mobile **repository secrets**, base64: `GOOGLE_SERVICES_JSON_DEV`, `GOOGLE_SERVICES_JSON_STAGING`, `GOOGLE_SERVICES_JSON_PROD` (read by iltiam-mobile's CI, MOB-02; [Runbook 11](runbooks/11-firebase.md), section 6) | ben-fatah | not needed | Low sensitivity (the API key in it is restricted to the app), but never committed (DEP-13). A flavor without its secret builds without push |
 | Android upload keystore, its store password, key alias and key password | iltiam-mobile repository secrets; names **TO CONFIRM** (MOB-03, MOB-28a). **Escrowed in Bitwarden** | **MYF25 (Mohammad), TO CONFIRM**; backup ben-fatah | never, unless lost or leaked | Lost or leaked: Play Console → the app → Setup → App signing → **Request upload key reset** (Play App Signing keeps the real signing key) |
 | `DEPLOY_DISPATCH_TOKEN` (automatic staging deploys) | **repository secret** in iltiam-ai-service, iltiam-backend and iltiam-web (private repositories can't read organisation secrets on GitHub Free). Fine-grained PAT: resource owner `iltiam`, only `iltiam-deployment`, **Contents: Read and write** ([Runbook 9](runbooks/09-cd-staging.md), section 2.1) | ben-fatah | it expires (date in Runbook 9, As built) | Expired: Runbook 9, section 8. Leaked: Personal access tokens → the token → **Delete**, then make a new one; meanwhile set `AUTO_DEPLOY` to `false`. It can write to this public repository, so check `main` for commits you don't know |
 | age backup key (private half) | **Bitwarden only** (#8 decides whether the VM's restore test holds a copy) | ben-fatah | never | Without it no backup can be restored. Only the public recipient key goes to the VM |
@@ -163,9 +163,11 @@ OCI allows two Customer Secret Keys per user, so the old one keeps working until
 
 ### 6.5 Firebase service account (`FCM_SERVICE_ACCOUNT_JSON`)
 
+The full steps, with checks, are in [Runbook 11](runbooks/11-firebase.md), section 11.
+
 1. Firebase console → **Project settings → Service accounts → Generate new private key**. A JSON file downloads.
 2. Put it in the secret: `gh secret set FCM_SERVICE_ACCOUNT_JSON --env staging -R iltiam/iltiam-deployment < <FILE>.json`. Then delete the file from Downloads and empty the recycle bin.
-3. Redeploy, and send a test push (backend issue #73).
+3. Redeploy **by hand** (**Actions → deploy → Run workflow**): a new secret doesn't start an automatic deploy (Runbook 9). Then send a test push (backend issue #73; Runbook 11, section 10).
 4. Google Cloud console → **IAM & Admin → Service accounts** → the `firebase-adminsdk-…` account → **Keys** → delete the old key.
 
 ### 6.6 Weights read token (`WEIGHTS_READ_TOKEN`, one per environment)
@@ -221,7 +223,7 @@ Found while writing the templates (issue #3). Each one belongs to the issue name
 **Still TO CONFIRM:**
 
 10. **How the web image uses `TURNSTILE_SITE_KEY`:** iltiam/iltiam-web#28 (it doesn't read it yet). WEB-03 confirmed `API_BASE_URL` and `IMAGE_ORIGINS`.
-11. **iltiam-mobile secret names** (google-services per flavor, upload keystore): MOB-02, MOB-03, MOB-28a. Keystore owner MYF25.
+11. **iltiam-mobile secret names:** the google-services ones are settled: `GOOGLE_SERVICES_JSON_DEV`, `_STAGING`, `_PROD` ([Runbook 11](runbooks/11-firebase.md), section 6). The upload keystore's are still open: MOB-03, MOB-28a. Keystore owner MYF25.
 12. **SMTP provider:** OCI Email Delivery (ADR-0004 Decision 6). Confirmed in Riyadh on 2026-10-30. Email domain, DKIM, approved sender and custom return path set up on 2026-11-07 (Runbook 2, sections 11.3 and 11.4). The SMTP user `iltiam-smtp-staging` and the staging email secrets are done (2026-11-07, section 11.5). Production email moved to #36. Resend stays the fallback.
 13. **Values and menus:**
     - `ALLOW_SYNC=0` (`AI_MASK_UPLOAD_ENABLED=True` is settled by Runbook 8's probe: the AI service's presigned mask upload works on OCI);
