@@ -222,7 +222,7 @@ If you skip this, the next automatic deploy (of any service) writes the new sett
 
 ### 9.4 Check on the VM
 
-SSH to the VM as `ubuntu` ([Runbook 1](01-oci-account-and-vm.md)). The env folder belongs to `deploy`, so each command runs as `deploy`. Neither prints the key.
+SSH to the VM as `ubuntu` ([Runbook 1](01-oci-account-and-vm.md)). The env folder belongs to `deploy`, so each command runs as `deploy`. Neither prints the key. Step 2 starts with `cd /tmp`: `sudo -u deploy` keeps your current folder, and `deploy` can't read `/home/ubuntu`, so without it `compose.sh` stops with `stat .: permission denied`.
 
 1. **The file is there, mode 644:**
 
@@ -234,7 +234,7 @@ SSH to the VM as `ubuntu` ([Runbook 1](01-oci-account-and-vm.md)). The env folde
 2. **The backend uses it:**
 
    ```bash
-   sudo -u deploy /srv/iltiam/repo/scripts/compose.sh staging exec -T backend-web python manage.py shell -c "import os; from django.conf import settings as s; print(s.PUSH_BACKEND, os.path.isfile(s.FCM_CREDENTIALS_FILE))"
+   cd /tmp && sudo -u deploy /srv/iltiam/repo/scripts/compose.sh staging exec -T backend-web python manage.py shell -c "import os; from django.conf import settings as s; print(s.PUSH_BACKEND, os.path.isfile(s.FCM_CREDENTIALS_FILE))"
    ```
 
    **What you should see:** `apps.notifications.push.FCMPushBackend True`.
@@ -350,7 +350,7 @@ iOS push ships in v1.1 (iltiam-mobile#57): an APNs key uploaded under **⚙ → 
 | Test push: `409 NO_PUSH_DEVICE` | The phone isn't registered | Is the build from after the `FCM_ENABLED` change, with `staging: Firebase config restored` in the CI log? Is the phone signed in as the **same** user? Close and open the app: it registers again at start. Phones without Google Play can't get a token |
 | Test push: `503 PUSH_UNAVAILABLE` | The backend can't use FCM | Section 9.4. If `PUSH_BACKEND` is right, check section 7 and that the key wasn't deleted |
 | A device's `result` is `DEAD` | FCM says that token is gone: the app was reinstalled, or its data was cleared | It was removed. Open the app again so it registers, then send again |
-| A device's `result` is `FAILED` | A temporary FCM error, or the API is off | Send again after a minute. Then section 7. On the VM: `sudo -u deploy /srv/iltiam/repo/scripts/compose.sh staging logs --tail 200 backend-web backend-worker \| grep -c 'FCM send failed'`. **Don't paste the log lines anywhere** |
+| A device's `result` is `FAILED` | A temporary FCM error, or the API is off | Send again after a minute. Then section 7. On the VM: `cd /tmp && sudo -u deploy /srv/iltiam/repo/scripts/compose.sh staging logs --tail 200 backend-web backend-worker \| grep -c 'FCM send failed'`. **Don't paste the log lines anywhere** |
 | `SENT`, but nothing on the phone, and the app was **open on screen** | **Known limitation** (2026-11-12): the app doesn't show a push that arrives while it is in the foreground. The push did arrive | Put the app in the background and send again. The fix is an iltiam-mobile follow-up (section 19) |
 | `SENT`, but nothing on the phone, with the app in the background or closed | The phone held it back | Phone **Settings → Apps →** the staging app **→ Notifications:** on. Battery saver and Do Not Disturb off |
 
