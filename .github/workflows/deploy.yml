@@ -150,7 +150,9 @@ jobs:
 
       - name: Set the tag in env/staging.versions
         id: version
+        # A run step without `shell:` is `bash -e`, without pipefail: a failure before `| tee` would pass unseen.
         run: |
+          set -o pipefail
           bash scripts/set-version.sh staging "$SERVICE" "$SHA" | tee -a "$GITHUB_OUTPUT"
           bash scripts/deploy.sh --check-versions staging
 
@@ -193,11 +195,16 @@ jobs:
         env:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
           TAG: ${{ steps.request.outputs.tag }}
+        # pipefail: the backup's own exit code fails this step, not hidden by `| tee`. Its errors (stderr) reach this log
+        # directly; only its stdout goes through tee.
         run: |
+          set -o pipefail
           bash scripts/remote-deploy.sh --backup staging "backend-$TAG" | tee "$RUNNER_TEMP/backup.log"
           file="$(sed -n 's/^BACKUP_FILE=//p' "$RUNNER_TEMP/backup.log" | tail -n 1)"
-          [[ "$file" =~ ^[0-9]{8}T[0-9]{6}Z-backend-sha-[0-9a-f]{7}\.sql\.gz$ ]] \
-            || { echo "::error::the backup did not report its file; nothing was deployed"; exit 1; }
+          [[ "$file" =~ ^[0-9]{8}T[0-9]{6}Z-backend-sha-[0-9a-f]{7}\.sql\.gz$ ]] || {
+            echo "::error::the backup script ended without reporting its file (see the lines above); nothing was deployed"
+            exit 1
+          }
           echo "file=$file" >> "$GITHUB_OUTPUT"
 
       - name: Commit env/staging.versions to main

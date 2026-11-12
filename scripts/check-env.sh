@@ -391,5 +391,12 @@ expect_fail "remote-deploy.sh --backup with a malformed label" bash scripts/remo
 expect_fail "remote-deploy.sh --check for an unknown service" env DEPLOY_HOST=h DEPLOY_SHA="$sha_a" \
   bash scripts/remote-deploy.sh --check staging 'web;x'
 unset auto versions before snapshot out sha_a sha_b
+# #16: a script that bash reads from SSH's stdin ends early when one of its commands reads stdin. remote-deploy.sh
+# copies the backup script to a file first; the backup's docker compose commands read nothing from stdin.
+! grep -Eq 'bash[[:space:]]+(-s|/dev/stdin)' scripts/remote-deploy.sh \
+  || fail "remote-deploy.sh must not run a script from SSH's stdin (copy it to a file first, #16)"
+! grep -E 'compose (exec|run)' scripts/pre-deploy-backup.sh | grep -v '^[[:space:]]*#' | grep -qv '</dev/null' \
+  || fail "every compose exec/run in pre-deploy-backup.sh needs </dev/null (#16)"
+ok "no script runs from SSH's stdin; the backup's compose commands read no stdin"
 
 log "all checks passed"
