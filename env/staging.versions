@@ -13,10 +13,9 @@
 # (#36). After a deploy that turns a profile off, stop its containers by hand (Runbook 5, section 9.4).
 COMPOSE_PROFILES=backend,web
 
-# sha-a8447a3: ai-service main after #161 (per-request manual-review threshold) and #162 (registry metrics in
-# /capabilities), contract-v1.1.0; linux/arm64 and linux/amd64.
-AI_API_IMAGE=ghcr.io/iltiam/iltiam-ai-api:sha-a8447a3
-AI_WORKER_IMAGE=ghcr.io/iltiam/iltiam-ai-worker:sha-a8447a3
+# sha-9ecf382: iltiam-ai-service main, commit 9ecf38271688b35f0c87ee53c77d09c54706b149; deployed automatically on 2026-11-12 (Runbook 9).
+AI_API_IMAGE=ghcr.io/iltiam/iltiam-ai-api:sha-9ecf382
+AI_WORKER_IMAGE=ghcr.io/iltiam/iltiam-ai-worker:sha-9ecf382
 
 # sha-cf883a4: iltiam-backend main, commit cf883a45d51acc20bef06a5317a30b2f5714d88c; deployed automatically on 2026-11-12 (Runbook 9).
 BACKEND_IMAGE=ghcr.io/iltiam/iltiam-backend:sha-cf883a4
