@@ -17,8 +17,8 @@ COMPOSE_PROFILES=backend,web
 AI_API_IMAGE=ghcr.io/iltiam/iltiam-ai-api:sha-9ecf382
 AI_WORKER_IMAGE=ghcr.io/iltiam/iltiam-ai-worker:sha-9ecf382
 
-# sha-caafa09: iltiam-backend main, commit caafa0940e63fe7bdaa21448aba47841f581f0fc; deployed automatically on 2026-11-12 (Runbook 9).
-BACKEND_IMAGE=ghcr.io/iltiam/iltiam-backend:sha-caafa09
+# sha-14223c2: iltiam-backend main, commit 14223c21c25d024cbeb3ba7359094ddfd8e7d86d; deployed automatically on 2026-11-12 (Runbook 9).
+BACKEND_IMAGE=ghcr.io/iltiam/iltiam-backend:sha-14223c2
 
 # sha-9cb6268: iltiam-web main, commit 9cb6268424ad9870f7c90d00cdc1338f4909807d; deployed automatically on 2026-11-12 (Runbook 9).
 WEB_IMAGE=ghcr.io/iltiam/iltiam-web:sha-9cb6268
