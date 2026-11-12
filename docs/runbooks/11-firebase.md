@@ -27,14 +27,14 @@ Filled in when the steps are done. Names and dates only: never a key, a project 
 
 | Item | Value |
 |---|---|
-| Firebase project (section 4) | |
+| Firebase project (section 4) | `iltiam`, Google Analytics off, 2026-11-12 |
 | Second owner (section 4, step 6) | |
-| Android apps: dev, staging, prod (section 5) | |
-| `GOOGLE_SERVICES_JSON_DEV`, `_STAGING`, `_PROD` in iltiam-mobile (section 6) | |
-| Cloud Messaging API (V1) (section 7) | |
-| `FCM_SERVICE_ACCOUNT_JSON` in the staging Environment (section 8) | |
-| `PUSH_BACKEND` on staging, and the deploy run (section 9) | |
-| Test push (section 10) | |
+| Android apps: dev, staging, prod (section 5) | `com.iltiamcare.app.dev`, `com.iltiamcare.app.staging`, `com.iltiamcare.app`, 2026-11-12 |
+| `GOOGLE_SERVICES_JSON_DEV`, `_STAGING`, `_PROD` in iltiam-mobile (section 6) | All three set, 2026-11-12 |
+| Cloud Messaging API (V1) (section 7) | Enabled; the legacy API Disabled, 2026-11-12 |
+| `FCM_SERVICE_ACCOUNT_JSON` in the staging Environment (section 8) | Set 2026-11-12 |
+| `PUSH_BACKEND` on staging, and the deploy run (section 9) | `apps.notifications.push.FCMPushBackend` (staging variable), manual deploy run #32 green, 2026-11-12 |
+| Test push (section 10) | Passed 2026-11-12: staging debug APK built locally from iltiam-mobile PR #72, Samsung Galaxy S24, Android 17, app in the background. With the app open in the foreground nothing is shown (section 16) |
 | Production | Later, in #36 |
 | Key last rotated (section 11) | |
 
@@ -117,7 +117,15 @@ For each one:
 
 ## 6. Put the app files into iltiam-mobile
 
-**Git Bash,** in the folder with the three files:
+**First, check the file names.** Windows hides file extensions, so a file renamed in Explorer can really be `google-services-staging.json.json`. Then `base64` finds no file, and `gh secret set` stores an **empty** secret. In Git Bash, in the folder with the three files:
+
+```bash
+ls -l google-services-*.json
+```
+
+**What you should see:** exactly the three names of section 5, each with a size well above 0. If not, rename them here (or turn on **Explorer → View → Show → File name extensions**) and check again.
+
+**Git Bash,** in the same folder:
 
 ```bash
 base64 -w0 google-services-staging.json | gh secret set GOOGLE_SERVICES_JSON_STAGING -R iltiam/iltiam-mobile
@@ -268,9 +276,11 @@ Use the API docs page, `https://staging-api.iltiamcare.com/api/docs/`, as in [Ru
 2. **Authorize** (top right) → paste it → **Authorize → Close.**
 3. Open `POST /api/notifications/devices/test/` **→ Try it out → Execute.** It has no body.
 
+**Put the app in the background first** (press Home, or lock the phone): today the app shows nothing for a push that arrives while it is open on screen (section 16).
+
 **What you should see:**
 - the answer `200`, with `"sent": 1` and one device with `"platform": "ANDROID"` and `"result": "SENT"`;
-- on the phone, within a minute: **ILTIAM test notification**;
+- on the phone, within a minute, in the user's language: **إشعار تجريبي من إلتئام** (Arabic) or **ILTIAM test notification** (English);
 - a tap on it opens the app's notification list.
 
 **Then once more with the app closed:** swipe the app away, lock the phone, and **Execute** again. The notification must still arrive.
@@ -334,13 +344,15 @@ iOS push ships in v1.1 (iltiam-mobile#57): an APNs key uploaded under **⚙ → 
 | Same, with `FCM_CREDENTIALS_FILE is not a Firebase service-account file` | The secret holds a `google-services.json`, not the key | Section 8 again with the right file: it is the one from **Service accounts**, and its `type` is `service_account` |
 | Deploy: `fcm-service-account.json must be mode 644` | Someone changed the file's mode on the VM | `sudo -u deploy chmod 644 /srv/iltiam/env/staging/fcm-service-account.json`, then deploy again |
 | Mobile CI: `base64: invalid input` | The secret wasn't base64 | Section 6 again for that flavor |
+| Mobile CI says `no secret, building without Firebase config` although `gh secret list` shows the secret | The secret is **empty**. Windows hides file extensions, so a file renamed to `google-services-staging.json` in Explorer can really be `google-services-staging.json.json`. `base64` then finds no file, prints an error, and `gh secret set` stores the empty value it got (found on 2026-11-12) | In Git Bash, `ls -l google-services-*.json` before `gh secret set`: each name exactly as in section 5, each size well above 0. Turn on **Explorer → View → Show → File name extensions**. Then section 6 again |
 | Mobile build: `No matching client found for package name 'com.iltiamcare.app.staging'` | The staging secret holds another flavor's file | Section 6 again with `<STAGING_FILE>` |
 | Firebase refuses to make a key (**Generate new private key** greyed out or an error about a policy) | A Google Cloud organisation policy blocks key creation | Not expected on a personal account. Check you're in the right Google account; otherwise ask for help |
 | Test push: `409 NO_PUSH_DEVICE` | The phone isn't registered | Is the build from after the `FCM_ENABLED` change, with `staging: Firebase config restored` in the CI log? Is the phone signed in as the **same** user? Close and open the app: it registers again at start. Phones without Google Play can't get a token |
 | Test push: `503 PUSH_UNAVAILABLE` | The backend can't use FCM | Section 9.4. If `PUSH_BACKEND` is right, check section 7 and that the key wasn't deleted |
 | A device's `result` is `DEAD` | FCM says that token is gone: the app was reinstalled, or its data was cleared | It was removed. Open the app again so it registers, then send again |
 | A device's `result` is `FAILED` | A temporary FCM error, or the API is off | Send again after a minute. Then section 7. On the VM: `sudo -u deploy /srv/iltiam/repo/scripts/compose.sh staging logs --tail 200 backend-web backend-worker \| grep -c 'FCM send failed'`. **Don't paste the log lines anywhere** |
-| `SENT`, but nothing on the phone | The phone held it back | Phone **Settings → Apps →** the staging app **→ Notifications:** on. Battery saver and Do Not Disturb off. Try with the app closed and with it open |
+| `SENT`, but nothing on the phone, and the app was **open on screen** | **Known limitation** (2026-11-12): the app doesn't show a push that arrives while it is in the foreground. The push did arrive | Put the app in the background and send again. The fix is an iltiam-mobile follow-up (section 19) |
+| `SENT`, but nothing on the phone, with the app in the background or closed | The phone held it back | Phone **Settings → Apps →** the staging app **→ Notifications:** on. Battery saver and Do Not Disturb off |
 
 ## 17. Verified
 
@@ -355,20 +367,21 @@ The **Verified** column records the date each row last passed.
 | # | Check | How | Expected | When | Verified |
 |---|---|---|---|---|---|
 | 1 | CI | the pull request's checks | `docs` (MkDocs strict) and `env-check` green | this PR | |
-| 2 | Project | section 4 | project `iltiam`, Analytics off, two owners | console | |
-| 3 | Android apps | section 5 | three apps with exactly the three package names | console | |
-| 4 | App files in iltiam-mobile | section 6, check | three `GOOGLE_SERVICES_JSON_*` names | console | |
-| 5 | Cloud Messaging API (V1) | section 7 | Enabled | console | |
-| 6 | Key in the staging Environment | section 8, step 5 | `FCM_SERVICE_ACCOUNT_JSON` | console | |
-| 7 | `PUSH_BACKEND` on staging | section 9.2, check | `apps.notifications.push.FCMPushBackend` | console | |
-| 8 | Manual deploy | section 9.3 | green; `fcm-service-account.json (644)` in the log | after the deploy | |
+| 2 | Project | section 4 | project `iltiam`, Analytics off, two owners | console | 2026-11-12 (project and Analytics off; second owner not recorded yet) |
+| 3 | Android apps | section 5 | three apps with exactly the three package names | console | 2026-11-12 |
+| 4 | App files in iltiam-mobile | section 6, check | three `GOOGLE_SERVICES_JSON_*` names | console | 2026-11-12 |
+| 5 | Cloud Messaging API (V1) | section 7 | Enabled | console | 2026-11-12 (legacy API Disabled) |
+| 6 | Key in the staging Environment | section 8, step 5 | `FCM_SERVICE_ACCOUNT_JSON` | console | 2026-11-12 |
+| 7 | `PUSH_BACKEND` on staging | section 9.2, check | `apps.notifications.push.FCMPushBackend` | console | 2026-11-12 |
+| 8 | Manual deploy | section 9.3 | green; `fcm-service-account.json (644)` in the log | after the deploy | 2026-11-12 (run #32, green) |
 | 9 | File on the VM | section 9.4, step 1 | `-rw-r--r--`, `deploy deploy` | after the deploy | |
 | 10 | Backend setting | section 9.4, step 2 | `apps.notifications.push.FCMPushBackend True` | after the deploy | |
-| 11 | Staging build with Firebase | section 10.1 | `staging: Firebase config restored` (CI), or a local build with the file | with a build | |
-| 12 | Test push, app open (acceptance) | section 10.3 | `200`, `"result": "SENT"`; the notification shows on the phone | with a build | |
+| 11 | Staging build with Firebase | section 10.1 | `staging: Firebase config restored` (CI), or a local build with the file | with a build | 2026-11-12 (local debug build from iltiam-mobile PR #72, `FCM_ENABLED` true) |
+| 12 | Test push, app in the background (acceptance) | section 10.3 | `200`, `"result": "SENT"`; the notification shows on the phone | with a build | 2026-11-12 (Samsung Galaxy S24, Android 17, a staging patient; `إشعار تجريبي من إلتئام` shown at 18:17) |
 | 13 | Test push, app closed | section 10.3, last step | the notification shows | with a build | |
 | 14 | Tap opens the app | section 10.3 | the notification list opens | with a build | |
 | 15 | Key rotation reminder | section 11, step 5 | a calendar entry a year ahead | console | |
+| 16 | Test push, app open in the foreground | section 10.3, with the app on screen | the app shows it | with a build | **Not yet:** nothing is shown (2026-11-12). Known limitation, iltiam-mobile follow-up (section 19) |
 
 **Record the results as a comment on issue #14:** pass or fail per row, with the date, the phone model and the Android version. **Never include** a key, a token, a project number, an app ID or a phone number.
 
@@ -381,6 +394,7 @@ The **Verified** column records the date each row last passed.
 
 ## 19. What comes next
 
+- **iltiam-mobile, new follow-up:** show a push that arrives while the app is open in the foreground (Verified row 16). Today only the background and closed cases show one.
 - **iltiam-mobile#31:** push in the app (permission prompt, token refresh, the notification screens).
 - **iltiam-mobile#24:** staging builds for testers, so section 10.1 needs no laptop build.
 - **#36:** production's key in the production Environment, `PUSH_BACKEND` there (production refuses to start without real push), and whether production gets its own Firebase project.
