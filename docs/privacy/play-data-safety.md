@@ -1,26 +1,35 @@
 # Google Play data safety answers
 
-- **Issue:** #6. **Used by:** iltiam/iltiam-mobile#51, in **Play Console → App content → Data safety.**
+- **Status:** final answers, approved by the project owner on 2026-11-13. **Used by:** iltiam/iltiam-mobile#51 and the store checklist #68, in **Play Console → App content → Data safety.**
 - **App:** the ILTIAM Android app (patients and doctors). Checked against iltiam-mobile `main` on 2026-11-13: its libraries and Android permissions.
-- **Draft:** needs review before it is entered. Google's question wording changes; if a question below doesn't match the console, answer from the [ROPA](ropa.md).
+- **These answers describe the app as it will be submitted**, after the blockers below are done. Re-check this page if the app adds a library, a permission or a data type. Google's question wording changes; if a question doesn't match the console, answer from the [ROPA](ropa.md).
+
+## Before entering these answers
+
+These must be done first, or the answers below would be wrong:
+
+- [ ] iltiam/iltiam-mobile#77: fonts bundled, so the app sends nothing to Google Fonts.
+- [ ] iltiam/iltiam-mobile#76: the unused `READ_MEDIA_VIDEO` and `READ_MEDIA_AUDIO` permissions removed.
+- [ ] iltiam/iltiam-web#70: `https://iltiamcare.com/privacy` and `https://iltiamcare.com/delete-account` are live and tested. **Until then they are planned URLs.**
 
 ## What the app contains
 
 - **No analytics, crash reporting or advertising SDK.** Firebase is used for push messages only; Analytics is off ([Runbook 11](../runbooks/11-firebase.md)).
-- **Libraries that send data off the phone:** our own API (through Cloudflare to the VM in Riyadh), Firebase Cloud Messaging (the push token), and `google_fonts`, which downloads the app's fonts from Google the first time (**TO CONFIRM, TC-23**; bundling the fonts removes it).
-- **Permissions:** internet, camera, notifications, biometrics (local unlock; the fingerprint never leaves the phone), photos. The manifest also asks for `READ_MEDIA_VIDEO` and `READ_MEDIA_AUDIO`, which the app doesn't use. **Mobile follow-up (iltiam/iltiam-mobile#76):** remove them before release, or Play may ask why.
+- **Data leaves the phone only to:** our own API (through Cloudflare to the servers in Riyadh), and Firebase Cloud Messaging (the push token).
+- **Permissions after #76:** internet, camera, notifications, biometrics (local unlock; the fingerprint never leaves the phone), photos.
 
 ## Data collection and security
 
 | Question | Answer | Why |
 |---|---|---|
 | Does your app collect or share any of the required user data types? | **Yes** | see the table below |
-| Is all of the user data collected by your app encrypted in transit? | **Yes** | HTTPS only, through Cloudflare |
-| Which account creation methods does your app support? | **The clinic creates the account; the user sets a password with an SMS code.** Choose the console's closest option (username and password) | no sign-up in the app |
-| Do you provide a way for users to request that their data is deleted? | **Yes** | in the app: Profile → Privacy → Delete my data ([rights map](rights-map.md#6-destruction-deletion-done-as-anonymisation)). The record is anonymised; medical records are kept. Whether a web link is also required: **TO CONFIRM (TC-19)** |
-| Delete account URL | **TO CONFIRM (TC-19).** Suggested: a page on `iltiamcare.com` explaining the in-app request and `privacy@iltiamcare.com` | Play asks for one when an app has accounts |
+| Is all of the user data collected by your app encrypted in transit? | **Yes** | HTTPS only |
+| Which account creation methods does your app support? | **Username and password** (the console's closest option) | the clinic creates the account; the user sets a password with an SMS code. No sign-up in the app |
+| Do you provide a way for users to request that their data is deleted? | **Yes** | in the app: Profile → Privacy → Delete my data ([rights map](rights-map.md#6-destruction-deletion-done-as-anonymisation)); without the app: the web link below or `privacy@iltiamcare.com` |
+| Delete account URL | **`https://iltiamcare.com/delete-account`** (planned, iltiam/iltiam-web#70) | explains the request and what is kept (the medical record without identity), and offers a way to ask without the app |
 | Has your app been independently validated against a global security standard? | **No** | |
-| Is your app's data shared with third parties? | **No** for every type below | Oracle, Cloudflare, Authentica and Google act as our service providers ([ROPA](ropa.md#processors)), which Play doesn't count as sharing. **TO CONFIRM (TC-14)** that each acts only on our instructions |
+| Is your app's data shared with third parties? | **No**, for every type below | Oracle, Cloudflare, Authentica and Google act as our service providers ([ROPA](ropa.md#processors)), which Play doesn't count as sharing |
+| Privacy policy URL | **`https://iltiamcare.com/privacy`** (planned, iltiam/iltiam-web#70) | `privacy-notice-v1` |
 
 ## Data types
 
@@ -36,17 +45,14 @@
 | Health and fitness | Health info | yes | required | App functionality | medical background, wound measurements, notes, care plans, prescriptions |
 | Messages | Other in-app messages | yes | optional | App functionality | messages with the care team |
 | Photos and videos | Photos | yes | required (patients) | App functionality | wound photos, profile photo. Location data is removed |
+| Device or other IDs | Device or other IDs | yes | required for notifications | App functionality | the Firebase push token |
 | App info and performance | Crash logs, Diagnostics | **no** | | | no crash or diagnostics SDK |
 | App activity | App interactions, other actions | **no** | | | the server's audit log records actions, but the app sends no activity tracking |
-| Device or other IDs | Device or other IDs | yes | required for notifications | App functionality | the Firebase push token |
 | Location | Approximate, Precise | **no** | | | GPS is removed from photos; no location permission |
 | Financial info, Contacts, Calendar, Audio, Files and docs, Web browsing | | **no** | | | |
 
-**Ephemeral processing:** answer **No** for every type: data is stored, not only processed in memory.
+**Ephemeral processing:** **No** for every type: data is stored, not only processed in memory.
 
-## Before submitting
+## Other Play Console forms
 
-- [ ] The supervisor confirms TC-14, TC-19 and TC-23.
-- [ ] The mobile app drops `READ_MEDIA_VIDEO` and `READ_MEDIA_AUDIO` (iltiam/iltiam-mobile#76) (or this page explains them).
-- [ ] The privacy policy URL in Play Console points to the published `privacy-notice-v1`.
-- [ ] Re-check this page when the app adds a library, a permission or a data type.
+The **Health apps declaration**, target audience (adults; patients under 18 only through a parent or guardian, per `terms-v1`) and the rest are in the store publishing checklist, #68.

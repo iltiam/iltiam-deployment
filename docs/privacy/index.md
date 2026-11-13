@@ -1,10 +1,12 @@
 # PDPL documents
 
-> **DRAFT - pending legal review by the supervisor. Items marked TO CONFIRM are not final.**
+> **Version 1 - approved by the project owner.**
+>
+> This is approved documentation text. It is **not** a verified PDPL compliance assessment, a regulatory approval or a clinical validation, and it doesn't make ILTIAM ready for real patients. The open legal points and the public-launch blockers are listed below and tracked in #23.
 
-- **Issue:** iltiam/iltiam-deployment#6. **SRS:** FR-P-7.1, NFR-SEC-04, FR-SA-10.
-- **Status:** **draft, written 2026-11-13. It needs review by the supervisor (legal content) and a native Arabic speaker (the Arabic texts) before it is final.**
-- **Law:** the Saudi Personal Data Protection Law (PDPL) and its Implementing Regulations. These documents cite no article numbers. Every legal basis and legal claim that hasn't been checked is marked **TO CONFIRM**, with a number from the register below.
+- **Issue:** iltiam/iltiam-deployment#6 (closed when version 1 was merged: the documentation task is done). **SRS:** FR-P-7.1, NFR-SEC-04, FR-SA-10.
+- **Version 1:** approved by the project owner on 2026-11-13.
+- **Law:** the Saudi Personal Data Protection Law (PDPL) and its Implementing Regulations. These documents cite no article numbers and make no legal conclusions: they describe what ILTIAM does, and the owner's decisions.
 
 > **This repository is public.** These pages hold no namespace, OCID, key, real phone number or personal data. Bucket names and the public domain `iltiamcare.com` are already public in the runbooks.
 
@@ -12,77 +14,76 @@
 
 | Document | What it holds |
 |---|---|
-| [Record of processing (ROPA)](ropa.md) | Each data class: what, whose, why, legal basis, where it is stored, who processes it, how long it's kept |
+| [Record of processing (ROPA)](ropa.md) | Each data class: what, whose, why, the basis we rely on, where it is stored, who processes it, how long it's kept |
 | [Retention schedule](retention.md) | How long each data class is kept, and the job or manual process that enforces it |
 | [Rights map](rights-map.md) | Each PDPL right → app screen → backend endpoint → backend test |
 | [Consent texts](consent-texts.md) | The AI analysis and feedback dataset consents, Arabic and English, with version IDs |
-| [Privacy notice](privacy-notice.md) | For patients and staff, Arabic and English, `privacy-notice-v1` |
-| [Terms of use](terms-of-use.md) | Patient terms (`terms-v1`) and staff policies (`staff-policies-v1`), Arabic and English |
-| [Play data safety](play-data-safety.md) | The answers for Google Play Console's Data safety form |
+| [Privacy notice](privacy-notice.md) | For patients and staff, Arabic and English, `privacy-notice-v1`: final, for the stores |
+| [Terms of use](terms-of-use.md) | Patient terms (`terms-v1`) and staff policies (`staff-policies-v1`), Arabic and English: final, for the stores |
+| [Play data safety](play-data-safety.md) | The final answers for Google Play Console's Data safety form |
 | [Backups and restores stay in Riyadh](restore-location.md) | The record that dumps and restore tests never leave the Riyadh VM and buckets |
 
 ## Decisions
 
+All made by the project owner. "Safest simple choice" means the option that sends the least data, keeps it the shortest time that the service allows, or adds no new promise the code doesn't keep.
+
 | Date | Decision |
 |---|---|
 | 2026-11-09 | The backend's retention schedule (iltiam-backend `docs/retention.md`, PR #108) is adopted as the base of [retention.md](retention.md) |
-| 2026-11-13 | **#6 stays open after these documents are merged,** until the supervisor reviews the TO CONFIRM items and a native speaker checks the Arabic. Showing the texts in the apps is tracked in iltiam/iltiam-web#29 (web) and iltiam/iltiam-mobile#44 (Android) |
-| 2026-11-13 | Each user-facing text has a version ID (`ai-consent-v1`, `feedback-consent-v1`, `privacy-notice-v1`, `terms-v1`, `staff-policies-v1`). A changed text gets a new ID; the apps show the words of the ID they record |
-| 2026-11-13 | Doctor accounts are never deleted, only deactivated, so that medical records keep their author (medical data integrity) |
-| until after the demo | `RETENTION_ENFORCE` stays off on staging: the retention job only counts. Production turns it on once these documents are approved |
+| 2026-11-13 | **Version 1 is final** for the privacy notice, the terms and the Play answers, because the stores need them. `privacy-notice-v1` and `terms-v1` are published at `https://iltiamcare.com/privacy` and `/terms` (planned until iltiam/iltiam-web#70 is live and tested) |
+| 2026-11-13 | **#6 closes when version 1 is merged.** Showing the texts in the apps is tracked in iltiam/iltiam-web#29 (web) and iltiam/iltiam-mobile#44 (Android); the stores in #68 |
+| 2026-11-13 | Each user-facing text has a version ID (`ai-consent-v1`, `feedback-consent-v1`, `privacy-notice-v1`, `terms-v1`, `staff-policies-v1`). A changed text gets a new ID, and **patients are asked again for every new consent version** |
+| 2026-11-13 | **Basis we rely on:** we process health data only to provide the service the clinic gives through ILTIAM, and with the patient's consent; AI analysis and the AI feedback dataset need their own explicit consent. Staff data: their work on ILTIAM. Breach and rights records: handling the law's duties |
+| 2026-11-13 | **Health data is treated as sensitive** everywhere in ILTIAM |
+| 2026-11-13 | **Doctor accounts are never deleted, only deactivated,** and their name stays on the records they wrote (medical data integrity) |
+| 2026-11-13 | **Clinical records** are kept with no fixed end; a patient's deletion request removes their identity. **Messages** are archived after 12 months and kept with the record. **Audit and sign-in records** are kept at least 2 years, reviewed yearly |
+| 2026-11-13 | **In-app notifications** are kept while the account exists and deleted when the patient is anonymised (what the backend does today) |
+| 2026-11-13 | **Mail to `privacy@` and `security@`:** deleted 12 months after the request or report is closed, by hand each month |
+| 2026-11-13 | **Redis** (the task queue) holds record ids only, never personal data; task results expire after 1 day |
+| 2026-11-13 | **Google Fonts:** the mobile app will bundle its fonts (iltiam/iltiam-mobile#77). Until then the privacy notice says that Google may see the device's internet address |
+| 2026-11-13 | **Uptime monitoring:** none yet. When #10 adds one, it calls `/api/health/` only, receives no personal data, and is added to the ROPA first |
+| 2026-11-13 | **AI feedback dataset:** exported only to the Riyadh VM or a Riyadh bucket, never to a laptop or outside OCI Riyadh, and deleted when the retraining it was made for is done |
+| 2026-11-13 | **Push text** will hold no health data (iltiam/iltiam-backend#128) |
+| 2026-11-13 | **Patients under 18** use ILTIAM only through a parent or legal guardian, who accepts the notice and terms for them |
+| 2026-11-13 | **Rights requests** are answered within 30 days; breaches are notified to affected users and the competent authority as the law requires; users can complain to SDAIA |
+| until after the demo | `RETENTION_ENFORCE` stays off on staging: the retention job only counts. Production turns it on before launch (#66, #36) |
+
+## Legal review before public launch
+
+These need a legal answer that the project owner can't give alone. **They block the public launch** and are tracked in #23. The documents above don't depend on the answers, but an answer may require a new version of a text.
+
+| # | Question | Affects |
+|---|---|---|
+| L1 | **Controller per clinic:** is each clinic the controller of its patients' data, with ILTIAM as its processor, or is ILTIAM a controller too? What agreement does each clinic sign? | privacy notice section 1, terms, clinic onboarding |
+| L2 | **SDAIA registration and data protection officer:** must ILTIAM (or each clinic) register with SDAIA's national register or appoint a DPO? | privacy notice section 11 |
+| L3 | **Processor contracts:** data processing terms with Oracle, Cloudflare, Authentica and Google, and how long each keeps what it receives (its own logs) | [ROPA processors](ropa.md#processors), [retention](retention.md) rows 21 to 24 |
+| L4 | **Transfers outside the Kingdom:** Cloudflare (TLS ends at its edge; Email Routing), Google (FCM, the team mailbox, fonts until #77). Which transfer rules apply, and whether Cloudflare's paid Data Localization Suite is needed | privacy notice section 5, [ROPA](ropa.md) |
+
+## Public-launch blockers
+
+Besides L1 to L4, these must be done before real patients or a store submission (#68):
+
+| Blocker | Issue |
+|---|---|
+| Anonymisation keeps wound photos, notes and message text: deletion must do exactly what the privacy notice says | iltiam/iltiam-backend#129 |
+| Push text without health data | iltiam/iltiam-backend#128 |
+| Public `/privacy`, `/terms` and `/delete-account` pages, with a way to ask for deletion without the app | iltiam/iltiam-web#70 |
+| The apps show the texts and record acceptance | iltiam/iltiam-web#29, iltiam/iltiam-mobile#44 |
+| Fonts bundled; unused media permissions removed | iltiam/iltiam-mobile#77, iltiam/iltiam-mobile#76 |
+| Retention enforced in production; export files cleaned up after 7 days | #66, #36, #65 |
+| The consent version stored with each consent | iltiam/iltiam-backend#130 |
+| Super Admin screens for deletion requests and breaches (or a documented API procedure) | iltiam/iltiam-web#69 |
 
 ## Findings while writing
 
-These are facts found in the code on 2026-11-13. They are not legal questions, so they aren't in the register.
+Facts found in the code on 2026-11-13, each with its issue:
 
-1. **Push notifications carry health-related text through Google.** Firebase Cloud Messaging receives each notification's title and text, and some say, for example, "The result of your latest wound photo shows a high risk" (iltiam-backend `apps/notifications/catalog.py`). No measurement, photo or diagnosis is sent. See TC-20. Issue: iltiam/iltiam-backend#128.
-2. **Export files are never removed from storage.** The backend refuses a download after 7 days and expects a bucket lifecycle rule on the `exports/` prefix of `iltiam-<SHORT>-reports`. That rule doesn't exist (Runbook 8, section 8 has only two rules). Until it is added, [retention.md](retention.md) names a monthly manual clean-up. Issue: #65.
-3. **The mobile app downloads its fonts from Google at run time** (`google_fonts` without bundled fonts), so Google sees the phone's IP address when the app first opens. The web app bundles its fonts. Bundling the fonts in the app removes this; see TC-23.
-4. **The backend records when a consent was given or withdrawn, not which text version.** `Patient.ai_analysis_consent_at` and `ai_feedback_consent_at` hold a time only. Storing the version ID is a backend follow-up ([consent-texts.md](consent-texts.md)). Issue: iltiam/iltiam-backend#130.
-5. **Anonymisation keeps wound photos, notes and message text.** They can still identify a person (a face, a tattoo, a name typed in a message). See TC-12 and [the rights map](rights-map.md#6-destruction-deletion-done-as-anonymisation). Issue: iltiam/iltiam-backend#129.
-6. **Super Admin screens for deletion requests and breach incidents don't exist on the web yet.** The rights work through the API (`/api/data-requests/`, `/api/breach-incidents/`) and `manage.py send_breach_notice`. Issue: iltiam/iltiam-web#69.
-
-## TO CONFIRM register
-
-Each item needs an answer from the supervisor, or someone who knows the PDPL, before production. The pages mark each place with its number.
-
-| # | Question | Where |
-|---|---|---|
-| TC-1 | Who is the **controller**: each clinic, the ILTIAM team, or both? Which legal entity and address does the privacy notice name? | ROPA, privacy notice, terms |
-| TC-2 | The **legal basis** for processing patients' health data to provide care (consent at enrolment, or a health-care basis) | ROPA rows 3 to 8 |
-| TC-3 | The legal basis for **AI analysis** of wound photos: explicit consent (`ai-consent-v1`) | ROPA row 5, consent texts |
-| TC-4 | The legal basis for the **AI feedback dataset** (consent, `feedback-consent-v1`), and whether the exported dataset (photos, masks, values, no identifiers) counts as anonymised under the PDPL | ROPA row 14, consent texts |
-| TC-5 | The legal basis for **staff account data, sign-in records and audit logs** | ROPA rows 1, 2, 11 |
-| TC-6 | That health data is **sensitive data** under the PDPL, and what extra duties follow (ADR-0004 states it; no article checked) | ROPA, privacy notice |
-| TC-7 | **Breach notification:** the 72-hour deadline to the regulator (SDAIA), and when data subjects must be told. The source in the Implementing Regulations | Rights map row 7, privacy notice |
-| TC-8 | **Transfers outside the Kingdom:** Cloudflare (TLS decrypted at its edge, Email Routing), Google (FCM, the privacy@ mailbox, fonts). Which transfer rule applies, and whether Cloudflare's paid Data Localization Suite is required | ROPA processors, privacy notice |
-| TC-9 | **Clinical records kept permanently** (SRS FR-P-7.1, FR-D-9) versus a fixed medical-record retention period under Saudi health regulations | Retention rows 1 and 2 |
-| TC-10 | Audit logs kept **at least 2 years** (SRS FR-SA-10): is there a maximum? | Retention row 4 |
-| TC-11 | **Response time** to rights requests: the SRS gives 30 days for deletion requests (FR-P-7.1). Is that the PDPL deadline, and does it apply to access and correction too? | Rights map, privacy notice |
-| TC-12 | Does **anonymising** a patient's clinical record, instead of deleting it, satisfy the right to destruction? | Rights map row 6, privacy notice |
-| TC-13 | **Uptime pinger:** which service (ADR-0004 plans "a hosted pinger"), and that it receives no personal data | ROPA processors |
-| TC-14 | **Processor contracts:** are data processing terms in place with Oracle, Cloudflare, Authentica and Google, and are their standard terms enough? | ROPA processors |
-| TC-15 | **Processors' own logs:** how long Authentica (its SMS logs show messages), Cloudflare, Firebase and OCI Email Delivery keep what they receive | Retention rows 21 to 24 |
-| TC-16 | **Minors and patients who can't consent:** who consents for them (a guardian), and how that is recorded | Consent texts, privacy notice, terms |
-| TC-17 | Keeping a **deactivated doctor's** identity with the records they wrote, with no deletion | ROPA row 1, rights map row 6 |
-| TC-18 | Must ILTIAM (or each clinic) **register** with SDAIA's national register or appoint a **data protection officer**? | Privacy notice |
-| TC-19 | **Google Play account deletion:** patients don't sign up in the app (a doctor registers them). Is the in-app deletion request enough, or is a web link also required? | Play data safety |
-| TC-20 | Is health-related **push text** through Google FCM acceptable, or must pushes be generic ("You have a new update")? | ROPA row 9, finding 1 |
-| TC-21 | Where the **feedback dataset** export may be kept, and when it must be deleted after retraining | Retention row 20 |
-| TC-22 | What **Redis** (the task queue) holds: ids only, or also personal data | ROPA row 17 |
-| TC-23 | Google seeing the phone's IP address through **run-time font downloads**: acceptable, or bundle the fonts | ROPA processors, finding 3 |
-| TC-24 | The **governing law, liability and disclaimer** wording of the terms of use | Terms of use |
-| TC-25 | **Messages:** the SRS says 12 months (FR-D-13); the backend archives them after 12 months and never deletes them. Is archiving enough? | Retention row 3 |
-| TC-26 | When a consent text changes (a new version ID), must every patient consent again, or only when the purpose changes? | Consent texts |
-| TC-27 | How long to keep the **in-app notification inbox** (proposed: 12 months) | Retention row 12 |
-| TC-28 | How long to keep mail to **`privacy@` and `security@`** (proposed: 12 months after closing) | Retention row 19 |
-| TC-29 | The **emergency number** the patient terms name (997) | Terms of use |
-| TC-30 | The **right to complain** to SDAIA, and how the notice should say it | Privacy notice |
-
-## What comes next
-
-- The supervisor reviews the legal content and answers the register; a native Arabic speaker reviews the Arabic. Then merge, and #6 closes.
-- iltiam/iltiam-web#29 and iltiam/iltiam-mobile#44 show the texts by version ID. iltiam/iltiam-mobile#51 fills the Play form from [play-data-safety.md](play-data-safety.md).
-- Backend follow-ups: store the consent version ID (iltiam/iltiam-backend#130); anonymisation (iltiam/iltiam-backend#129); a retention rule for in-app notifications; generic push text (iltiam/iltiam-backend#128) if TC-20 says so.
-- Runbook 8: the `exports/` lifecycle rule (finding 2, #65). `RETENTION_ENFORCE` through the deploy (#66). Super Admin web screens (iltiam/iltiam-web#69). Unused Android permissions (iltiam/iltiam-mobile#76). Runbook 6 (#8): backups ([restore-location.md](restore-location.md)).
-- Production (#36): turn on `RETENTION_ENFORCE`.
+1. **Push text through Google** can mention a wound result, for example "The result of your latest wound photo shows a high risk" (iltiam-backend `apps/notifications/catalog.py`): iltiam/iltiam-backend#128.
+2. **Export files** under `exports/` in `iltiam-<SHORT>-reports` are not removed by a bucket rule yet; [retention.md](retention.md) row 14 names a monthly manual clean-up until #65.
+3. **The mobile app downloads its fonts from Google at run time:** iltiam/iltiam-mobile#77.
+4. **The backend records when a consent changed, not which text version:** iltiam/iltiam-backend#130.
+5. **Anonymisation keeps wound photos, notes and message text:** iltiam/iltiam-backend#129.
+6. **No Super Admin web screens** for deletion requests and breach incidents: iltiam/iltiam-web#69.
+7. **`RETENTION_ENFORCE` isn't passed by the deploy:** #66.
+8. **Unused Android media permissions:** iltiam/iltiam-mobile#76.
+9. **Only "AI result viewed" is logged as a view.** Other reads of a record aren't logged, so the texts promise only what is logged: changes, and doctors' views of AI results.

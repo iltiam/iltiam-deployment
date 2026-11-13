@@ -5,7 +5,7 @@
 
 ## Why
 
-- A dump is a full copy of the patients' health data: sensitive personal data that we keep in the Kingdom ([ADR-0004](../adr/0004-hosting.md); **TO CONFIRM, TC-6, TC-8**).
+- A dump is a full copy of the patients' health data: sensitive personal data that we keep in the Kingdom ([ADR-0004](../adr/0004-hosting.md)), and that ILTIAM treats as sensitive.
 - GitHub's runners run outside the Kingdom, and this repository is public: its workflow logs and artifacts can be seen by anyone.
 
 ## What exists today

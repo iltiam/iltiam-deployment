@@ -1,8 +1,8 @@
 # Consent texts
 
-- **Issue:** #6. **Draft:** needs review by the supervisor and a native Arabic speaker before it is final.
+- **Issue:** #6. **Version 1,** approved by the project owner on 2026-11-13.
 - **Version IDs:** each text has one. The apps show the words of the ID they record. **A changed text gets a new ID** (`ai-consent-v2`); the old one stays here, so a past consent can always be read in the words the patient saw.
-- **Legal basis:** explicit consent. **TO CONFIRM (TC-3 for AI analysis, TC-4 for the feedback dataset).** Who consents for a minor or a patient who can't: **TO CONFIRM (TC-16).**
+- **Basis:** explicit consent, separate for each text. For a patient under 18, or one who can't consent, a parent or legal guardian consents on their behalf (`terms-v1`, section 5).
 - **Shown by:** the doctor's new patient form on the web (iltiam/iltiam-web#29) and the app's Profile → Privacy screen (iltiam/iltiam-mobile#44).
 
 | ID | Consent | Default | Recorded by the backend as |
@@ -82,5 +82,5 @@ You can withdraw at any time in the app (Profile → Privacy). Your corrections 
 
 - **Today** the backend records on or off and the time (`PATCH /api/patients/me/consents/`, and the registration form). Every change is audited. Withdrawing needs a fresh identity check (step-up).
 - **Not yet recorded: the version ID.** Backend follow-up (iltiam/iltiam-backend#130): store `ai_analysis_consent_version` and `ai_feedback_consent_version` with each change, and return them in `GET /api/patients/me/consents/`, so the apps and an audit can tell which words a patient agreed to.
-- **When a text changes** (a new ID): the apps show the new text to patients who agreed to an older ID, and ask again. Until they answer, the older consent stays in force. **TO CONFIRM (TC-26)** whether a new consent is needed for every wording change or only for a change of purpose.
+- **When a text changes** (a new ID): the apps show the new text to patients who agreed to an older ID, and ask again. Until they answer, the older consent stays in force. **Every new version is asked again** (owner decision), even for a wording change.
 - The proof of what each right does is in the [rights map](rights-map.md#5-withdraw-consent).
