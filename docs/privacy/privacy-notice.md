@@ -1,6 +1,6 @@
 # Privacy notice
 
-- **Version ID:** `privacy-notice-v1`. **Draft:** needs review by the supervisor and a native Arabic speaker before merge.
+- **Version ID:** `privacy-notice-v1`. **Draft:** needs review by the supervisor and a native Arabic speaker before it is final.
 - **For:** patients, doctors, clinic admins and Super Admins, in the Android app and on the web (iltiam/iltiam-web#29, iltiam/iltiam-mobile#44).
 - **Placeholders** the reviewers fill in: `<CONTROLLER>` (who is responsible for the data, **TO CONFIRM, TC-1**) and `<EFFECTIVE_DATE>`.
 - Every legal statement marked **TO CONFIRM** must be checked before this text is shown to users. The facts behind it are in the [ROPA](ropa.md) and the [retention schedule](retention.md).

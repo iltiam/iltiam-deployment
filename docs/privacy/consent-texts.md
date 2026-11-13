@@ -1,6 +1,6 @@
 # Consent texts
 
-- **Issue:** #6. **Draft:** needs review by the supervisor and a native Arabic speaker before merge.
+- **Issue:** #6. **Draft:** needs review by the supervisor and a native Arabic speaker before it is final.
 - **Version IDs:** each text has one. The apps show the words of the ID they record. **A changed text gets a new ID** (`ai-consent-v2`); the old one stays here, so a past consent can always be read in the words the patient saw.
 - **Legal basis:** explicit consent. **TO CONFIRM (TC-3 for AI analysis, TC-4 for the feedback dataset).** Who consents for a minor or a patient who can't: **TO CONFIRM (TC-16).**
 - **Shown by:** the doctor's new patient form on the web (iltiam/iltiam-web#29) and the app's Profile → Privacy screen (iltiam/iltiam-mobile#44).

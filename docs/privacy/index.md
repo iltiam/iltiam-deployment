@@ -1,7 +1,9 @@
 # PDPL documents
 
+> **DRAFT - pending legal review by the supervisor. Items marked TO CONFIRM are not final.**
+
 - **Issue:** iltiam/iltiam-deployment#6. **SRS:** FR-P-7.1, NFR-SEC-04, FR-SA-10.
-- **Status:** **draft, written 2026-11-13. It needs review by the supervisor (legal content) and a native Arabic speaker (the Arabic texts) before merge.**
+- **Status:** **draft, written 2026-11-13. It needs review by the supervisor (legal content) and a native Arabic speaker (the Arabic texts) before it is final.**
 - **Law:** the Saudi Personal Data Protection Law (PDPL) and its Implementing Regulations. These documents cite no article numbers. Every legal basis and legal claim that hasn't been checked is marked **TO CONFIRM**, with a number from the register below.
 
 > **This repository is public.** These pages hold no namespace, OCID, key, real phone number or personal data. Bucket names and the public domain `iltiamcare.com` are already public in the runbooks.
@@ -24,7 +26,7 @@
 | Date | Decision |
 |---|---|
 | 2026-11-09 | The backend's retention schedule (iltiam-backend `docs/retention.md`, PR #108) is adopted as the base of [retention.md](retention.md) |
-| 2026-11-13 | **#6 closes when these documents are merged.** Showing the texts in the apps is tracked in iltiam/iltiam-web#29 (web) and iltiam/iltiam-mobile#44 (Android) |
+| 2026-11-13 | **#6 stays open after these documents are merged,** until the supervisor reviews the TO CONFIRM items and a native speaker checks the Arabic. Showing the texts in the apps is tracked in iltiam/iltiam-web#29 (web) and iltiam/iltiam-mobile#44 (Android) |
 | 2026-11-13 | Each user-facing text has a version ID (`ai-consent-v1`, `feedback-consent-v1`, `privacy-notice-v1`, `terms-v1`, `staff-policies-v1`). A changed text gets a new ID; the apps show the words of the ID they record |
 | 2026-11-13 | Doctor accounts are never deleted, only deactivated, so that medical records keep their author (medical data integrity) |
 | until after the demo | `RETENTION_ENFORCE` stays off on staging: the retention job only counts. Production turns it on once these documents are approved |
