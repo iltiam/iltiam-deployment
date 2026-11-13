@@ -13,9 +13,9 @@
 | Repository | Status | Local CI | GitHub workflows | PR | What is left |
 |---|---|---|---|---|---|
 | iltiam-mobile | **MIGRATED** | `--fast` PASS (684 s); `--full` PASS incl. the staging debug APK (`e8ad090`); failure proof done | all disabled | iltiam-mobile#78 | iOS (optional, never in CI) not built: needs macOS |
-| iltiam-backend | **PARTIAL** | `--fast` and `--full` PASS (`2dab0e7`); failure proof done | all disabled | iltiam-backend#131 | image smoke (amd64 + arm64) never run locally: `--full --image`; image publish not verified |
-| iltiam-ai-service | **PARTIAL** | `--fast` and `--full` PASS (`1fec8ce`); failure proof done | all disabled except GitHub's managed "Dependency Graph" (API refuses: 422) | iltiam-ai-service#166 | real-weights regression and image smoke not run here (private wound-image fixtures): `--full --regression --image`; image publish not verified |
-| iltiam-web | **PARTIAL** | every check runs; `--full` (`7e7e7d7`) FAILS 2 required checks that also fail on `main` (a Vitest test in Prescriptions; Lighthouse performance, Arabic login 0.64) | all disabled | iltiam-web#71 (not validated) | fix those two on `main` (follow-up); a run on Node 22 |
+| iltiam-backend | **MIGRATED** | `--fast` PASS; `--full --image` PASS (`2dab0e7`), image smoke on amd64 (160 s) and arm64 under QEMU (823 s); failure proof done | all disabled | iltiam-backend#131 | publishing the image is the deployment row's open item |
+| iltiam-ai-service | **PARTIAL** | `--fast` PASS; `--full --image` PASS (`1fec8ce`), image smoke with the real weights on amd64 (706 s) and arm64 under QEMU (975 s); failure proof done | all disabled except GitHub's managed "Dependency Graph" (API refuses: 422) | iltiam-ai-service#166 | the real-weights regression was not run here because it downloads the private wound-image fixtures: `--full --regression` |
+| iltiam-web | **PARTIAL** | every check runs. `--full` (`7e7e7d7`) failed 2 required checks that also fail on `main`: Lighthouse performance (Arabic login 0.64) is fixed in iltiam-web#72 (1.00, CLS 0); the Vitest Prescriptions refill test fails only on Node 24 (reproduced on Linux) and passes on Node 22 with the whole suite (387 tests) | all disabled | iltiam-web#71 (not validated), iltiam-web#72 | merge #72, then update #71 with `main` and run `--full` on Node 22 |
 | iltiam-deployment | **PARTIAL** | `--fast` and `--full` PASS; failure proof done | all disabled | this PR | deploys and image publishing NOT VERIFIED: dry-runs only (section 8) |
 
 Nothing has been merged. The owner reviews and merges the five PRs.
@@ -311,10 +311,14 @@ full tables are in each PR.
 | mobile | `--full` | `e8ad090` | PASS (12 required; iOS SKIPPED-OPTIONAL) | about 9 min |
 | web | `--fast` | b3686a4 + new files | FAIL: Prettier (CRLF checkout, fixed by `.gitattributes`), Vitest | 199 s |
 | web | `--full` | `7e7e7d7` | FAIL: Vitest, Lighthouse performance (both fail on `main` too); 18 others PASS, both image smokes included | 1039 s |
+| web | `--full` | iltiam-web#72's change on `b3686a4` | FAIL only on the Node 24 Vitest test; Lighthouse performance PASS | 777 s |
+| web | `npx vitest run` in `node:22-bookworm` | the same | PASS, 45 files, 387 tests | |
 | backend | `--fast` | 14223c2 + new files | FAIL: 5 vendored-contract byte checks (stale CRLF checkout, refreshed) | 277 s |
 | backend | `--full` | `2dab0e7` | PASS (image smoke SKIPPED-OPTIONAL: no build file changed) | about 12 min |
+| backend | `--full --image` | `2dab0e7` | PASS, image smoke amd64 + arm64 included | 1428 s |
 | ai-service | `--fast` | 9ecf382 + new files | FAIL only on the changed-files guard (files were being added during the run); pytest 2990 passed, 3 skipped | 401 s |
 | ai-service | `--full` | `1fec8ce` | PASS (regression and image smoke SKIPPED-OPTIONAL) | about 7 min |
+| ai-service | `--full --image` | `1fec8ce` | PASS, image smoke with real weights amd64 + arm64 included (regression SKIPPED-OPTIONAL) | 2123 s |
 | deployment | `--fast` | 3a61591 + new files | FAIL: shellcheck and gitleaks BLOCKED (Docker engine stopped) | 337 s |
 | deployment | `--full` | `a99e4d6`, then the PR head | PASS | about 9 min |
 
@@ -338,6 +342,9 @@ What the runs found that CI never saw:
 - web: a developer's `web/.env.local` silently turned the demo build into the API build (38 Playwright timeouts);
   the script now pins `VITE_*` as CI had them. On `main`, web-ci has failed on every push since 2026-11-13 08:16
   UTC (quota): Lighthouse performance on `/login?lang=ar` (0.64, CLS 0.918) and one Vitest test have never been green.
+  The first is a real bug: the page painted left to right, then flipped to right to left once React ran; fixed in
+  iltiam-web#72 (language and direction set before the first paint: 1.00, CLS 0). The second is Node 24 only: in
+  the test setup, Node 24's `fetch` (undici) cannot stream a jsdom `File`. It passes on Node 22, the pinned version.
 - backend: `apps/integrations/ai/contract/schemas/` was CRLF in this clone (made before its `-text` rule). The first
   check now catches that and prints the fix.
 - The new scripts themselves: shellcheck 0.9.0 found 9 issues, all fixed. The image smokes were moved to their own
