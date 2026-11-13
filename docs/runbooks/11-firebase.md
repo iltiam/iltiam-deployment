@@ -65,7 +65,7 @@ The phone shows the notification. A tap opens its deep link in the app
 
 **One setting turns it on:** the staging Environment **variable** `PUSH_BACKEND`, set to `apps.notifications.push.FCMPushBackend` (the class `FCMPushBackend` in iltiam-backend's `apps/notifications/push.py`). Without it, the backend uses `apps.notifications.push.ConsolePushBackend`, which only **prints** pushes to its own log.
 
-**What Firebase receives:** the phone's token, and each notification's title, text and deep link. It belongs in the ROPA as a processor (#6).
+**What Firebase receives:** the phone's token, and each notification's title, text and deep link. It is listed as a processor in the [ROPA](../privacy/ropa.md#processors) (#6).
 
 **What runs today:**
 - `PUSH_BACKEND` isn't set on staging, so no push leaves the backend.
@@ -312,7 +312,7 @@ iOS push ships in v1.1 (iltiam-mobile#57): an APNs key uploaded under **⚙ → 
 | The service-account key leaks | Anyone can send pushes to all our users | It lives only in the staging Environment and in one file on the VM (mode 644 inside a 700 folder, mounted read-only). Section 11 says what to do |
 | One Google account owns the project | The project is lost with that account | A second owner (section 4, step 6). Both accounts use 2-step verification |
 | A push is accepted but not shown | FCM delivery is best effort: battery saver or switched-off notifications can hold it back | In-app notifications always exist; pushes are an extra. Section 16 for checks |
-| Data leaves our servers | Firebase receives tokens and each notification's title and text | It is listed as a processor in the ROPA (#6). Analytics is off |
+| Data leaves our servers | Firebase receives tokens and each notification's title and text | It is listed as a processor in the [ROPA](../privacy/ropa.md#processors) (#6). Analytics is off |
 | A wrong file in a flavor's secret | The build stops with `No matching client found for package name` | Section 5's table: one file per package name. Section 16 |
 | Push on staging reaches real people | Test accounts with real numbers get pushes | Staging has only test accounts. Only the staging app's tokens are registered on staging |
 

@@ -47,6 +47,16 @@ nav:
       - 9. Automatic staging deploys: runbooks/09-cd-staging.md
       - 11. Firebase push: runbooks/11-firebase.md
       - 12. Authentica: runbooks/12-authentica.md
+  - Privacy (PDPL):
+      - Overview: privacy/index.md
+      - Record of processing (ROPA): privacy/ropa.md
+      - Retention schedule: privacy/retention.md
+      - Rights map: privacy/rights-map.md
+      - Consent texts: privacy/consent-texts.md
+      - Privacy notice: privacy/privacy-notice.md
+      - Terms of use: privacy/terms-of-use.md
+      - Play data safety: privacy/play-data-safety.md
+      - Backups stay in Riyadh: privacy/restore-location.md
   - Planning:
       - Overview: planning/README.md
       - Plan: planning/plan.md
