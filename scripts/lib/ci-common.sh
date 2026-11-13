@@ -222,7 +222,10 @@ ci_finish() {
   end_snapshot="$(_ci_snapshot)"
   changed="$(comm -13 <(printf '%s\n' "$CI_START_SNAPSHOT" | sort) <(printf '%s\n' "$end_snapshot" | sort) | sed 's/^[^ ]* //' | sort -u)"
   if [ -n "$changed" ]; then
-    _ci_record "no files changed by the run" required FAIL "changed: $(printf '%s' "$changed" | tr '\n' ' ')" 0
+    local n
+    n="$(printf '%s\n' "$changed" | wc -l | tr -d ' ')"
+    _ci_record "no files changed by the run" required FAIL \
+      "$n changed: $(printf '%s\n' "$changed" | head -n 10 | tr '\n' ' ')$([ "$n" -gt 10 ] && echo '...')" 0
     echo "The run changed these files (format/codegen/contract drift?). Inspect with 'git diff', then commit or revert:"
     printf '%s\n' "$changed" | sed 's/^/  /'
   else
