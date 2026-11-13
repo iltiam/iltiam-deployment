@@ -8,7 +8,7 @@
 
 - **No analytics, crash reporting or advertising SDK.** Firebase is used for push messages only; Analytics is off ([Runbook 11](../runbooks/11-firebase.md)).
 - **Libraries that send data off the phone:** our own API (through Cloudflare to the VM in Riyadh), Firebase Cloud Messaging (the push token), and `google_fonts`, which downloads the app's fonts from Google the first time (**TO CONFIRM, TC-23**; bundling the fonts removes it).
-- **Permissions:** internet, camera, notifications, biometrics (local unlock; the fingerprint never leaves the phone), photos. The manifest also asks for `READ_MEDIA_VIDEO` and `READ_MEDIA_AUDIO`, which the app doesn't use. **Mobile follow-up:** remove them before release, or Play may ask why.
+- **Permissions:** internet, camera, notifications, biometrics (local unlock; the fingerprint never leaves the phone), photos. The manifest also asks for `READ_MEDIA_VIDEO` and `READ_MEDIA_AUDIO`, which the app doesn't use. **Mobile follow-up (iltiam/iltiam-mobile#76):** remove them before release, or Play may ask why.
 
 ## Data collection and security
 
@@ -47,6 +47,6 @@
 ## Before submitting
 
 - [ ] The supervisor confirms TC-14, TC-19 and TC-23.
-- [ ] The mobile app drops `READ_MEDIA_VIDEO` and `READ_MEDIA_AUDIO` (or this page explains them).
+- [ ] The mobile app drops `READ_MEDIA_VIDEO` and `READ_MEDIA_AUDIO` (iltiam/iltiam-mobile#76) (or this page explains them).
 - [ ] The privacy policy URL in Play Console points to the published `privacy-notice-v1`.
 - [ ] Re-check this page when the app adds a library, a permission or a data type.

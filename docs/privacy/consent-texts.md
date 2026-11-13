@@ -81,6 +81,6 @@ You can withdraw at any time in the app (Profile → Privacy). Your corrections 
 ## Recording
 
 - **Today** the backend records on or off and the time (`PATCH /api/patients/me/consents/`, and the registration form). Every change is audited. Withdrawing needs a fresh identity check (step-up).
-- **Not yet recorded: the version ID.** Backend follow-up: store `ai_analysis_consent_version` and `ai_feedback_consent_version` with each change, and return them in `GET /api/patients/me/consents/`, so the apps and an audit can tell which words a patient agreed to.
+- **Not yet recorded: the version ID.** Backend follow-up (iltiam/iltiam-backend#130): store `ai_analysis_consent_version` and `ai_feedback_consent_version` with each change, and return them in `GET /api/patients/me/consents/`, so the apps and an audit can tell which words a patient agreed to.
 - **When a text changes** (a new ID): the apps show the new text to patients who agreed to an older ID, and ask again. Until they answer, the older consent stays in force. **TO CONFIRM (TC-26)** whether a new consent is needed for every wording change or only for a change of purpose.
 - The proof of what each right does is in the [rights map](rights-map.md#5-withdraw-consent).

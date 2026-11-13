@@ -67,13 +67,13 @@ Two consents ([consent-texts.md](consent-texts.md)): AI analysis (`ai-consent-v1
 
 ## 6. Destruction (deletion, done as anonymisation)
 
-A patient's approved request **anonymises** them (iltiam-backend `apps/patients/data_rights.py`, `anonymize`): the name, phone number, email, last sign-in IP, date of birth, gender, medical background and profile photo are removed; the password stops working; both consents are turned off; sessions, trusted devices and push tokens are ended; their notifications, and any that name them, are deleted; open appointments are cancelled. The clinical record stays, without them, for medical-record retention. **What stays:** wound photos, notes and message text, which may still identify the person (a face, a tattoo, a name typed in a message). Whether this satisfies the right: **TO CONFIRM (TC-12).** Decided within 30 days (FR-P-7.1).
+A patient's approved request **anonymises** them (iltiam-backend `apps/patients/data_rights.py`, `anonymize`): the name, phone number, email, last sign-in IP, date of birth, gender, medical background and profile photo are removed; the password stops working; both consents are turned off; sessions, trusted devices and push tokens are ended; their notifications, and any that name them, are deleted; open appointments are cancelled. The clinical record stays, without them, for medical-record retention. **What stays:** wound photos, notes and message text, which may still identify the person (a face, a tattoo, a name typed in a message): iltiam/iltiam-backend#129. Whether this satisfies the right: **TO CONFIRM (TC-12).** Decided within 30 days (FR-P-7.1).
 
 | Part | Where | Endpoint | Tests |
 |---|---|---|---|
 | Ask | app: Privacy → Delete my data | `POST /api/patients/me/deletion-request/` | `apps/patients/test_data_rights.py::DeletionRequestTests::test_a_request_is_logged_and_everyone_told` |
 | Withdraw the request while pending | app: Privacy → Delete my data | `POST /api/patients/me/deletion-request/cancel/` | `apps/patients/test_data_rights.py::DeletionRequestTests::test_a_pending_request_can_be_cancelled_and_leaves_the_queue`, `::DeletionRequestTests::test_a_decided_request_cannot_be_cancelled` |
-| Super Admin decides | **no web screen yet**: the API | `GET /api/data-requests/`, `POST /api/data-requests/{id}/approve/`, `POST /api/data-requests/{id}/reject/` | `apps/patients/test_data_rights.py::DeletionRequestTests::test_the_super_admins_list`, `::DeletionRequestTests::test_approval_anonymizes_and_keeps_the_clinical_record`, `::DeletionRequestTests::test_rejection` |
+| Super Admin decides | **no web screen yet** (iltiam/iltiam-web#69): the API | `GET /api/data-requests/`, `POST /api/data-requests/{id}/approve/`, `POST /api/data-requests/{id}/reject/` | `apps/patients/test_data_rights.py::DeletionRequestTests::test_the_super_admins_list`, `::DeletionRequestTests::test_approval_anonymizes_and_keeps_the_clinical_record`, `::DeletionRequestTests::test_rejection` |
 | The 30-day deadline | reminder to Super Admins | reminder rule | `apps/patients/test_data_rights.py::DeletionRequestTests::test_the_deadline_reminder` |
 | Operational data past its period | none | `manage.py run_retention` ([retention.md](retention.md)) | `apps/core/test_retention.py::RunTests::test_enforcing_deletes_exactly_what_is_due`, `::RunTests::test_the_audit_logs_and_clinical_records_are_never_touched` |
 | **Doctors: never deleted, only deactivated** (medical data integrity, **TO CONFIRM, TC-17**) | web: Clinic Admin's doctor list → Deactivate | `POST /api/clinic/doctors/{id}/status/`; Super Admin `POST /api/clinics/{id}/doctors/{doctor_id}/status/` | `apps/clinics/tests.py::DoctorStatusTests::test_deactivating_keeps_the_patients_and_ends_the_session`, `apps/clinics/tests.py::SuperAdminDoctorLifecycleTests::test_soft_delete_hides_the_doctor_keeps_patients_and_audit_and_blocks_login` |
@@ -84,7 +84,7 @@ The 72-hour deadline and who must be told: **TO CONFIRM (TC-7).** The incident r
 
 | Part | Where | Endpoint or command | Tests |
 |---|---|---|---|
-| Record the incident; the 72-hour countdown | **no web screen yet**: the API | `POST /api/breach-incidents/` | `apps/notifications/test_breach.py::RecordTests::test_recording_audits_and_shows_the_72_hour_countdown` |
+| Record the incident; the 72-hour countdown | **no web screen yet** (iltiam/iltiam-web#69): the API | `POST /api/breach-incidents/` | `apps/notifications/test_breach.py::RecordTests::test_recording_audits_and_shows_the_72_hour_countdown` |
 | Tell affected patients, in their language, by in-app notification, push, SMS and email | the patient's inbox, phone and mailbox | `POST /api/breach-incidents/{id}/notify/` | `apps/notifications/test_breach.py::NotifyTests::test_fan_out_in_each_patients_language_with_delivery_tracked`, `::NotifyTests::test_repeating_reaches_only_patients_not_yet_notified`, `::NotifyTests::test_anonymized_patients_are_never_contacted` |
 | The same, from the command line | VM | `manage.py send_breach_notice` | `apps/notifications/test_emails.py::BreachNoticeTests::test_every_patient_by_email_and_sms`, `::BreachNoticeTests::test_running_it_again_notifies_nobody_twice` |
 | The record of who was told | Super Admin | `GET /api/breach-incidents/{id}/notices/export/` (CSV) | `apps/notifications/test_breach.py::ExportTests::test_the_notification_record_exports_as_csv_and_is_audited` |
@@ -93,5 +93,5 @@ The 72-hour deadline and who must be told: **TO CONFIRM (TC-7).** The incident r
 ## Gaps
 
 - **NO TEST YET:** right 1 (the texts are shown by the apps); staff access (`GET /api/auth/me/`) and staff correction (`PUT /api/auth/me/`) as rights; the notice to the regulator (manual).
-- **No web screen yet** for Super Admins: deletion requests and breach incidents (API only). Suggested for iltiam/iltiam-web#29 or a new web issue.
-- The consent version ID isn't stored ([consent-texts.md](consent-texts.md), "Recording").
+- **No web screen yet** for Super Admins: deletion requests and breach incidents (API only). Tracked in iltiam/iltiam-web#69.
+- The consent version ID isn't stored ([consent-texts.md](consent-texts.md), "Recording"): iltiam/iltiam-backend#130.

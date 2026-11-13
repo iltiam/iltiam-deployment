@@ -29,7 +29,7 @@
 | 11 | Upload idempotency keys | 24 hours | `run_retention`, rule `idempotency_records` (`IDEMPOTENCY_TTL_HOURS`) | backend |
 | 12 | In-app notifications (the inbox) | not scheduled by the backend; proposed: 12 months, like row 10 (**TO CONFIRM, TC-27**) | **Manual until a backend rule exists:** none deleted by age. A patient's notifications, and any that name them, are deleted when they are anonymised (row 1). Backend follow-up: add a `notifications` rule to `run_retention` | backend: "not yet scheduled" |
 | 13 | Accounts (identity, row 1 of the [ROPA](ropa.md)) | while the account exists. Patients: anonymised on an approved deletion request. **Doctors and other staff: never deleted, only deactivated**, so records keep their author (**TO CONFIRM, TC-17**) | Patients: deletion request approval (row 1). Staff: deactivation by a Clinic Admin or Super Admin, `POST /api/clinic/doctors/{id}/status/` | decision 2026-11-13 |
-| 14 | Data export files (`exports/` in `iltiam-<SHORT>-reports`) | 7 days | The backend refuses a download after `EXPORT_TTL_DAYS` (7). **The file itself:** no lifecycle rule exists yet. **Manual until it does:** on the 1st of each month, an administrator deletes `exports/` objects older than 7 days in the OCI console (the backend's key can't delete). Follow-up: a lifecycle rule `delete-exports` (prefix `exports/`, 7 days) in Runbook 8, section 8 | backend issue #78 |
+| 14 | Data export files (`exports/` in `iltiam-<SHORT>-reports`) | 7 days | The backend refuses a download after `EXPORT_TTL_DAYS` (7). **The file itself:** no lifecycle rule exists yet. **Manual until it does:** on the 1st of each month, an administrator deletes `exports/` objects older than 7 days in the OCI console (the backend's key can't delete). Follow-up #65: a lifecycle rule `delete-exports` (prefix `exports/`, 7 days) in Runbook 8, section 8 | backend issue #78 |
 | 15 | AI service jobs (photo copy, result, mask) | 24 hours (at most 24 h 15 min) | AI service task `ai.cleanup_expired_jobs`, every 15 minutes (`AI_JOB_TTL_HOURS` = 24) | iltiam-ai-service README |
 | 16 | Old object versions and unfinished uploads (the 10 versioned buckets) | previous versions 30 days; unfinished multipart uploads 1 day | OCI lifecycle rules `delete-old-versions` and `abort-unfinished-uploads` ([Runbook 8](../runbooks/08-object-storage.md), section 8) | Runbook 8 |
 | 17 | Container logs on the VM | at most 5 files of 10 MB per container, oldest overwritten | Docker's `json-file` log rotation (`compose.yml`, `x-logging`) | `compose.yml` |
@@ -47,7 +47,7 @@ Every deleted row is operational. The events those rows took part in (sign-ins, 
 
 1. Leave `RETENTION_ENFORCE` unset and run `run_retention --dry-run` (command above).
 2. Compare each count with this table for the data on staging.
-3. When they match and these documents are approved: add `RETENTION_ENFORCE` to `env/backend.env.example` (a `var`; the deploy passes only listed names) and to `scripts/check-env.sh`, set the variable `RETENTION_ENFORCE=true` in the GitHub Environment, and deploy (production in #36).
+3. When they match and these documents are approved: add `RETENTION_ENFORCE` (#66) to `env/backend.env.example` (a `var`; the deploy passes only listed names) and to `scripts/check-env.sh`, set the variable `RETENTION_ENFORCE=true` in the GitHub Environment, and deploy (production in #36).
 
 ## Changing a period
 
