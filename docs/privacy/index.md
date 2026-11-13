@@ -1,7 +1,9 @@
 # PDPL documents
 
+> **DRAFT - pending legal review by the supervisor. Items marked TO CONFIRM are not final.**
+
 - **Issue:** iltiam/iltiam-deployment#6. **SRS:** FR-P-7.1, NFR-SEC-04, FR-SA-10.
-- **Status:** **draft, written 2026-11-13. It needs review by the supervisor (legal content) and a native Arabic speaker (the Arabic texts) before merge.**
+- **Status:** **draft, written 2026-11-13. It needs review by the supervisor (legal content) and a native Arabic speaker (the Arabic texts) before it is final.**
 - **Law:** the Saudi Personal Data Protection Law (PDPL) and its Implementing Regulations. These documents cite no article numbers. Every legal basis and legal claim that hasn't been checked is marked **TO CONFIRM**, with a number from the register below.
 
 > **This repository is public.** These pages hold no namespace, OCID, key, real phone number or personal data. Bucket names and the public domain `iltiamcare.com` are already public in the runbooks.
@@ -24,7 +26,7 @@
 | Date | Decision |
 |---|---|
 | 2026-11-09 | The backend's retention schedule (iltiam-backend `docs/retention.md`, PR #108) is adopted as the base of [retention.md](retention.md) |
-| 2026-11-13 | **#6 closes when these documents are merged.** Showing the texts in the apps is tracked in iltiam/iltiam-web#29 (web) and iltiam/iltiam-mobile#44 (Android) |
+| 2026-11-13 | **#6 stays open after these documents are merged,** until the supervisor reviews the TO CONFIRM items and a native speaker checks the Arabic. Showing the texts in the apps is tracked in iltiam/iltiam-web#29 (web) and iltiam/iltiam-mobile#44 (Android) |
 | 2026-11-13 | Each user-facing text has a version ID (`ai-consent-v1`, `feedback-consent-v1`, `privacy-notice-v1`, `terms-v1`, `staff-policies-v1`). A changed text gets a new ID; the apps show the words of the ID they record |
 | 2026-11-13 | Doctor accounts are never deleted, only deactivated, so that medical records keep their author (medical data integrity) |
 | until after the demo | `RETENTION_ENFORCE` stays off on staging: the retention job only counts. Production turns it on once these documents are approved |
@@ -33,12 +35,12 @@
 
 These are facts found in the code on 2026-11-13. They are not legal questions, so they aren't in the register.
 
-1. **Push notifications carry health-related text through Google.** Firebase Cloud Messaging receives each notification's title and text, and some say, for example, "The result of your latest wound photo shows a high risk" (iltiam-backend `apps/notifications/catalog.py`). No measurement, photo or diagnosis is sent. See TC-20.
-2. **Export files are never removed from storage.** The backend refuses a download after 7 days and expects a bucket lifecycle rule on the `exports/` prefix of `iltiam-<SHORT>-reports`. That rule doesn't exist (Runbook 8, section 8 has only two rules). Until it is added, [retention.md](retention.md) names a monthly manual clean-up.
+1. **Push notifications carry health-related text through Google.** Firebase Cloud Messaging receives each notification's title and text, and some say, for example, "The result of your latest wound photo shows a high risk" (iltiam-backend `apps/notifications/catalog.py`). No measurement, photo or diagnosis is sent. See TC-20. Issue: iltiam/iltiam-backend#128.
+2. **Export files are never removed from storage.** The backend refuses a download after 7 days and expects a bucket lifecycle rule on the `exports/` prefix of `iltiam-<SHORT>-reports`. That rule doesn't exist (Runbook 8, section 8 has only two rules). Until it is added, [retention.md](retention.md) names a monthly manual clean-up. Issue: #65.
 3. **The mobile app downloads its fonts from Google at run time** (`google_fonts` without bundled fonts), so Google sees the phone's IP address when the app first opens. The web app bundles its fonts. Bundling the fonts in the app removes this; see TC-23.
-4. **The backend records when a consent was given or withdrawn, not which text version.** `Patient.ai_analysis_consent_at` and `ai_feedback_consent_at` hold a time only. Storing the version ID is a backend follow-up ([consent-texts.md](consent-texts.md)).
-5. **Anonymisation keeps wound photos, notes and message text.** They can still identify a person (a face, a tattoo, a name typed in a message). See TC-12 and [the rights map](rights-map.md#6-destruction-deletion-done-as-anonymisation).
-6. **Super Admin screens for deletion requests and breach incidents don't exist on the web yet.** The rights work through the API (`/api/data-requests/`, `/api/breach-incidents/`) and `manage.py send_breach_notice`.
+4. **The backend records when a consent was given or withdrawn, not which text version.** `Patient.ai_analysis_consent_at` and `ai_feedback_consent_at` hold a time only. Storing the version ID is a backend follow-up ([consent-texts.md](consent-texts.md)). Issue: iltiam/iltiam-backend#130.
+5. **Anonymisation keeps wound photos, notes and message text.** They can still identify a person (a face, a tattoo, a name typed in a message). See TC-12 and [the rights map](rights-map.md#6-destruction-deletion-done-as-anonymisation). Issue: iltiam/iltiam-backend#129.
+6. **Super Admin screens for deletion requests and breach incidents don't exist on the web yet.** The rights work through the API (`/api/data-requests/`, `/api/breach-incidents/`) and `manage.py send_breach_notice`. Issue: iltiam/iltiam-web#69.
 
 ## TO CONFIRM register
 
@@ -81,6 +83,6 @@ Each item needs an answer from the supervisor, or someone who knows the PDPL, be
 
 - The supervisor reviews the legal content and answers the register; a native Arabic speaker reviews the Arabic. Then merge, and #6 closes.
 - iltiam/iltiam-web#29 and iltiam/iltiam-mobile#44 show the texts by version ID. iltiam/iltiam-mobile#51 fills the Play form from [play-data-safety.md](play-data-safety.md).
-- Backend follow-ups: store the consent version ID; a retention rule for in-app notifications; generic push text if TC-20 says so.
-- Runbook 8: the `exports/` lifecycle rule (finding 2). Runbook 6 (#8): backups ([restore-location.md](restore-location.md)).
+- Backend follow-ups: store the consent version ID (iltiam/iltiam-backend#130); anonymisation (iltiam/iltiam-backend#129); a retention rule for in-app notifications; generic push text (iltiam/iltiam-backend#128) if TC-20 says so.
+- Runbook 8: the `exports/` lifecycle rule (finding 2, #65). `RETENTION_ENFORCE` through the deploy (#66). Super Admin web screens (iltiam/iltiam-web#69). Unused Android permissions (iltiam/iltiam-mobile#76). Runbook 6 (#8): backups ([restore-location.md](restore-location.md)).
 - Production (#36): turn on `RETENTION_ENFORCE`.

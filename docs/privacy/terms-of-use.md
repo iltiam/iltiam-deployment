@@ -1,6 +1,6 @@
 # Terms of use
 
-- **Draft:** needs review by the supervisor (legal content) and a native Arabic speaker before merge.
+- **Draft:** needs review by the supervisor (legal content) and a native Arabic speaker before it is final.
 - **Two texts:**
   - `terms-v1`: for patients, in the Android app (iltiam/iltiam-mobile#44);
   - `staff-policies-v1`: for doctors, clinic admins and Super Admins, accepted when they activate their account on the web (iltiam/iltiam-web#29). It replaces the draft in iltiam-web `src/pages/public/policyText.ts`. The backend records the accepted version in `policies_version` (setting `SYSTEM_POLICIES_VERSION`).
