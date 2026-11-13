@@ -15,7 +15,7 @@
 | iltiam-mobile | **MIGRATED** | `--fast` PASS (684 s); `--full` PASS incl. the staging debug APK (`e8ad090`); failure proof done | all disabled | iltiam-mobile#78 | iOS (optional, never in CI) not built: needs macOS |
 | iltiam-backend | **MIGRATED** | `--fast` PASS; `--full --image` PASS (`2dab0e7`), image smoke on amd64 (160 s) and arm64 under QEMU (823 s); failure proof done | all disabled | iltiam-backend#131 | publishing the image is the deployment row's open item |
 | iltiam-ai-service | **PARTIAL** | `--fast` PASS; `--full --image` PASS (`1fec8ce`), image smoke with the real weights on amd64 (706 s) and arm64 under QEMU (975 s); failure proof done | all disabled except GitHub's managed "Dependency Graph" (API refuses: 422) | iltiam-ai-service#166 | the real-weights regression was not run here because it downloads the private wound-image fixtures: `--full --regression` |
-| iltiam-web | **PARTIAL** | every check runs. `--full` (`7e7e7d7`) failed 2 required checks that also fail on `main`: Lighthouse performance (Arabic login 0.64) is fixed in iltiam-web#72 (1.00, CLS 0); the Vitest Prescriptions refill test fails only on Node 24 (reproduced on Linux) and passes on Node 22 with the whole suite (387 tests) | all disabled | iltiam-web#71 (not validated), iltiam-web#72 | merge #72, then update #71 with `main` and run `--full` on Node 22 |
+| iltiam-web | **PARTIAL** | every check runs. iltiam-web#72 (merged) fixed the Arabic login's layout shift. `--full` on #71's head with `main` merged (`e5e5f94`, Node 24) fails 2 required checks, and both pass in a Linux, CI-like environment: Vitest (1 test, Node 24 only; the whole suite, 387 tests, passes in `node:22-bookworm`) and Lighthouse performance (0.89 to 0.90 here because headless Chrome on this Windows machine captured blank filmstrip frames, speed index 11.2 s; 100 on Linux Chromium in the Playwright image) | all disabled | iltiam-web#71 (not validated) | a `--full` on Node 22, on a machine where headless Chrome captures frames normally |
 | iltiam-deployment | **PARTIAL** | `--fast` and `--full` PASS; failure proof done | all disabled | this PR | deploys and image publishing NOT VERIFIED: dry-runs only (section 8) |
 
 Nothing has been merged. The owner reviews and merges the five PRs.
@@ -313,6 +313,9 @@ full tables are in each PR.
 | web | `--full` | `7e7e7d7` | FAIL: Vitest, Lighthouse performance (both fail on `main` too); 18 others PASS, both image smokes included | 1039 s |
 | web | `--full` | iltiam-web#72's change on `b3686a4` | FAIL only on the Node 24 Vitest test; Lighthouse performance PASS | 777 s |
 | web | `npx vitest run` in `node:22-bookworm` | the same | PASS, 45 files, 387 tests | |
+| web | `--full` | `e5e5f94` (#71 with `main` and #72) | FAIL: Vitest (Node 24 only), Lighthouse performance 0.89 to 0.90 (blank filmstrip frames, speed index 11.2 s; `main` measures the same here); 18 others PASS | 1010 s |
+| web | `npx vitest run` in `node:22-bookworm` | `e5e5f94` | PASS, 45 files, 387 tests | |
+| web | `npm run lhci:perf` in `mcr.microsoft.com/playwright:v1.64.1-noble` | `e5e5f94` | PASS, 100 on `/login` and `/login?lang=ar`, speed index 0.3 s | |
 | backend | `--fast` | 14223c2 + new files | FAIL: 5 vendored-contract byte checks (stale CRLF checkout, refreshed) | 277 s |
 | backend | `--full` | `2dab0e7` | PASS (image smoke SKIPPED-OPTIONAL: no build file changed) | about 12 min |
 | backend | `--full --image` | `2dab0e7` | PASS, image smoke amd64 + arm64 included | 1428 s |
