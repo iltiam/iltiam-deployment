@@ -10,7 +10,7 @@
 # gitleaks run natively when installed at the pinned version, else from their pinned images (needs the daemon).
 set -u
 cd "$(dirname "$0")/.." || exit 2
-# shellcheck source=lib/ci-common.sh
+# shellcheck source=lib/ci-common.sh disable=SC1091
 . scripts/lib/ci-common.sh
 
 SHELLCHECK_VERSION="0.9.0"                               # ubuntu-24.04's apt package, what env-check.yml ran

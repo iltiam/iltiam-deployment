@@ -11,7 +11,7 @@
 # scripts/health-check.sh is staging-only; scripts/deploy.sh itself waits for every service to be healthy.
 # On a failure it offers (with a second confirmation) to redeploy the commit the VM ran before.
 set -euo pipefail
-# shellcheck source=lib/deploy-local.sh
+# shellcheck source=lib/deploy-local.sh disable=SC1091
 . "$(dirname "$0")/lib/deploy-local.sh"
 
 DL_DRY_RUN=no

@@ -95,6 +95,7 @@ for b in $builds; do
   target="${b%%:*}"
   image="ghcr.io/iltiam/${b#*:}"
   step "build and push $image"
+  # shellcheck disable=SC2054 # the comma is buildx's platform list, one argument
   args=(--platform linux/amd64,linux/arm64 --push --provenance=mode=max --sbom=true
     --label "org.opencontainers.image.source=https://github.com/iltiam/$repo"
     --label "org.opencontainers.image.revision=$sha" --label "org.opencontainers.image.version=${version:-sha-${sha:0:7}}")
@@ -104,7 +105,9 @@ for b in $builds; do
   for t in $tags; do
     platforms="$(docker buildx imagetools inspect "$image:$t" --format '{{json .Manifest}}' |
       jq -r '.manifests[].platform | "\(.os)/\(.architecture)"' | sort -u)"
-    grep -qx linux/amd64 <<<"$platforms" && grep -qx linux/arm64 <<<"$platforms" || die "$image:$t lacks an architecture"
+    if ! grep -qx linux/amd64 <<<"$platforms" || ! grep -qx linux/arm64 <<<"$platforms"; then
+      die "$image:$t lacks an architecture"
+    fi
     echo "    ok: $image:$t (linux/amd64, linux/arm64)"
   done
 done

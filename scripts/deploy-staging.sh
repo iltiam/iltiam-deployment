@@ -18,10 +18,9 @@
 # network (images, fetch); without secrets it says what it could not check. --ssh-check also connects to the VM and
 # runs `true` there (a read-only login; it still touches staging).
 set -euo pipefail
-# shellcheck source=lib/deploy-local.sh
+# shellcheck source=lib/deploy-local.sh disable=SC1091
 . "$(dirname "$0")/lib/deploy-local.sh"
 
-ENV_NAME=staging
 DL_DRY_RUN=no
 OFFLINE=no
 SSH_CHECK=no

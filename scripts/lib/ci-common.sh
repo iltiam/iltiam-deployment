@@ -103,7 +103,8 @@ ci_check() {
       return 0
     fi
   done
-  local log="$CI_LOG_DIR/$(printf '%s' "$name" | tr -c 'A-Za-z0-9._-' '_').log"
+  local log
+  log="$CI_LOG_DIR/$(printf '%s' "$name" | tr -c 'A-Za-z0-9._-' '_').log"
   rm -f "$CI_BLOCK_FILE"
   ci_log "RUN  $name"
   local t0 rc
@@ -207,6 +208,7 @@ ci_os() {
     Darwin) printf 'macOS %s' "$(sw_vers -productVersion 2>/dev/null)" ;;
     Linux)
       if grep -qi microsoft /proc/version 2>/dev/null; then printf 'Linux (WSL) '; else printf 'Linux '; fi
+      # shellcheck disable=SC1091
       (. /etc/os-release 2>/dev/null && printf '%s' "${PRETTY_NAME:-}")
       ;;
     *) uname -s ;;

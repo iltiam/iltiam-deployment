@@ -76,7 +76,7 @@ if [ -n "$custom" ] && [ "$custom" != "$private" ]; then
   case "$target" in /* | [A-Za-z]:*) ;; *) target="$PWD/$target" ;; esac
   mkdir -p "$private"
   for h in "$target"/*; do
-    [ -f "$h" ] && [ -x "$h" ] || continue
+    if [ ! -f "$h" ] || [ ! -x "$h" ]; then continue; fi
     name="$(basename "$h")"
     [ "$name" = pre-push ] && continue
     printf '#!/usr/bin/env bash\nexec "%s" "$@"\n' "$h" >"$private/$name"
