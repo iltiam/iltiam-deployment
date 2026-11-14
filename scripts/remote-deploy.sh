@@ -65,9 +65,12 @@ if [[ "$run_mode" == deploy ]]; then
   [[ -n "${GHCR_TOKEN:-}" ]] || die "GHCR_TOKEN is not set"
 fi
 
+# DEPLOY_SSH_KEY_FILE / DEPLOY_KNOWN_HOSTS_FILE: set by scripts/deploy-staging.sh and deploy-prod.sh on a laptop (one
+# key per environment); the workflow's files are the default.
 ssh_opts=(
-  -i "$HOME/.ssh/iltiam_deploy" -o IdentitiesOnly=yes -o BatchMode=yes
-  -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o ConnectTimeout=20
+  -i "${DEPLOY_SSH_KEY_FILE:-$HOME/.ssh/iltiam_deploy}" -o IdentitiesOnly=yes -o BatchMode=yes
+  -o StrictHostKeyChecking=yes -o UserKnownHostsFile="${DEPLOY_KNOWN_HOSTS_FILE:-$HOME/.ssh/known_hosts}"
+  -o ConnectTimeout=20
 )
 # The remote commands are built here on purpose, from checked names and paths only; never from a secret.
 # shellcheck disable=SC2029
