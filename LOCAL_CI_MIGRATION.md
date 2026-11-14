@@ -8,17 +8,83 @@
   `iltiam-mobile`, `iltiam-deployment`.
 - **This repository is public.** Nothing in this document is a secret: no token, IP address or key.
 
+## 0. Final setup (owner's decision, 2026-11-14)
+
+- **CI is local in all five repositories** (`scripts/ci-local.sh`, sections 6 and 7). Their CI workflows stay
+  disabled.
+- **Deploys run only on GitHub Actions, in this repository**: it is public, so its minutes are free. The `deploy`
+  workflow has one trigger, `workflow_dispatch` (iltiam-deployment#71): a person starts it, never a push, a merge or
+  another repository. It uses the secrets and variables already in the GitHub `staging` / `production`
+  Environments, and both Environments deploy from `main` only.
+- **No laptop holds a copy of the deploy secrets.** `scripts/deploy-staging.sh` and `scripts/deploy-prod.sh` are
+  never run against a server: only their `--dry-run --offline` preflight, which `ci-local.sh --full` runs, and
+  `deploy-staging.sh --bump`, which only opens a PR. Don't create `~/.iltiam/deploy/<env>/`: an empty template there
+  makes the `--full` preflight fail.
+- **Images are published from a laptop** with `scripts/publish-image.sh` (needs a `gh` login with `write:packages`:
+  `gh auth refresh -s write:packages`).
+- **Also on Actions here (free):** `env-check` (every PR and push to `main`) and `docs` (docs paths). Re-enabled on
+  2026-11-14; they run alongside, not instead of, `ci-local.sh`.
+- **Verified end to end on 2026-11-14:** web `sha-aa7deb6` published, bumped (#71), deployed by run 43574332851
+  (only the web container recreated, healthy), login and the demo flow checked on staging.
+
+### How to deploy staging
+
+```bash
+# 0. The change is merged in its app repository after scripts/ci-local.sh --full PASS on that exact commit.
+#    scripts/merge-pr.sh squashes: main gets a new commit, so run --full again on it (a fast-forward keeps the tested one).
+
+# 1. Publish the image, from the app's clone checked out at that commit of main (dry-run first)
+iltiam-deployment/scripts/publish-image.sh <ai|backend|web> ../iltiam-<repo> --dry-run
+iltiam-deployment/scripts/publish-image.sh <ai|backend|web> ../iltiam-<repo>
+#    prints: ok: ghcr.io/iltiam/<image>:sha-<7> (linux/amd64, linux/arm64)
+
+# 2. The bump PR, in iltiam-deployment
+git switch -c chore/staging-<service>-sha-<7> origin/main
+scripts/set-version.sh staging <ai|backend|web> <40-character commit>
+git commit -am "chore(staging): deploy <service> sha-<7>"
+scripts/ci-local.sh --full                      # paste the table into the PR
+git push -u origin HEAD && gh pr create --fill
+#    (scripts/deploy-staging.sh --bump <service> <commit> [--dry-run] does the same and opens the PR; no server)
+
+# 3. A teammate approves the PR (main needs 1 approval); merge it.
+
+# 4. Start the deploy
+gh workflow run deploy -R iltiam/iltiam-deployment --ref main -f environment=staging
+
+# 5. Approve the held run: GitHub stops each run with "This workflow file may be malicious. It will not run until
+#    someone with write access approves it." Open the run on the Actions page, review deploy.yml, Approve.
+#    Approve one run only (two would deploy twice); then watch it to the end:
+gh run list -R iltiam/iltiam-deployment --workflow deploy --limit 3
+gh run watch <run id> -R iltiam/iltiam-deployment --exit-status
+
+# 6. Check
+curl -s https://staging-api.iltiamcare.com/api/ready/             # "ready", db/redis/storage/ai all "ok"
+curl -s -o /dev/null -w '%{http_code}\n' https://staging-app.iltiamcare.com/healthz    # 200
+#    then sign in and walk the demo flow
+```
+
+**Rollback:** a revert PR of the bump commit (approved, merged), then steps 4 and 5 again. Allow time for the
+approval: `main` is the only branch staging deploys from.
+
+**Backend deploys take no database backup any more** (only the retired automatic job did, Runbook 9). Migrations
+never roll back by themselves (Runbook 9, section 6): before a backend deploy that migrates, take a backup by hand
+on the VM. An optional backup step in `deploy.yml` is an open follow-up.
+
+**Production:** the same steps with `env/production.versions` and `-f environment=production`; its Environment also
+waits for its required reviewer. Not used yet (#36).
+
 ## 1. Status
 
 | Repository | Status | Local CI | GitHub workflows | PR | What is left |
 |---|---|---|---|---|---|
-| iltiam-mobile | **MIGRATED** | `--fast` PASS (684 s); `--full` PASS incl. the staging debug APK (`e8ad090`); failure proof done | all disabled | iltiam-mobile#78 | iOS (optional, never in CI) not built: needs macOS |
-| iltiam-backend | **MIGRATED** | `--fast` PASS; `--full --image` PASS (`2dab0e7`), image smoke on amd64 (160 s) and arm64 under QEMU (823 s); failure proof done | all disabled | iltiam-backend#131 | publishing the image is the deployment row's open item |
-| iltiam-ai-service | **PARTIAL** | `--fast` PASS; `--full --image` PASS (`1fec8ce`), image smoke with the real weights on amd64 (706 s) and arm64 under QEMU (975 s); failure proof done | all disabled except GitHub's managed "Dependency Graph" (API refuses: 422) | iltiam-ai-service#166 | the real-weights regression was not run here because it downloads the private wound-image fixtures: `--full --regression` |
-| iltiam-web | **PARTIAL** | every check runs. iltiam-web#72 (merged) fixed the Arabic login's layout shift. `--full` on #71's head with `main` merged (`e5e5f94`, Node 24) fails 2 required checks, and both pass in a Linux, CI-like environment: Vitest (1 test, Node 24 only; the whole suite, 387 tests, passes in `node:22-bookworm`) and Lighthouse performance (0.89 to 0.90 here because headless Chrome on this Windows machine captured blank filmstrip frames, speed index 11.2 s; 100 on Linux Chromium in the Playwright image) | all disabled | iltiam-web#71 (not validated) | a `--full` on Node 22, on a machine where headless Chrome captures frames normally |
-| iltiam-deployment | **PARTIAL** | `--fast` and `--full` PASS; failure proof done | all disabled | this PR | deploys and image publishing NOT VERIFIED: dry-runs only (section 8) |
+| iltiam-mobile | **MIGRATED** | `--fast` PASS (684 s); `--full` PASS incl. the staging debug APK (`e8ad090`); failure proof done | all disabled | iltiam-mobile#78 (merged) | iOS (optional, never in CI) not built: needs macOS |
+| iltiam-backend | **MIGRATED** | `--fast` PASS; `--full --image` PASS (`2dab0e7`), image smoke on amd64 (160 s) and arm64 under QEMU (823 s); failure proof done | all disabled | iltiam-backend#131 (merged) | no backend image published through `publish-image.sh` yet |
+| iltiam-ai-service | **PARTIAL** | `--fast` PASS; `--full --image` PASS (`1fec8ce`), image smoke with the real weights on amd64 (706 s) and arm64 under QEMU (975 s); failure proof done | all disabled except GitHub's managed "Dependency Graph" (API refuses: 422) | iltiam-ai-service#166 (merged) | the real-weights regression was not run here because it downloads the private wound-image fixtures: `--full --regression` |
+| iltiam-web | **MIGRATED** | `--full` PASS on Node 22 (`aa7deb6`, 2026-11-14), all 20 required checks. On Windows the Lighthouse checks run in the Playwright Linux image (iltiam-web#73): headless Chrome on Windows captured blank filmstrip frames (performance 0.89, speed index 11.2 s); Linux Chromium gives 1.00 | all disabled | iltiam-web#71, #73 (merged) | none |
+| iltiam-deployment | **MIGRATED** | `--fast` and `--full` PASS; failure proof done. Image publish and a staging deploy verified on 2026-11-14 (section 0) | `deploy` (by hand only), `env-check`, `docs` **active**; nothing automatic | iltiam-deployment#70, #71 (merged) | optional backup step for backend deploys (section 0) |
 
-Nothing has been merged. The owner reviews and merges the five PRs.
+All five migration PRs are merged (2026-11-14). Section 0 is the setup in force; sections 8, 9 and 11 keep the
+history of how it got there.
 
 ## 2. Branch protection (Step 0)
 
@@ -67,8 +133,8 @@ have them (gitignored), never from secrets. CI used JDK 17; any JDK Gradle accep
 |---|---|---|---|---|
 | `web-ci` / check (push main, PR on `web/**`) | Node 22, `npm ci`, lint, format:check, i18n:check, typecheck, `check:api` (only with the `BACKEND_READ_TOKEN` secret, else skipped), Vitest, build, API build without mocks, bundle budget | Linux; optional secret | `--fast`: up to Vitest; `--full`: the builds and budget | required |
 | `web-ci` / smoke | Playwright Chromium: `test:e2e`, `test:e2e:live` | browser | `--full` | required |
-| `web-ci` / lighthouse | `lhci` (accessibility ≥ 0.9), build, `lhci:perf` | Chrome | `--full` | required |
-| `web-image` (PR on `web/**`; after web-ci on main; tags; dispatch) | build linux/amd64 + linux/arm64, `docker/smoke.sh`, browser CSP test; on main: publish `sha-<7>` to GHCR, then `repository_dispatch` deploy-staging | Docker, native arm64 runner, `GITHUB_TOKEN` (packages), `DEPLOY_DISPATCH_TOKEN` | `--full`: both smokes + browser; publish: `iltiam-deployment/scripts/publish-image.sh web`; deploy: `deploy-staging.sh --bump web` | smoke required; publish/deploy manual |
+| `web-ci` / lighthouse | `lhci` (accessibility ≥ 0.9), build, `lhci:perf` | Chrome | `--full` (on Windows inside `mcr.microsoft.com/playwright:v<installed Playwright>-noble`, iltiam-web#73) | required |
+| `web-image` (PR on `web/**`; after web-ci on main; tags; dispatch) | build linux/amd64 + linux/arm64, `docker/smoke.sh`, browser CSP test; on main: publish `sha-<7>` to GHCR, then `repository_dispatch` deploy-staging | Docker, native arm64 runner, `GITHUB_TOKEN` (packages), `DEPLOY_DISPATCH_TOKEN` | `--full`: both smokes + browser; publish: `iltiam-deployment/scripts/publish-image.sh web`; deploy: bump PR, then the `deploy` workflow by hand (section 0) | smoke required; publish/deploy manual |
 
 Differences: `check:api` now always runs: `scripts/gen-api.mjs` reads the pinned contract from the sibling
 `iltiam-backend` clone or through `gh` (BLOCKED without either), where CI skipped it without the secret. arm64 runs
@@ -103,11 +169,11 @@ Differences: the weekly regression no longer runs by itself: nothing runs on a s
 
 | Workflow / job (trigger) | What it did | Needs | Local replacement | Level |
 |---|---|---|---|---|
-| `env-check` / templates (PR, push main) | shellcheck (Ubuntu 24.04's, 0.9.0), `check-env.sh`, `check-compose.sh` | jq, openssl, Compose plugin | `--fast` (shellcheck natively at 0.9.0 or `koalaman/shellcheck:v0.9.0`) | required |
-| `env-check` / gitleaks | `ghcr.io/gitleaks/gitleaks:v8.30.1 git --redact` on the full history | Docker | `--fast` (native 8.30.1 or the image) | required |
-| `docs` (PR, push main on docs paths) | Python 3.12, `mkdocs build --strict` | | `--full` (checks installed versions = `docs/requirements.txt`) | required |
-| `deploy` / manual (workflow_dispatch) | versions check, render env files from the Environment's secrets, SSH key, `remote-deploy.sh` | Environment secrets | `scripts/deploy-staging.sh`, `scripts/deploy-prod.sh` | manual |
-| `deploy` / auto (repository_dispatch, `AUTO_DEPLOY`) | image check, `set-version.sh`, backend backup, commit to main, deploy, health check, revert + redeploy on failure | secrets, contents:write | `deploy-staging.sh --bump` (PR), then `deploy-staging.sh --check <svc>` (backup, deploy, health check, rollback) | manual |
+| `env-check` / templates (PR, push main) | shellcheck (Ubuntu 24.04's, 0.9.0), `check-env.sh`, `check-compose.sh` | jq, openssl, Compose plugin | `--fast` (shellcheck natively at 0.9.0 or `koalaman/shellcheck:v0.9.0`); **also active on GitHub again since 2026-11-14** | required |
+| `env-check` / gitleaks | `ghcr.io/gitleaks/gitleaks:v8.30.1 git --redact` on the full history | Docker | `--fast` (native 8.30.1 or the image); **also active on GitHub again** | required |
+| `docs` (PR, push main on docs paths) | Python 3.12, `mkdocs build --strict` | | `--full` (checks installed versions = `docs/requirements.txt`); **also active on GitHub again** | required |
+| `deploy` / manual (workflow_dispatch) | versions check, render env files from the Environment's secrets, SSH key, `remote-deploy.sh` | Environment secrets | **kept on GitHub, the only way to deploy** (section 0); the laptop scripts are dry-run only | manual |
+| `deploy` / auto (repository_dispatch, `AUTO_DEPLOY`) | image check, `set-version.sh`, backend backup, commit to main, deploy, health check, revert + redeploy on failure | secrets, contents:write | **removed** (iltiam-deployment#71): a bump PR, then the manual `deploy` run; no automatic backup or rollback | manual |
 
 The new local check also shellchecks `scripts/lib/*.sh` (new files) and adds a deploy dry-run in `--full`.
 
@@ -129,7 +195,9 @@ Same in every repository (keep the copies identical; `CI_COMMON_VERSION` in the 
 Per repository: mobile `.gitattributes` (new: `*.sh text eol=lf`); web `.nvmrc`, `web/.nvmrc` (22) and
 `.gitattributes` (`web/** text=auto eol=lf`); deployment `scripts/deploy-staging.sh`, `scripts/deploy-prod.sh`,
 `scripts/publish-image.sh`, `scripts/lib/deploy-local.sh`, this file, and `scripts/remote-deploy.sh`
-(`DEPLOY_SSH_KEY_FILE` / `DEPLOY_KNOWN_HOSTS_FILE`, defaults unchanged). No workflow file was deleted or edited.
+(`DEPLOY_SSH_KEY_FILE` / `DEPLOY_KNOWN_HOSTS_FILE`, defaults unchanged). No workflow file was deleted or edited
+by the migration itself. Later, on 2026-11-14: `deploy.yml` lost its `repository_dispatch` trigger and its `auto`
+job (iltiam-deployment#71), and web's `scripts/ci-local.sh` runs Lighthouse in Docker on Windows (iltiam-web#73).
 
 ## 5. Setup per OS
 
@@ -189,6 +257,11 @@ unvalidated PR; agents paste the table they actually saw and never use `--no-ver
 
 ## 8. Manual deployment (Step 5)
 
+> **Superseded on 2026-11-14 by section 0.** Deploys run only through the `deploy` workflow on GitHub Actions; no
+> laptop holds the secrets, so the laptop deploy commands below are **dry-run only** (`--dry-run --offline`, and
+> `--bump`, which only opens a PR). `publish-image.sh` is still how images are published, and it is verified
+> (`iltiam-web:sha-aa7deb6`). The rest of this section is kept as the record of the dry-runs of 2026-11-13.
+
 Nothing deploys after a push or a merge any more. **None of this has run against a real server: deploy and image
 publishing are NOT YET VERIFIED.** Only the dry-runs below were run.
 
@@ -224,11 +297,8 @@ Dry-runs actually run on 2026-11-13 (no SSH, no server touched):
 The `set-version.sh` comment line said "deployed automatically"; since 2026-11-14 it says "set on <date> for the deploy
 workflow (run by hand)", as every change is now a reviewed PR.
 
-**What the owner must provide to verify deploys:** the staging Environment's secrets and variables as
-`~/.iltiam/deploy/staging/secrets.json` / `vars.json` (DEPLOY_HOST and every name `scripts/render-env.sh --list`
-prints), the staging deploy SSH key and `known_hosts` there, a GHCR token (read:packages to deploy, write:packages
-to publish), then an approved first run: `scripts/deploy-staging.sh --dry-run --ssh-check`, then a real
-`--bump` + deploy of an unchanged tag. Production the same, with its own files, after staging works.
+~~What the owner must provide to verify deploys from a laptop~~: no longer applies. The owner chose not to keep
+secret copies on laptops (section 0); the GitHub Environments stay the only place the deploy secrets live.
 
 ## 9. Workflows disabled (Step 6)
 
@@ -268,6 +338,8 @@ web-image	disabled_manually	410285796
 - No required status check exists anywhere (section 2), so nothing can stay pending. Nothing deploys by itself:
   `deploy` (with its `repository_dispatch`) and every image workflow (the only senders of `deploy-staging`) are
   disabled.
+- **Changed on 2026-11-14 (section 0):** in iltiam-deployment, `env-check` and `docs` are active again, and `deploy`
+  is active with `workflow_dispatch` as its only trigger. The app repositories' workflows stay disabled.
 
 ## 10. Gaps compared with GitHub-hosted CI
 
@@ -292,13 +364,13 @@ The workflow files were not deleted or edited. When the budget allows:
 
 ```bash
 gh workflow enable <name> -R iltiam/<repo>        # for each workflow in section 9
-gh variable set AUTO_DEPLOY -R iltiam/iltiam-deployment --body true   # only to restore automatic staging deploys
 ```
 
 Then decide whether to add required status checks (needs GitHub Team/Pro for the private repos). Keep
-`ci-local.sh`: it still gives the same checks before a push. Note `iltiam-deployment` `main` now requires a PR: the
-old auto job's direct push to `main` would be refused; it must change to opening a PR, or the protection must allow
-the Actions bot.
+`ci-local.sh`: it still gives the same checks before a push. Automatic staging deploys can't simply be switched back
+on: the `auto` job was removed from `deploy.yml` (iltiam-deployment#71), and `main` requires a PR, so a new design
+would have to open a PR instead of pushing to `main`. The image workflows' dispatch steps would also need the
+`DEPLOY_DISPATCH_TOKEN` secrets again.
 
 ## 12. Results on the reference machine
 
@@ -324,6 +396,11 @@ full tables are in each PR.
 | ai-service | `--full --image` | `1fec8ce` | PASS, image smoke with real weights amd64 + arm64 included (regression SKIPPED-OPTIONAL) | 2123 s |
 | deployment | `--fast` | 3a61591 + new files | FAIL: shellcheck and gitleaks BLOCKED (Docker engine stopped) | 337 s |
 | deployment | `--full` | `a99e4d6`, then the PR head | PASS | about 9 min |
+| web | `--full` (Node 22) | `18c124b` (`main`) | FAIL only on Lighthouse performance 0.89 (blank filmstrip frames on Windows); 19 others PASS | 1341 s |
+| web | `--full` (Node 22, Lighthouse in the Playwright Linux image) | `aa7deb6` (iltiam-web#73) | PASS, 20/20; performance 1.00 on all 6 runs | 1128 s |
+| web | `publish-image.sh web` | `aa7deb6` | published `iltiam-web:sha-aa7deb6`, linux/amd64 + linux/arm64 | |
+| deployment | `--full` | `21f74a6` (iltiam-deployment#71) | PASS, 10/10 (a first run failed only the preflight, because of an empty `~/.iltiam/deploy/staging/`) | 620 s |
+| deployment | `deploy` workflow, staging | `aeec8f3` (run 43574332851) | success after the run was approved on the Actions page; web recreated, healthy; `/api/ready/` all ok | |
 
 Failure proofs (break something, run `--fast`, revert; the tree was clean afterwards):
 
