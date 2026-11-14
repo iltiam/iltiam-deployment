@@ -1,5 +1,12 @@
 # Runbook 9: automatic staging deploys on merge to main (health check, rollback, database backup)
 
+> **Retired on 2026-11-14.** The `auto` job and the `repository_dispatch` trigger are gone from `deploy.yml`: Actions are
+> off in the app repositories (nothing sends the dispatch), and `main` is protected (the bot's commit could not land).
+> Staging now deploys only when a person runs the `deploy` workflow, after a reviewed PR changed `env/staging.versions`
+> ([LOCAL_CI_MIGRATION.md](https://github.com/iltiam/iltiam-deployment/blob/main/LOCAL_CI_MIGRATION.md)). The
+> `AUTO_DEPLOY` variable and the app repositories' `DEPLOY_DISPATCH_TOKEN` secrets are no longer read. The rest of this
+> runbook is kept as the record of what was built and tested; sections 6 and 7 (rollback, restoring a backup) still apply.
+
 - **Issue:** iltiam/iltiam-deployment#16 (DEP-03). Builds on [Runbook 5](05-compose-stack.md) (the Compose stack and the manual deploy).
 - **Who:** anyone with admin rights on the four repositories (`iltiam-ai-service`, `iltiam-backend`, `iltiam-web`, `iltiam-deployment`) who can log in to `iltiam-1` (`ssh iltiam`, Runbook 1). No cloud experience needed; follow the steps in order.
 - **Time:** about 30 minutes to set up (section 2), about 1 hour for the tests (section 5). After that, nothing: a merge deploys itself.
