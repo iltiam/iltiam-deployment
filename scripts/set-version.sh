@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Point one service of env/staging.versions at another build (Runbook 9, docs/runbooks/09-cd-staging.md, issue #16).
-# The deploy workflow's automatic staging job runs it on its runner, then commits the file. Never on the VM: the VM
-# never edits its clone (Runbook 5, section 4.3).
+# Run on a laptop to prepare the reviewed PR that changes env/staging.versions (or by scripts/deploy-staging.sh --bump);
+# the deploy workflow, run by hand, then deploys main. Never on the VM: the VM never edits its clone (Runbook 5, section 4.3).
 #
 # Usage: scripts/set-version.sh staging <ai|backend|web> <40-character commit hash of that repository's main>
 #
@@ -28,7 +28,7 @@ die() {
 env_name="$1"
 service="$2"
 sha="$3"
-[[ "$env_name" == staging ]] || die "only staging is deployed automatically, got '$env_name'"
+[[ "$env_name" == staging ]] || die "only staging (production is released by hand), got '$env_name'"
 [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || die "the commit must be a full 40-character hash"
 
 case "$service" in
@@ -94,7 +94,7 @@ trap 'rm -f "$tmp"' EXIT
       continue
     fi
     if ((i == at[0])); then
-      printf '# %s: %s main, commit %s; deployed automatically on %s (Runbook 9).\n' \
+      printf '# %s: %s main, commit %s; set on %s for the deploy workflow (run by hand).\n' \
         "$tag" "$source_repo" "$sha" "$(date -u +%Y-%m-%d)"
     fi
     replaced=false

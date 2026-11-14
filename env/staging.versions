@@ -5,8 +5,8 @@
 #
 # Roll back: put the previous tags back (git log -p env/staging.versions), merge, and deploy again (Runbook 5, 9.4).
 #
-# Automatic deploys (Runbook 9) change the image lines here and commit to main as github-actions[bot]: run `git pull`
-# before you edit this file.
+# Every change here is a reviewed PR to main (scripts/set-version.sh writes the image line); the deploy workflow, run
+# by hand on main, then deploys it. The automatic deploys of Runbook 9 are retired (2026-11-14).
 
 # Services beyond the always-on ones (postgres, redis, cloudflared, weights-init and the AI service), separated by
 # commas. backend: migrate, web, worker and beat. web: the web app (Runbook 5, section 1). Production keeps both off
@@ -20,5 +20,5 @@ AI_WORKER_IMAGE=ghcr.io/iltiam/iltiam-ai-worker:sha-9ecf382
 # sha-14223c2: iltiam-backend main, commit 14223c21c25d024cbeb3ba7359094ddfd8e7d86d; deployed automatically on 2026-11-12 (Runbook 9).
 BACKEND_IMAGE=ghcr.io/iltiam/iltiam-backend:sha-14223c2
 
-# sha-dce95f2: iltiam-web main, commit dce95f2d051934d9043e3a1511d1f79733365efd; deployed automatically on 2026-11-13 (Runbook 9).
-WEB_IMAGE=ghcr.io/iltiam/iltiam-web:sha-dce95f2
+# sha-aa7deb6: iltiam-web main, commit aa7deb66bb0e70c96e5f060fe6088b34e6864fda; set on 2026-11-14 for the deploy workflow (run by hand).
+WEB_IMAGE=ghcr.io/iltiam/iltiam-web:sha-aa7deb6

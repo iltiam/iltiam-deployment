@@ -221,8 +221,8 @@ Dry-runs actually run on 2026-11-13 (no SSH, no server touched):
 | `scripts/publish-image.sh web ../iltiam-web --dry-run` | exit 1, correctly: refuses a clone with uncommitted changes |
 | `scripts/ci-local.sh --full` (deployment) | runs both deploy dry-runs offline as its last check: PASS |
 
-The `set-version.sh` comment line still says "deployed automatically"; with `--bump` it is a reviewed PR. Cosmetic,
-left as is.
+The `set-version.sh` comment line said "deployed automatically"; since 2026-11-14 it says "set on <date> for the deploy
+workflow (run by hand)", as every change is now a reviewed PR.
 
 **What the owner must provide to verify deploys:** the staging Environment's secrets and variables as
 `~/.iltiam/deploy/staging/secrets.json` / `vars.json` (DEPLOY_HOST and every name `scripts/render-env.sh --list`
