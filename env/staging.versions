@@ -5,8 +5,8 @@
 #
 # Roll back: put the previous tags back (git log -p env/staging.versions), merge, and deploy again (Runbook 5, 9.4).
 #
-# Automatic deploys (Runbook 9) change the image lines here and commit to main as github-actions[bot]: run `git pull`
-# before you edit this file.
+# Every change here is a reviewed PR to main (scripts/set-version.sh writes the image line); the deploy workflow, run
+# by hand on main, then deploys it. The automatic deploys of Runbook 9 are retired (2026-11-14).
 
 # Services beyond the always-on ones (postgres, redis, cloudflared, weights-init and the AI service), separated by
 # commas. backend: migrate, web, worker and beat. web: the web app (Runbook 5, section 1). Production keeps both off
