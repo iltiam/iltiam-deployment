@@ -1,6 +1,6 @@
 # iltiam-deployment: context for Claude Code
 
-## Local CI (no GitHub Actions)
+## Local CI; deploys only through the `deploy` workflow (AGENTS.md, "Deploying staging")
 
 @AGENTS.md
 
