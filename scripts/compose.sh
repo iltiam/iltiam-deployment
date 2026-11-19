@@ -14,7 +14,8 @@
 # fcm-service-account.json exists.
 #
 # `config` prints every secret Compose interpolates, and this repository's logs are public. So on the VM, `config` is
-# refused unless it only prints names (--quiet, --services, --images, --profiles, --networks, --volumes).
+# refused unless it only prints names (--quiet, --services, --images, --profiles, --networks, --volumes) or the
+# services' config hashes (--hash=<service>, which scripts/lib/rollout.sh compares with the running container's).
 # ILTIAM_ROOT (default /srv/iltiam) lets scripts/check-compose.sh run this against dummy files; outside /srv/iltiam
 # `config` is unrestricted, because only dummies live there.
 
@@ -48,7 +49,7 @@ versions="$repo/env/$env_name.versions"
 if [[ "$1" == config && "$root" == /srv/iltiam ]]; then
   for arg in "${@:2}"; do
     case "$arg" in
-      -q | --quiet | --services | --images | --profiles | --networks | --volumes) ;;
+      -q | --quiet | --services | --images | --profiles | --networks | --volumes | --hash=*) ;;
       *) die "'config $arg' would print secrets into this terminal. Use 'config --quiet' (Runbook 5, section 13)" ;;
     esac
   done

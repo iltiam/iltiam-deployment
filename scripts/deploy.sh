@@ -16,9 +16,13 @@
 #   5. The one-shots, each with `docker compose run --rm` and its exit code checked: weights-init, then
 #      backend-migrate (backend profile only). They run apart from `up --wait` on purpose: some Compose versions
 #      count a one-shot that exited 0 as a failure of `up --wait`, others wait for it. Run first, both behave alike.
-#   6. The long-running services, `up -d --wait --no-deps`, in dependency order: ai-api and backend-web, then the
-#      rest, with web (web profile only) among them.
+#   6. The long-running services, in dependency order. ai-api, then ai-worker, roll with no downtime
+#      (scripts/lib/rollout.sh, iltiam-ai-service#150): the new container starts next to the old one, which is
+#      stopped only once the new one has loaded its model; never stop-then-start, which fails the backend's analyses.
+#      The others (backend-web first, then the rest, with web among them) with `up -d --wait --no-deps`.
 #   7. What runs now: service, image, state, digest.
+#
+# Before anything changes (after the guards): enough free memory for the largest second AI container, or stop.
 #
 # Prints names, tags and states only, never a value: the workflow's log is public. Never `set -x` here.
 
@@ -27,6 +31,12 @@ set -euo pipefail
 ROOT=/srv/iltiam
 MIN_COMPOSE=2.20
 WAIT_TIMEOUT=600
+# What tells that a new AI container has loaded its model, run inside it (scripts/lib/rollout.sh). The api: its
+# /capabilities answers (503 until the pipeline is loaded); prints the versions. The worker: every pool process loaded
+# and the job queue consumed (iltiam-ai-service service/ops/worker_ready.py); an image from before #150 has no such
+# marker, so only its healthcheck counts, and it may take a job while it still loads.
+AI_API_READY=(python -c "import json, urllib.request as u; v = json.load(u.urlopen('http://127.0.0.1:8000/capabilities', timeout=5))['versions']; print('pipeline', v['pipeline'], 'ALG-02', v.get('ALG-02'))")
+AI_WORKER_READY=(sh -c "test -f service/ops/worker_ready.py || { echo 'image from before ai-service#150: healthcheck only'; exit 0; }; exec python -m service.ops.worker_ready")
 
 log() { printf '\n==> %s\n' "$*"; }
 ok() { printf '    ok: %s\n' "$*"; }
@@ -41,6 +51,8 @@ usage() {
 }
 
 repo="$(cd "$(dirname "$0")/.." && pwd)"
+# shellcheck source=scripts/lib/rollout.sh
+source "$repo/scripts/lib/rollout.sh"
 
 # --- versions file ---------------------------------------------------------------------------------------------
 
@@ -174,6 +186,11 @@ lowest="$(printf '%s\n%s\n' "$MIN_COMPOSE" "$version" | sort -V | head -n 1)"
 compose config --quiet
 ok "compose files valid"
 
+log "free memory for the AI rollout"
+ROLLOUT_TIMEOUT_S="$WAIT_TIMEOUT"
+ROLLOUT_LOG_DIR="$env_dir"
+rollout_memory_check ai-api ai-worker
+
 # --- 3. Images --------------------------------------------------------------------------------------------------
 
 log "pull"
@@ -196,15 +213,16 @@ fi
 
 # --- 6. Long-running services -----------------------------------------------------------------------------------
 
-first=(ai-api)
-rest=(ai-worker ai-beat cloudflared)
+# ai-api first: its image runs the AI migrations before the new worker's code runs.
+rollout ai-api "${AI_API_READY[@]}"
 if backend_on; then
-  first+=(backend-web)
-  rest+=(backend-worker backend-beat)
+  log "start: backend-web"
+  compose up -d --wait --wait-timeout "$WAIT_TIMEOUT" --no-deps backend-web
 fi
+rollout ai-worker "${AI_WORKER_READY[@]}"
+rest=(ai-beat cloudflared)
+if backend_on; then rest+=(backend-worker backend-beat); fi
 if web_on; then rest+=(web); fi
-log "start: ${first[*]}"
-compose up -d --wait --wait-timeout "$WAIT_TIMEOUT" --no-deps "${first[@]}"
 log "start: ${rest[*]}"
 compose up -d --wait --wait-timeout "$WAIT_TIMEOUT" --no-deps --remove-orphans "${rest[@]}"
 
