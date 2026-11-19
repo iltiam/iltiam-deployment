@@ -84,6 +84,19 @@ docker pull -q "$IMAGE" >/dev/null
 running() { compose ps -q app; }
 count() { running | wc -l | tr -d ' '; }
 version_of() { docker exec "$1" cat /tmp/ready 2>/dev/null; }
+# A first deploy returns once its container runs (`up -d --wait`; this busybox has no healthcheck), not once it is
+# ready, and it writes /tmp/ready READY_AFTER seconds later: wait for that before reading the version.
+version_when_ready() { # version_when_ready <container>: its /tmp/ready, waiting up to 10 s for it to be written
+  local v
+  for _ in $(seq 1 20); do
+    if v="$(version_of "$1")" && [[ -n "$v" ]]; then
+      printf '%s' "$v"
+      return 0
+    fi
+    sleep 0.5
+  done
+  return 1
+}
 in_env() { # in_env <NAME=value ...> -- <command ...>: in a subshell (die exits it), output in $tmp/out
   (
     while [[ "$1" != -- ]]; do
@@ -100,7 +113,7 @@ precheck() { in_env "$@" -- rollout_memory_check app; }
 echo "1. first deploy"
 expect "rollout starts the first container" attempt VERSION=1
 first="$(running)"
-expect "one container, version 1" test "$(count)" = 1 -a "$(version_of "$first")" = 1
+expect "one container, version 1" test "$(count)" = 1 -a "$(version_when_ready "$first")" = 1
 
 echo "2. same config"
 expect "rollout succeeds" attempt VERSION=1
