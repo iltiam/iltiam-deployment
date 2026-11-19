@@ -89,6 +89,12 @@ EOF
   "$PYTHON" -m mkdocs build --strict --site-dir "$CI_LOG_DIR/site"
 }
 
+# scripts/lib/rollout.sh on a throwaway Compose project of busybox containers (iltiam-ai-service#150).
+run_check_rollout() {
+  ci_docker_ready || { ci_blocked "no Docker daemon: scripts/check-rollout.sh runs containers"; return; }
+  bash scripts/check-rollout.sh
+}
+
 deploy_preflight() {
   local env
   for env in staging production; do
@@ -102,6 +108,7 @@ ci_check "shellcheck" required -- run_shellcheck
 ci_check "Compose tools (jq, openssl, compose)" required -- compose_tools
 ci_check "check-env.sh (lint, dummy render, compose config)" required --needs "Compose tools (jq, openssl, compose)" -- bash scripts/check-env.sh
 ci_check "check-compose.sh (networks, ports, limits, secrets)" required --needs "Compose tools (jq, openssl, compose)" -- bash scripts/check-compose.sh
+ci_check "check-rollout.sh (no-downtime AI rollout, Docker)" required -- run_check_rollout
 ci_check "versions files (staging, production)" required -- bash -c 'bash scripts/deploy.sh --check-versions staging && bash scripts/deploy.sh --check-versions production'
 ci_check "gitleaks (full history, redacted)" required -- run_gitleaks
 

@@ -108,6 +108,7 @@ The two projects share only the weights folder. Each has its own containers, net
    - pulls the images;
    - starts Postgres and Redis;
    - runs the one-shots (`weights-init`, `backend-migrate`);
+   - replaces `ai-api`, then `ai-worker`, with no downtime ([`scripts/lib/rollout.sh`](https://github.com/iltiam/iltiam-deployment/blob/main/scripts/lib/rollout.sh), iltiam-ai-service#150): the new container starts next to the old one, the old one is stopped (SIGTERM, then its grace period) only once the new one has loaded its model. It first checks that the VM has the memory for a second container (its `mem_limit` + 256 MB) and stops otherwise, with nothing changed. The AI side, and the acceptance on staging: iltiam-ai-service `docs/model-update.md`;
    - starts the rest in order, waiting for each to be healthy;
    - prints what runs.
 4. The workflow logs out of GHCR, whatever happened.
@@ -534,6 +535,8 @@ iltiam staging restart backend-worker
 
 A restart keeps the container and its settings. **A changed secret or variable needs a deploy** (section 6), not a restart: only the deploy writes the env files again.
 
+**Don't restart `ai-api` or `ai-worker` while analyses run.** A restart stops the container before the new process has loaded its model (tens of seconds), and the backend gives up after about 6 s. A deploy replaces them with no downtime instead (section 1).
+
 ### 9.4 Roll back to an earlier image
 
 An automatic staging deploy does this by itself when its health check fails ([Runbook 9](09-cd-staging.md), section 6), and saves the database before a backend deploy (section 7 there). By hand:
@@ -542,7 +545,7 @@ Never retag images by hand. Put the earlier tags back into the versions file ins
 
 1. In your clone on the laptop: `git log -p env/staging.versions` shows every tag that was deployed.
 2. Open a pull request that puts the previous tags back. Merge it.
-3. Deploy that environment (section 6 or 8).
+3. Deploy that environment (section 6 or 8). The AI service rolls back with no downtime, the same way it was deployed (section 1).
 
 **Back to AI-only** (`COMPOSE_PROFILES=` empty again): the deploy then leaves the backend and web containers running, because `--remove-orphans` doesn't count a service of an inactive profile as an orphan. After that deploy, stop them by hand:
 
@@ -767,6 +770,9 @@ sudo -iu deploy bash -c 'iltiam() { bash /srv/iltiam/repo/scripts/compose.sh "$@
 | Docker doesn't start after a reboot (`docker ps` hangs or says it can't connect) | The data volume isn't mounted, so section 4.1 keeps Docker off on purpose. Fix the mount (Runbook 1, section 10), then `sudo systemctl start docker` |
 | `ERROR: /srv/iltiam/env/<ENV> must be mode 700` or `… must be mode 600` | `sudo chmod 700 /srv/iltiam/env/<ENV>`, or deploy again: the deploy writes each file with `600` |
 | `ERROR: another deploy is running on this VM` | Wait for the other run (staging or production) to finish. If none is running, the lock is stale only while a `deploy.sh` process exists: `pgrep -af deploy.sh` |
+| `ERROR: not enough free memory to start a second ai-… next to the old one` | The rollout needs that much `MemAvailable` (`free -m`, column `available`) for the overlap. Nothing was changed. Free memory, for example by stopping the other environment's AI worker for the deploy (section 9.6), then deploy again. Never stop the service first and deploy: the backend fails the analyses sent meanwhile |
+| `ERROR: the new ai-… was not ready after … s` or `… was exited` | The new container never loaded its model. It was removed and the old one still runs. Read the log file the message names (in `/srv/iltiam/env/<ENV>/`, as `deploy`); usually the weights (`weights-init`) or a bad setting |
+| `ERROR: 2 ai-… containers are running: an earlier rollout was cut short` | Keep the newer one. As `deploy`: `docker ps --filter label=com.docker.compose.service=<service>`, then `docker stop -t 60 <older name> && docker rm <older name>`, and deploy again |
 | `ERROR: Docker Compose 2.20 or newer is needed` | `sudo apt-get update && sudo apt-get install --only-upgrade docker-compose-plugin` |
 | `Error response from daemon: … denied` or `unauthorized` at `pull` | The package doesn't grant `iltiam-deployment` read access ([Runbook 4](04-secrets.md), section 8) |
 | `weights-init failed` with `401` or `404` | `WEIGHTS_READ_TOKEN` expired, was never approved by the organisation, or lacks access to `iltiam-ai-service` (`docs/secrets.md`, section 6.6). Set a new one and deploy again |
