@@ -36,7 +36,9 @@ jobs:
           persist-credentials: false
 
       - name: shellcheck
-        run: shellcheck scripts/*.sh postgres/initdb/*.sh
+        # scripts/lib/*.sh too: scripts source it, so without it shellcheck calls their variables unused (SC2034).
+        # The same list as scripts/ci-local.sh (run_shellcheck).
+        run: shellcheck scripts/*.sh scripts/lib/*.sh postgres/initdb/*.sh
 
       - name: Lint, dummy render, docker compose config
         run: bash scripts/check-env.sh
