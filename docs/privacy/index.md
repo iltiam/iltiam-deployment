@@ -65,24 +65,24 @@ Besides L1 to L4, these must be done before real patients or a store submission 
 
 | Blocker | Issue |
 |---|---|
-| Anonymisation keeps wound photos, notes and message text: deletion must do exactly what the privacy notice says | iltiam/iltiam-backend#129 |
-| Push text without health data | iltiam/iltiam-backend#128 |
+| Anonymisation keeps wound photos, notes and message text: deletion must do exactly what the privacy notice says | backend done (iltiam/iltiam-backend#129, PR #134: kept, as notice v1 says); the app's deletion screen: iltiam/iltiam-mobile#103 |
+| Push text without health data | backend done (iltiam/iltiam-backend#128, PR #134; staging with the next backend deploy); the app's tap and foreground text: iltiam/iltiam-mobile#103 |
 | Public `/privacy`, `/terms` and `/delete-account` pages, with a way to ask for deletion without the app | iltiam/iltiam-web#70 |
-| The apps show the texts and record acceptance | iltiam/iltiam-web#29, iltiam/iltiam-mobile#44 |
+| The apps show the texts and record acceptance | iltiam/iltiam-web#29 (staff policies), iltiam/iltiam-mobile#44; with the consent version: iltiam/iltiam-web#75, iltiam/iltiam-mobile#102 |
 | Fonts bundled; unused media permissions removed | iltiam/iltiam-mobile#77, iltiam/iltiam-mobile#76 |
 | Retention enforced in production; export files cleaned up after 7 days | #66, #36, #65 |
-| The consent version stored with each consent | iltiam/iltiam-backend#130 |
+| The consent version stored with each consent | backend done (iltiam/iltiam-backend#130, PR #134); the apps send it: iltiam/iltiam-web#75, iltiam/iltiam-mobile#102 |
 | Super Admin screens for deletion requests and breaches (or a documented API procedure) | iltiam/iltiam-web#69 |
 
 ## Findings while writing
 
 Facts found in the code on 2026-11-13, each with its issue:
 
-1. **Push text through Google** can mention a wound result, for example "The result of your latest wound photo shows a high risk" (iltiam-backend `apps/notifications/catalog.py`): iltiam/iltiam-backend#128.
+1. **Push text through Google** can mention a wound result, for example "The result of your latest wound photo shows a high risk" (iltiam-backend `apps/notifications/catalog.py`): iltiam/iltiam-backend#128. **Fixed** in backend PR #134.
 2. **Export files** under `exports/` in `iltiam-<SHORT>-reports` are not removed by a bucket rule yet; [retention.md](retention.md) row 14 names a monthly manual clean-up until #65.
 3. **The mobile app downloads its fonts from Google at run time:** iltiam/iltiam-mobile#77.
-4. **The backend records when a consent changed, not which text version:** iltiam/iltiam-backend#130.
-5. **Anonymisation keeps wound photos, notes and message text:** iltiam/iltiam-backend#129.
+4. **The backend records when a consent changed, not which text version:** iltiam/iltiam-backend#130. **Fixed** in backend PR #134; the apps follow in iltiam/iltiam-web#75 and iltiam/iltiam-mobile#102.
+5. **Anonymisation keeps wound photos, notes and message text:** iltiam/iltiam-backend#129. **Decided** in backend PR #134: kept, as notice v1 says; the confirmation now says so.
 6. **No Super Admin web screens** for deletion requests and breach incidents: iltiam/iltiam-web#69.
 7. **`RETENTION_ENFORCE` isn't passed by the deploy:** #66.
 8. **Unused Android media permissions:** iltiam/iltiam-mobile#76.
