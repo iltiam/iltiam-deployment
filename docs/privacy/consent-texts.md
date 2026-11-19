@@ -3,12 +3,12 @@
 - **Issue:** #6. **Version 1,** approved by the project owner on 2026-11-13.
 - **Version IDs:** each text has one. The apps show the words of the ID they record. **A changed text gets a new ID** (`ai-consent-v2`); the old one stays here, so a past consent can always be read in the words the patient saw.
 - **Basis:** explicit consent, separate for each text. For a patient under 18, or one who can't consent, a parent or legal guardian consents on their behalf (`terms-v1`, section 5).
-- **Shown by:** the doctor's new patient form on the web (iltiam/iltiam-web#29) and the app's Profile → Privacy screen (iltiam/iltiam-mobile#44).
+- **Shown by:** the doctor's new patient form on the web (iltiam/iltiam-web#75) and the app's Profile → Privacy screen (iltiam/iltiam-mobile#44; sending the version: iltiam/iltiam-mobile#102).
 
 | ID | Consent | Default | Recorded by the backend as |
 |---|---|---|---|
-| `ai-consent-v1` | AI analysis of wound photos | asked at registration | `Patient.ai_analysis_consent`, `ai_analysis_consent_at` |
-| `feedback-consent-v1` | the AI feedback dataset | **off** unless the patient turns it on | `Patient.ai_feedback_consent`, `ai_feedback_consent_at` |
+| `ai-consent-v1` | AI analysis of wound photos | asked at registration | `Patient.ai_analysis_consent`, `ai_analysis_consent_at`, `ai_analysis_consent_version` |
+| `feedback-consent-v1` | the AI feedback dataset | **off** unless the patient turns it on | `Patient.ai_feedback_consent`, `ai_feedback_consent_at`, `ai_feedback_consent_version` |
 
 ## `ai-consent-v1`: AI analysis of wound photos
 
@@ -80,7 +80,8 @@ You can withdraw at any time in the app (Profile → Privacy). Your corrections 
 
 ## Recording
 
-- **Today** the backend records on or off and the time (`PATCH /api/patients/me/consents/`, and the registration form). Every change is audited. Withdrawing needs a fresh identity check (step-up).
-- **Not yet recorded: the version ID.** Backend follow-up (iltiam/iltiam-backend#130): store `ai_analysis_consent_version` and `ai_feedback_consent_version` with each change, and return them in `GET /api/patients/me/consents/`, so the apps and an audit can tell which words a patient agreed to.
-- **When a text changes** (a new ID): the apps show the new text to patients who agreed to an older ID, and ask again. Until they answer, the older consent stays in force. **Every new version is asked again** (owner decision), even for a wording change.
+- **The backend records** on or off, the time and the text's version ID, from the registration form (`POST /api/patients/`, which now records the AI-analysis answer too), the doctor's change (`PATCH /api/patients/{id}/`) and the patient's (`PATCH /api/patients/me/consents/`). Every change is audited, with its version. Withdrawing needs a fresh identity check (step-up).
+- **The version ID** (iltiam/iltiam-backend#130, backend PR #134): the client sends the ID of the text it showed, and the backend stores it (`ai_analysis_consent_version`, `ai_feedback_consent_version`), returns it in `GET /api/patients/me/consents/` and puts it in the audit entry and the data export, so anyone can tell which words a patient agreed to. An unknown ID is refused. Until the apps send it (iltiam/iltiam-web#75, iltiam/iltiam-mobile#102), a change is stored as "not reported" (null).
+- **The current IDs** are in the backend's `settings.CONSENT_TEXT_VERSIONS` and returned as `current_versions`. A new ID added here must be added there too.
+- **When a text changes** (a new ID): the apps show the new text to patients whose stored version differs from `current_versions` (or is null), and ask again; agreeing again is recorded with the new ID. Until they answer, the older consent stays in force. **Every new version is asked again** (owner decision), even for a wording change.
 - The proof of what each right does is in the [rights map](rights-map.md#5-withdraw-consent).
