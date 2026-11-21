@@ -7,6 +7,8 @@ Infrastructure for ILTIAM: hosting decisions, runbooks, environment templates an
   (`pip install -r docs/requirements.txt`; CI: `.github/workflows/docs.yml`).
 - **Local development:** [`docs/dev-environment.md`](docs/dev-environment.md): the whole system on your machine with
   `scripts/dev.sh up` (same images as staging, MinIO, mailpit, the fake AI model), `reset` in under a minute.
+- **Performance:** [`docs/perf/`](docs/perf/README.md): `scripts/loadtest.sh` runs the NFR load tests (k6) against
+  the local stack only; the dated reports and the by-hand procedure for a small staging run.
 - **Hosting decision:** [ADR-0004](docs/adr/0004-hosting.md) (Oracle Always Free in Riyadh, Cloudflare, one ARM VM).
 - **Runbooks:** [`docs/runbooks/`](docs/runbooks/), numbered in the order they are done.
   - [Runbook 1: OCI account and VM](docs/runbooks/01-oci-account-and-vm.md)

@@ -37,5 +37,8 @@ site/
 # scripts/dev.sh: the local stack's generated development-only keys and image overrides (issue #5).
 .dev/
 
+# scripts/loadtest.sh tokens, test photo and results (issue #22).
+loadtest/.work/
+
 # scripts/security-scan.sh reports (issue #18): they name versions and weaknesses.
 security-reports/
