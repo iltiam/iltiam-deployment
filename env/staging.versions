@@ -6,7 +6,9 @@
 # Roll back: put the previous tags back (git log -p env/staging.versions), merge, and deploy again (Runbook 5, 9.4).
 #
 # Every change here is a reviewed PR to main (scripts/set-version.sh writes the image line); the deploy workflow, run
-# by hand on main, then deploys it. The automatic deploys of Runbook 9 are retired (2026-11-14).
+# by hand on main, then deploys it. The automatic deploy (auto-deploy-staging.yml, Runbook 9 version 2) never commits
+# here: it commits to the auto/staging branch, and while AUTO_DEPLOY is "true" that branch's copy of this file says
+# what staging runs. Before a freeze, a PR from auto/staging brings this file up to date (Runbook 9, section 3.2).
 
 # Services beyond the always-on ones (postgres, redis, cloudflared, weights-init and the AI service), separated by
 # commas. backend: migrate, web, worker and beat. web: the web app (Runbook 5, section 1). Production keeps both off

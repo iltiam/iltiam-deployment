@@ -3,7 +3,8 @@
 This applies to every contributor, human or AI agent (Claude Code, Cursor, Codex, ...). CI is local in every ILTIAM
 repository: **`scripts/ci-local.sh` is the check that counts**, and nothing checks your work unless you run it. This
 repository is public, so GitHub Actions is used here for free, and only for: `env-check` and `docs` (on PRs and
-`main`, alongside the local checks) and `deploy` (started by hand, see "Deploying staging"). Background and setup:
+`main`, alongside the local checks), `deploy` (started by hand) and `auto-deploy-staging` (automatic staging deploys,
+see "Deploying staging"). Background and setup:
 `LOCAL_CI_MIGRATION.md` (section 0 is the setup in force).
 
 ## The commands
@@ -43,8 +44,17 @@ else on your machine can still differ. Reviewers: check that the pasted SHAs mat
 
 ## Deploying staging
 
-Deploys run only on GitHub Actions, through this repository's `deploy` workflow (`workflow_dispatch` only), started
-by hand, with the secrets of the GitHub `staging` Environment. No laptop holds those secrets: `scripts/deploy-staging.sh`
+**Automatically** (Runbook 9, version 2): while the repository variable `AUTO_DEPLOY` is `true`, the
+`auto-deploy-staging` workflow checks every 15 minutes whether staging is behind the `main` of iltiam-ai-service,
+iltiam-backend or iltiam-web, builds the arm64 image here, pushes `sha-<7>` and deploys it to staging (backend backup
+first, health check, automatic rollback), committing only to the `auto/staging` branch. While it is on,
+`origin/auto/staging:env/staging.versions` says what staging runs. Off: `AUTO_DEPLOY` anything but `true`; everything
+off: `gh workflow disable auto-deploy-staging.yml -R iltiam/iltiam-deployment`. Freezes before the demos: Runbook 9,
+section 3.
+
+**By hand**, as below. Deploys run only on GitHub Actions, through this repository's `deploy` workflow
+(`workflow_dispatch` only), started by hand, with the secrets of the GitHub `staging` Environment. No laptop holds
+those secrets: `scripts/deploy-staging.sh`
 and `scripts/deploy-prod.sh` are never run against a server. Commands, checks and rollback: `LOCAL_CI_MIGRATION.md`,
 section 0.
 
@@ -61,16 +71,23 @@ section 0.
    `gh run watch <run id> -R iltiam/iltiam-deployment --exit-status`, then check
    `https://staging-api.iltiamcare.com/api/ready/` and sign in on `https://staging-app.iltiamcare.com`.
 
-Rollback: a revert PR of the bump commit, approved and merged, then steps 4 and 5 again. A backend deploy takes no
-database backup by itself: take one by hand first when it migrates (`LOCAL_CI_MIGRATION.md`, section 0).
+Rollback: a revert PR of the bump commit, approved and merged, then steps 4 and 5 again. A manual backend deploy
+takes no database backup by itself: take one by hand first when it migrates (`LOCAL_CI_MIGRATION.md`, section 0).
+With `AUTO_DEPLOY` on, a manual deploy of `main` sets staging back to `main`'s tags and the next automatic run moves
+the changed services forward again: turn `AUTO_DEPLOY` off first when a manual deploy must stay.
 
 ## For AI agents
 
 - Run the commands above yourself; never claim a PASS you did not see in the summary table, and paste the table.
 - Do not use `--no-verify`, do not edit `scripts/ci-local.sh` or `scripts/lib/ci-common.sh` to make a run pass, and
   do not merge PRs unless a person asked you to, and then only with `scripts/merge-pr.sh`.
-- Deploys run only through the `deploy` workflow ("Deploying staging" above). Never publish an image, start a deploy
+- Deploys run only through the `deploy` and `auto-deploy-staging` workflows ("Deploying staging" above). Never
+  publish an image, start a deploy
   run or approve a held run without a person's explicit request, and never touch production unless asked. Never run
   `scripts/deploy-staging.sh` or `scripts/deploy-prod.sh` against a server (no laptop holds the secrets); their
   `--dry-run --offline` is always safe, and so is `--bump --dry-run`.
+- Never change `AUTO_DEPLOY`, enable or disable `auto-deploy-staging`, start one of its runs, or delete or move the
+  `auto/staging` branch or an `auto-failed/*` tag, unless a person asked for exactly that.
+- A workflow change must pass `scripts/check-public-workflows.sh` (in `ci-local.sh`): this repository's logs,
+  artifacts and caches are public, and the automatic deploy builds private code here.
 - Never create `~/.iltiam/deploy/<env>/`: even an empty template there makes the `--full` deploy preflight fail.

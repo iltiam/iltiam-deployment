@@ -26,6 +26,12 @@
   2026-11-14; they run alongside, not instead of, `ci-local.sh`.
 - **Verified end to end on 2026-11-14:** web `sha-aa7deb6` published, bumped (#71), deployed by run 43574332851
   (only the web container recreated, healthy), login and the demo flow checked on staging.
+- **Automatic staging deploys again, for free (2026-11-21, Runbook 9 version 2):** the `auto-deploy-staging` workflow
+  here (schedule every 15 minutes, plus Run workflow) builds the app repositories' `main` on the free
+  `ubuntu-24.04-arm` runners of this public repository, pushes `sha-<7>` to GHCR and deploys staging with the backup,
+  health check and rollback of #16. Nothing runs in the app repositories. It commits only to the `auto/staging` branch,
+  never `main`. On while the variable `AUTO_DEPLOY` is `true`; the manual flow below still works. Setup, tests, the
+  freezes before the demos and the public-log rules: Runbook 9.
 
 ### How to deploy staging
 
@@ -66,9 +72,9 @@ curl -s -o /dev/null -w '%{http_code}\n' https://staging-app.iltiamcare.com/heal
 **Rollback:** a revert PR of the bump commit (approved, merged), then steps 4 and 5 again. Allow time for the
 approval: `main` is the only branch staging deploys from.
 
-**Backend deploys take no database backup any more** (only the retired automatic job did, Runbook 9). Migrations
-never roll back by themselves (Runbook 9, section 6): before a backend deploy that migrates, take a backup by hand
-on the VM. An optional backup step in `deploy.yml` is an open follow-up.
+**A manual backend deploy takes no database backup** (the automatic deploy does, Runbook 9). Migrations never roll
+back by themselves (Runbook 9, section 6): before a manual backend deploy that migrates, take a backup by hand on the
+VM. An optional backup step in `deploy.yml` is an open follow-up.
 
 **Production:** the same steps with `env/production.versions` and `-f environment=production`; its Environment also
 waits for its required reviewer. Not used yet (#36).

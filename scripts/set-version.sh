@@ -3,18 +3,23 @@
 # Run on a laptop to prepare the reviewed PR that changes env/staging.versions (or by scripts/deploy-staging.sh --bump);
 # the deploy workflow, run by hand, then deploys main. Never on the VM: the VM never edits its clone (Runbook 5, section 4.3).
 #
-# Usage: scripts/set-version.sh staging <ai|backend|web> <40-character commit hash of that repository's main>
+# Usage: scripts/set-version.sh [--auto] staging <ai|backend|web> <40-character commit hash of that repository's main>
+#        scripts/set-version.sh [--auto] staging <ai|backend|web> --tag <sha-<7> | X.Y.Z>
 #
 #   ai       AI_API_IMAGE and AI_WORKER_IMAGE (one build: scripts/deploy.sh wants the same tag on both)
 #   backend  BACKEND_IMAGE
 #   web      WEB_IMAGE
 #
-# Only the tag changes, to sha-<7>; the image name must already be the expected one. The comment lines right above
-# the service's first line are replaced by one line naming the commit. The other services' lines stay as they are.
-# Staging only: production is released by hand (Runbook 10).
+#   --tag    set this tag as it is, with no commit to name: the automatic deploy's base commit, which writes down what
+#            staging runs (scripts/auto-deploy.sh prepare)
+#   --auto   only the comment's wording: written by the automatic deploy (auto-deploy-staging.yml, Runbook 9)
+#
+# Only the tag changes, to sha-<7> (or the --tag); the image name must already be the expected one. The comment lines
+# right above the service's first line are replaced by one line naming the commit. The other services' lines stay as
+# they are. Staging only: production is released by hand (Runbook 10).
 #
 # Prints three NAME=value lines, which the workflow appends to $GITHUB_OUTPUT as they are:
-#   previous=<the tag before>   tag=sha-<7>   changed=true|false
+#   previous=<the tag before>   tag=<the new tag>   changed=true|false
 # With changed=false the file is left untouched.
 
 set -euo pipefail
@@ -24,12 +29,25 @@ die() {
   exit 1
 }
 
-[[ $# -eq 3 ]] || die "usage: $0 staging <ai|backend|web> <40-character commit hash>"
+usage="usage: $0 [--auto] staging <ai|backend|web> <40-character commit hash>  |  ... --tag <sha-<7>|X.Y.Z>"
+by=hand
+if [[ "${1:-}" == --auto ]]; then
+  by=auto
+  shift
+fi
+sha=""
+fixed_tag=""
+if [[ $# -eq 4 && "$3" == --tag ]]; then
+  fixed_tag="$4"
+  [[ "$fixed_tag" =~ ^(sha-[0-9a-f]{7}|[0-9]+\.[0-9]+\.[0-9]+)$ ]] || die "--tag must be sha-<7> or X.Y.Z, got '$fixed_tag'"
+else
+  [[ $# -eq 3 ]] || die "$usage"
+  sha="$3"
+  [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || die "the commit must be a full 40-character hash"
+fi
 env_name="$1"
 service="$2"
-sha="$3"
 [[ "$env_name" == staging ]] || die "only staging (production is released by hand), got '$env_name'"
-[[ "$sha" =~ ^[0-9a-f]{40}$ ]] || die "the commit must be a full 40-character hash"
 
 case "$service" in
   ai)
@@ -53,7 +71,19 @@ esac
 repo="$(cd "$(dirname "$0")/.." && pwd)"
 file="$repo/env/$env_name.versions"
 [[ -f "$file" ]] || die "$file not found"
-tag="sha-${sha:0:7}"
+if [[ -n "$fixed_tag" ]]; then
+  tag="$fixed_tag"
+else
+  tag="sha-${sha:0:7}"
+fi
+today="$(date -u +%Y-%m-%d)"
+if [[ -n "$fixed_tag" ]]; then
+  comment="# $tag: $source_repo, what staging ran on $today (the automatic deploy's base, Runbook 9)."
+elif [[ "$by" == auto ]]; then
+  comment="# $tag: $source_repo main, commit $sha; deployed automatically on $today (auto-deploy-staging, Runbook 9)."
+else
+  comment="# $tag: $source_repo main, commit $sha; set on $today for the deploy workflow (run by hand)."
+fi
 
 mapfile -t lines <"$file"
 declare -a at=()
@@ -94,8 +124,7 @@ trap 'rm -f "$tmp"' EXIT
       continue
     fi
     if ((i == at[0])); then
-      printf '# %s: %s main, commit %s; set on %s for the deploy workflow (run by hand).\n' \
-        "$tag" "$source_repo" "$sha" "$(date -u +%Y-%m-%d)"
+      printf '%s\n' "$comment"
     fi
     replaced=false
     for k in "${!keys[@]}"; do
