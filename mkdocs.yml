@@ -35,6 +35,11 @@ nav:
   - ADR index: adr-index.md
   - SRS divergences: srs-divergences.md
   - Secrets: secrets.md
+  - Security:
+      - Threat model (STRIDE): security/threat-model.md
+      - Incident response: security/incident-response.md
+      - Breach runbook (72 hours): security/breach-runbook.md
+      - Tabletop 2026-11-21: security/tabletop-2026-11-21.md
   - ADRs:
       - ADR-0004 hosting: adr/0004-hosting.md
   - Runbooks:
