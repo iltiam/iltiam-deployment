@@ -22,5 +22,5 @@ AI_WORKER_IMAGE=ghcr.io/iltiam/iltiam-ai-worker:sha-a11a24d
 # sha-14223c2: iltiam-backend main, commit 14223c21c25d024cbeb3ba7359094ddfd8e7d86d; deployed automatically on 2026-11-12 (Runbook 9).
 BACKEND_IMAGE=ghcr.io/iltiam/iltiam-backend:sha-14223c2
 
-# sha-aa7deb6: iltiam-web main, commit aa7deb66bb0e70c96e5f060fe6088b34e6864fda; set on 2026-11-14 for the deploy workflow (run by hand).
-WEB_IMAGE=ghcr.io/iltiam/iltiam-web:sha-aa7deb6
+# sha-4e6e4f2: iltiam-web, what staging ran on 2026-11-21 (the automatic deploy's base, Runbook 9).
+WEB_IMAGE=ghcr.io/iltiam/iltiam-web:sha-4e6e4f2
