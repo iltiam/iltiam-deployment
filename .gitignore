@@ -33,3 +33,9 @@ Thumbs.db
 
 # MkDocs output (mkdocs build)
 site/
+
+# scripts/dev.sh: the local stack's generated development-only keys and image overrides (issue #5).
+.dev/
+
+# scripts/security-scan.sh reports (issue #18): they name versions and weaknesses.
+security-reports/

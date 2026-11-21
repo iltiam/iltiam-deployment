@@ -1,0 +1,4 @@
+# Vulnerabilities reviewed and accepted (scripts/security-scan.sh images and deps, issue #18).
+# One per line: <ID>  # package, why it does not apply or cannot be fixed yet, who decided, review date
+#   CVE-...   for Trivy;  PYSEC-... or GHSA-...  for pip-audit.
+# Each entry is a decision by Thabit, with a date to look at it again. Prefer fixing over accepting.

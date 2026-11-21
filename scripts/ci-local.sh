@@ -5,6 +5,9 @@
 #   scripts/ci-local.sh --fast   shellcheck, check-env.sh, check-compose.sh, both versions files, gitleaks (history),
 #                                the public workflow rules (check-public-workflows.sh), actionlint
 #   scripts/ci-local.sh --full   plus MkDocs strict and the deploy dry-runs' offline preflight
+#   scripts/ci-local.sh --fast   shellcheck, check-env.sh, check-compose.sh, both versions files, gitleaks (history)
+#   scripts/ci-local.sh --full   plus MkDocs strict, the deploy dry-runs' offline preflight and, when the local
+#                                stack is running (scripts/dev.sh up), its API smoke (optional)
 # THIS REPOSITORY IS PUBLIC. Nothing here prints a secret: `docker compose config` only with --quiet (inside the
 # checks), gitleaks only with --redact, no `set -x`.
 # Tools: bash, jq, openssl, the Docker Compose plugin (daemon not needed for the env/compose checks). shellcheck and
@@ -109,6 +112,13 @@ run_check_rollout() {
   bash scripts/check-rollout.sh
 }
 
+# Issue #5: the API smoke of the local stack, only when it is already running (starting it pulls several GB).
+run_dev_smoke() {
+  ci_docker_ready || { ci_blocked "no Docker daemon"; return; }
+  docker compose -p iltiam-dev ps --status running --services 2>/dev/null | grep -qx backend-web     || { ci_blocked "the local stack is not running: scripts/dev.sh up (docs/dev-environment.md)"; return; }
+  bash scripts/dev.sh smoke
+}
+
 deploy_preflight() {
   local env
   for env in staging production; do
@@ -131,6 +141,7 @@ ci_check "actionlint (workflows)" required -- run_actionlint
 if [ "$CI_MODE" = full ]; then
   ci_check "MkDocs strict build" required -- mkdocs_strict
   ci_check "deploy preflight (dry-run, offline)" required -- deploy_preflight
+  ci_check "dev stack API smoke (scripts/dev.sh, fake model)" optional -- run_dev_smoke
 fi
 
 ci_finish "Docker Compose: $(docker compose version --short 2>/dev/null || echo none)" "jq: $(jq --version 2>/dev/null)" \

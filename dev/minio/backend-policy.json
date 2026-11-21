@@ -1,0 +1,37 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "BucketMetadata",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetBucketLocation",
+        "s3:ListBucket",
+        "s3:GetBucketVersioning",
+        "s3:GetEncryptionConfiguration"
+      ],
+      "Resource": [
+        "arn:aws:s3:::wound-images",
+        "arn:aws:s3:::wound-masks",
+        "arn:aws:s3:::reports",
+        "arn:aws:s3:::prescriptions",
+        "arn:aws:s3:::profile-photos"
+      ]
+    },
+    {
+      "Sid": "ReadWriteObjectsNoDelete",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:PutObject"
+      ],
+      "Resource": [
+        "arn:aws:s3:::wound-images/*",
+        "arn:aws:s3:::wound-masks/*",
+        "arn:aws:s3:::reports/*",
+        "arn:aws:s3:::prescriptions/*",
+        "arn:aws:s3:::profile-photos/*"
+      ]
+    }
+  ]
+}

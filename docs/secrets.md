@@ -188,7 +188,8 @@ The full steps, with checks, are in [Runbook 11](runbooks/11-firebase.md), secti
 1. **Revoke or rotate first** (the table's last column), then investigate.
 2. If it was pasted into an issue, PR or commit: deleting or editing the text is **not** enough, because it stays in history, notifications and caches. The rotation is what fixes it.
 3. Check for misuse: the provider's logs or balance (Authentica, OCI audit, Cloudflare), and the backend's audit log.
-4. If patient data could have been reached, follow the incident and breach process (DEP-09, the 72-hour notification).
+4. If patient data could have been reached, follow the [incident response plan](security/incident-response.md) and the
+   [72-hour breach runbook](security/breach-runbook.md) (#21).
 5. Write down what happened, without the value, in the incident record.
 
 ## 8. Open items for #2 / DEP-02 / backend

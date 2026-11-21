@@ -5,6 +5,8 @@ Infrastructure for ILTIAM: hosting decisions, runbooks, environment templates an
 - **System documentation:** [architecture (C4)](docs/architecture.md), [integration guide](docs/integration.md) and
   the [ADR index](docs/adr-index.md) across all repositories. `mkdocs build --strict` builds them as a site
   (`pip install -r docs/requirements.txt`; CI: `.github/workflows/docs.yml`).
+- **Local development:** [`docs/dev-environment.md`](docs/dev-environment.md): the whole system on your machine with
+  `scripts/dev.sh up` (same images as staging, MinIO, mailpit, the fake AI model), `reset` in under a minute.
 - **Hosting decision:** [ADR-0004](docs/adr/0004-hosting.md) (Oracle Always Free in Riyadh, Cloudflare, one ARM VM).
 - **Runbooks:** [`docs/runbooks/`](docs/runbooks/), numbered in the order they are done.
   - [Runbook 1: OCI account and VM](docs/runbooks/01-oci-account-and-vm.md)
@@ -18,6 +20,10 @@ Infrastructure for ILTIAM: hosting decisions, runbooks, environment templates an
   [`scripts/deploy.sh`](scripts/deploy.sh)). Day to day on the VM: [`scripts/compose.sh`](scripts/compose.sh).
 - **Domain check:** [`scripts/check-dns.sh`](scripts/check-dns.sh) checks the DNS, email records and HTTPS headers of `iltiamcare.com` (Runbook 2, section 12).
 - **SRS divergences:** [`docs/srs-divergences.md`](docs/srs-divergences.md) records every decision that differs from the SRS.
+- **Security scans:** [`docs/security/scanning.md`](docs/security/scanning.md): `scripts/security-scan.sh` runs gitleaks,
+  Trivy, pip-audit, npm audit, osv-scanner and an OWASP ZAP baseline against the local stack, from Docker.
+- **Security:** [threat model](docs/security/threat-model.md), [incident response](docs/security/incident-response.md)
+  and the [72-hour breach runbook](docs/security/breach-runbook.md) (PDPL, FR-P-7.1).
 - **Secrets:** [`docs/secrets.md`](docs/secrets.md) lists every secret, its owner, rotation and revocation. Secrets
   live only in GitHub Environments and on the VM, **never in this repository**: it is public.
 - **Environment templates:** [`env/`](env/), names and comments only, no values.

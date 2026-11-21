@@ -1,0 +1,8 @@
+# gitleaks findings reviewed and accepted (scripts/security-scan.sh secrets, issue #18).
+# One per line: <repository> <gitleaks fingerprint>  # why it is not a secret
+# Added on top of each repository's own .gitleaksignore. A real secret never goes here: rotate it (docs/secrets.md).
+iltiam-backend 93f5573190be902b2f71f5026ee8906b2bd97706:apps/wounds/test_idempotency.py:generic-api-key:21  # test fixture in apps/wounds/test_idempotency.py: an idempotency key or test string, not a credential (reviewed 2026-11-21)
+iltiam-mobile 27845c72ef019981fc3e70214f4133cb56092448:test/issues/issue-45/offline_cache_test.dart:generic-api-key:198  # test fixture in test/issues/issue-45/offline_cache_test.dart: an idempotency key or test string, not a credential (reviewed 2026-11-21)
+iltiam-mobile d74b0972e6475f9875b7558e51a1d6b40bf599e9:test/issues/issue-28/upload_gateway_test.dart:generic-api-key:14  # test fixture in test/issues/issue-28/upload_gateway_test.dart: an idempotency key or test string, not a credential (reviewed 2026-11-21)
+iltiam-mobile 30ff11bec8b1d5833d7c656cf1af71ebe4a66183:test/issues/issue-64/idempotency_key_test.dart:generic-api-key:18  # test fixture in test/issues/issue-64/idempotency_key_test.dart: an idempotency key or test string, not a credential (reviewed 2026-11-21)
+iltiam-mobile 533101ea657edc668d5d5ad3dec11be34421da0e:test/issues/issue-64/idempotency_key_test.dart:generic-api-key:18  # test fixture in test/issues/issue-64/idempotency_key_test.dart: an idempotency key or test string, not a credential (reviewed 2026-11-21)
