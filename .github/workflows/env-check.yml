@@ -48,6 +48,13 @@ jobs:
           docker compose version
           bash scripts/check-compose.sh
 
+      # Every workflow here is public: no secret, env value or private code in a log, an artifact or a cache.
+      - name: Public workflow rules
+        run: bash scripts/check-public-workflows.sh --self-test
+
+      - name: actionlint
+        run: docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.12 -no-color -oneline
+
   gitleaks:
     name: gitleaks (full history)
     runs-on: ubuntu-24.04

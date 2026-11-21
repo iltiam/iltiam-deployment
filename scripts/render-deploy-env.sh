@@ -1,11 +1,17 @@
 #!/usr/bin/env bash
 # Render the env files one environment's deploy needs, from its GitHub Environment (deploy workflow, Runbook 5).
 #
-# Usage, in the deploy workflow only:
-#   SECRETS_JSON='${{ toJSON(secrets) }}' VARS_JSON='${{ toJSON(vars) }}' \
+# Usage, in the deploy workflows only:
+#   DEPLOY_SECRET_<NAME>='${{ secrets.<NAME> }}' (one per secret, by name)  VARS_JSON='${{ toJSON(vars) }}' \
 #     bash scripts/render-deploy-env.sh <staging|production> <output directory>
+# or, from a laptop's dry run (scripts/lib/deploy-local.sh) and scripts/check-env.sh, SECRETS_JSON='{...}' in place of
+# the DEPLOY_SECRET_ variables.
 #
-# The secrets and variables arrive as two JSON objects in the environment, never as arguments. Only the names the
+# The workflows never pass toJSON(secrets): GitHub held every deploy run that did ("This workflow file may be
+# malicious"), and a step should see only the secrets it needs. Each one is listed by name instead, and
+# scripts/check-public-workflows.sh checks that list against the templates. An empty DEPLOY_SECRET_ counts as not set.
+#
+# The secrets and variables arrive in the environment, never as arguments. Only the names the
 # templates in env/ list are taken from them; scripts/render-env.sh then writes each file (mode 600) and refuses a
 # missing required value. The output directory gets:
 #   infra.env, ai.env                always
@@ -26,8 +32,19 @@ die() {
   || die "usage: $0 <staging|production> <output directory>"
 env_name="$1"
 out="$2"
-[[ -n "${SECRETS_JSON:-}" && -n "${VARS_JSON:-}" ]] || die "SECRETS_JSON and VARS_JSON must be set"
 command -v jq >/dev/null 2>&1 || die "jq not found"
+[[ -n "${VARS_JSON:-}" ]] || die "VARS_JSON must be set"
+if [[ -z "${SECRETS_JSON:-}" ]]; then
+  secret_vars="$(compgen -e | grep '^DEPLOY_SECRET_' || true)"
+  [[ -n "$secret_vars" ]] || die "set the secrets: DEPLOY_SECRET_<NAME> variables, or SECRETS_JSON"
+  # jq reads the values straight from the environment: never through a file or an argument.
+  SECRETS_JSON="$(jq -cn '$ENV | with_entries(select(.key | startswith("DEPLOY_SECRET_"))
+    | .key |= ltrimstr("DEPLOY_SECRET_") | select(.value != ""))')"
+  export SECRETS_JSON
+  # The rendering below needs only SECRETS_JSON: the copies go.
+  while read -r name; do unset "$name"; done <<<"$secret_vars"
+  unset secret_vars name
+fi
 
 cd "$(dirname "$0")/.."
 

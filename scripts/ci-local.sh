@@ -2,7 +2,8 @@
 # Local CI for iltiam-deployment: replaces .github/workflows/env-check.yml and docs.yml (both kept, disabled), plus a
 # deploy preflight. deploy.yml is replaced by scripts/deploy-staging.sh / deploy-prod.sh (by hand, never automatic).
 # Policy: AGENTS.md.
-#   scripts/ci-local.sh --fast   shellcheck, check-env.sh, check-compose.sh, both versions files, gitleaks (history)
+#   scripts/ci-local.sh --fast   shellcheck, check-env.sh, check-compose.sh, both versions files, gitleaks (history),
+#                                the public workflow rules (check-public-workflows.sh), actionlint
 #   scripts/ci-local.sh --full   plus MkDocs strict and the deploy dry-runs' offline preflight
 # THIS REPOSITORY IS PUBLIC. Nothing here prints a secret: `docker compose config` only with --quiet (inside the
 # checks), gitleaks only with --redact, no `set -x`.
@@ -17,6 +18,8 @@ SHELLCHECK_VERSION="0.9.0"                               # ubuntu-24.04's apt pa
 SHELLCHECK_IMAGE="koalaman/shellcheck:v$SHELLCHECK_VERSION"
 GITLEAKS_VERSION="8.30.1"                                # env-check.yml
 GITLEAKS_IMAGE="ghcr.io/gitleaks/gitleaks:v$GITLEAKS_VERSION"
+ACTIONLINT_VERSION="1.7.12"                               # env-check.yml
+ACTIONLINT_IMAGE="rhysd/actionlint:$ACTIONLINT_VERSION"
 PY_PINNED="3.12"                                         # docs.yml
 
 ci_init iltiam-deployment "$@"
@@ -60,6 +63,17 @@ run_gitleaks() {
   else
     ci_docker_ready || { ci_blocked "gitleaks $GITLEAKS_VERSION not installed and no Docker daemon for $GITLEAKS_IMAGE"; return; }
     MSYS_NO_PATHCONV=1 docker run --rm -v "$(ci_docker_path "$PWD"):/repo" "$GITLEAKS_IMAGE" git /repo --redact --no-banner --verbose
+  fi
+}
+
+# The workflows (and the shell inside them, through the image's shellcheck). The deploy workflows run on GitHub only,
+# so this is the one check of their syntax before a merge.
+run_actionlint() {
+  if command -v actionlint >/dev/null 2>&1 && actionlint -version 2>/dev/null | head -n 1 | grep -qx "$ACTIONLINT_VERSION"; then
+    actionlint -no-color -oneline
+  else
+    ci_docker_ready || { ci_blocked "actionlint $ACTIONLINT_VERSION not installed and no Docker daemon for $ACTIONLINT_IMAGE"; return; }
+    MSYS_NO_PATHCONV=1 docker run --rm -v "$(ci_docker_path "$PWD"):/repo" -w /repo "$ACTIONLINT_IMAGE" -no-color -oneline
   fi
 }
 
@@ -111,6 +125,8 @@ ci_check "check-compose.sh (networks, ports, limits, secrets)" required --needs 
 ci_check "check-rollout.sh (no-downtime AI rollout, Docker)" required -- run_check_rollout
 ci_check "versions files (staging, production)" required -- bash -c 'bash scripts/deploy.sh --check-versions staging && bash scripts/deploy.sh --check-versions production'
 ci_check "gitleaks (full history, redacted)" required -- run_gitleaks
+ci_check "public workflow rules (+ self-test)" required -- bash scripts/check-public-workflows.sh --self-test
+ci_check "actionlint (workflows)" required -- run_actionlint
 
 if [ "$CI_MODE" = full ]; then
   ci_check "MkDocs strict build" required -- mkdocs_strict

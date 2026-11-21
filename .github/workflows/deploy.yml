@@ -12,12 +12,15 @@
 # /srv/iltiam/env/<env>/, log in to GHCR with this job's own token, run scripts/deploy.sh, log out
 # (scripts/remote-deploy.sh).
 #
-# The automatic staging deploy (the `auto` job on repository_dispatch from the image workflows, Runbook 9, issue #16)
-# was removed: Actions are off in the app repositories, and main is protected, so the bot's commit could not land.
+# Automatic staging deploys are a separate workflow, auto-deploy-staging.yml (Runbook 9, version 2): it builds the app
+# repositories' main here and deploys it from the auto/staging branch, in the same `deploy-staging` queue as this job.
+# While its AUTO_DEPLOY switch is on, a manual staging deploy sets staging back to the tags on main, and its next run
+# moves the changed services forward again: turn AUTO_DEPLOY off first for a manual deploy that should stay.
 #
 # THIS REPOSITORY IS PUBLIC, SO THIS LOG IS PUBLIC. The rules of env-check.yml hold here: no `set -x`, no echo, cat or
 # env of a value or a rendered file, `docker compose config` only with --quiet, `docker login` only with
-# --password-stdin. DEPLOY_HOST and DEPLOY_SSH_KNOWN_HOSTS are secrets because they hold the VM's address.
+# --password-stdin, each secret by name (never toJSON(secrets): GitHub held every run that passed them all). DEPLOY_HOST
+# and DEPLOY_SSH_KNOWN_HOSTS are secrets because they hold the VM's address. scripts/check-public-workflows.sh checks.
 name: deploy
 
 on:
@@ -57,8 +60,29 @@ jobs:
       - name: Render the env files
         env:
           DEPLOY_ENV: ${{ inputs.environment }}
-          SECRETS_JSON: ${{ toJSON(secrets) }}
           VARS_JSON: ${{ toJSON(vars) }}
+          # Each secret by name, never toJSON(secrets). scripts/check-public-workflows.sh checks this list against
+          # the env templates: one missing here and the render refuses, as for a secret missing in the Environment.
+          DEPLOY_SECRET_AI_DB_PASSWORD: ${{ secrets.AI_DB_PASSWORD }}
+          DEPLOY_SECRET_AI_SERVICE_TOKEN: ${{ secrets.AI_SERVICE_TOKEN }}
+          DEPLOY_SECRET_AUTHENTICA_API_KEY: ${{ secrets.AUTHENTICA_API_KEY }}
+          DEPLOY_SECRET_BACKEND_DB_PASSWORD: ${{ secrets.BACKEND_DB_PASSWORD }}
+          DEPLOY_SECRET_CF_TUNNEL_TOKEN: ${{ secrets.CF_TUNNEL_TOKEN }}
+          DEPLOY_SECRET_DJANGO_SECRET_KEY: ${{ secrets.DJANGO_SECRET_KEY }}
+          DEPLOY_SECRET_EMAIL_HOST_PASSWORD: ${{ secrets.EMAIL_HOST_PASSWORD }}
+          DEPLOY_SECRET_EMAIL_HOST_USER: ${{ secrets.EMAIL_HOST_USER }}
+          DEPLOY_SECRET_FCM_SERVICE_ACCOUNT_JSON: ${{ secrets.FCM_SERVICE_ACCOUNT_JSON }}
+          DEPLOY_SECRET_FIELD_ENCRYPTION_KEY: ${{ secrets.FIELD_ENCRYPTION_KEY }}
+          DEPLOY_SECRET_JWT_SECRET_KEY: ${{ secrets.JWT_SECRET_KEY }}
+          DEPLOY_SECRET_MASK_UPLOAD_ALLOWED_HOSTS: ${{ secrets.MASK_UPLOAD_ALLOWED_HOSTS }}
+          DEPLOY_SECRET_POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+          DEPLOY_SECRET_SECRET_KEY: ${{ secrets.SECRET_KEY }}
+          DEPLOY_SECRET_STAGING_TEST_PASSWORD: ${{ secrets.STAGING_TEST_PASSWORD }}
+          DEPLOY_SECRET_STORAGE_ACCESS_KEY: ${{ secrets.STORAGE_ACCESS_KEY }}
+          DEPLOY_SECRET_STORAGE_ENDPOINT_URL: ${{ secrets.STORAGE_ENDPOINT_URL }}
+          DEPLOY_SECRET_STORAGE_SECRET_KEY: ${{ secrets.STORAGE_SECRET_KEY }}
+          DEPLOY_SECRET_TURNSTILE_SECRET_KEY: ${{ secrets.TURNSTILE_SECRET_KEY }}
+          DEPLOY_SECRET_WEIGHTS_READ_TOKEN: ${{ secrets.WEIGHTS_READ_TOKEN }}
         run: bash scripts/render-deploy-env.sh "$DEPLOY_ENV" "$RUNNER_TEMP/rendered"
 
       - name: SSH key and host key
@@ -66,8 +90,10 @@ jobs:
           DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
           DEPLOY_SSH_KNOWN_HOSTS: ${{ secrets.DEPLOY_SSH_KNOWN_HOSTS }}
         run: |
-          [ -n "$DEPLOY_SSH_KEY" ] && [ -n "$DEPLOY_SSH_KNOWN_HOSTS" ] \
-            || { echo "::error::DEPLOY_SSH_KEY or DEPLOY_SSH_KNOWN_HOSTS is not set (Runbook 5, section 5)"; exit 1; }
+          if [ -z "$DEPLOY_SSH_KEY" ] || [ -z "$DEPLOY_SSH_KNOWN_HOSTS" ]; then
+            echo "::error::DEPLOY_SSH_KEY or DEPLOY_SSH_KNOWN_HOSTS is not set (Runbook 5, section 5)"
+            exit 1
+          fi
           install -d -m 700 ~/.ssh
           umask 077
           printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/iltiam_deploy

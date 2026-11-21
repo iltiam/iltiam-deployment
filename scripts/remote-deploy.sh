@@ -11,10 +11,13 @@
 #       VM's clone or anything else moves.
 #   bash scripts/remote-deploy.sh --check staging <ai|backend|web>
 #       Check out DEPLOY_SHA and run scripts/health-check.sh: an automatic deploy that changed no tag.
+#   bash scripts/remote-deploy.sh --status staging
+#       What staging runs, one line per container: `<service> <image:tag> <state>` (auto-deploy-staging.yml). Names
+#       and tags only; the VM's clone doesn't move.
 #
 # From the environment (never arguments):
 #   DEPLOY_HOST  the VM's address (an Environment secret: this repository is public)
-#   DEPLOY_SHA   the commit of this repository to deploy or check (not for --backup)
+#   DEPLOY_SHA   the commit of this repository to deploy or check (not for --backup or --status)
 #   GHCR_USER    github.actor;  GHCR_TOKEN  the job's own GITHUB_TOKEN (packages: read), dead when the job ends
 #                (the deploy only)
 # The workflow wrote the environment's SSH key to ~/.ssh/iltiam_deploy and the VM's host key to ~/.ssh/known_hosts.
@@ -35,15 +38,19 @@ run_mode=deploy
 case "${1:-}" in
   --backup) run_mode=backup && shift ;;
   --check) run_mode=check && shift ;;
+  --status) run_mode=status && shift ;;
 esac
 
 if [[ "$run_mode" == deploy ]]; then
   [[ $# -eq 2 && ("$1" == staging || "$1" == production) ]] \
-    || die "usage: $0 <staging|production> <rendered directory>  |  --backup staging backend-sha-<7>  |  --check staging <service>"
+    || die "usage: $0 <staging|production> <rendered directory>  |  --backup staging backend-sha-<7>  |  --check staging <service>  |  --status staging"
   env_name="$1"
   rendered="$2"
   [[ -d "$rendered" ]] || die "$rendered not found"
   check_service="${DEPLOY_CHECK_SERVICE:-}"
+elif [[ "$run_mode" == status ]]; then
+  [[ $# -eq 1 && "$1" == staging ]] || die "usage: $0 --status staging"
+  env_name="$1"
 else
   [[ $# -eq 2 && "$1" == staging ]] || die "usage: $0 --$run_mode staging <argument>"
   env_name="$1"
@@ -57,7 +64,7 @@ fi
 env_dir="/srv/iltiam/env/$env_name"
 [[ -z "${check_service:-}" || "$check_service" =~ ^(ai|backend|web)$ ]] || die "the service must be ai, backend or web"
 [[ -n "${DEPLOY_HOST:-}" ]] || die "DEPLOY_HOST is not set (Environment secret, Runbook 5, section 5)"
-if [[ "$run_mode" != backup ]]; then
+if [[ "$run_mode" != backup && "$run_mode" != status ]]; then
   [[ "${DEPLOY_SHA:-}" =~ ^[0-9a-f]{40}$ ]] || die "DEPLOY_SHA must be a full commit hash"
 fi
 if [[ "$run_mode" == deploy ]]; then
@@ -86,6 +93,13 @@ remote true || die "SSH as deploy failed: key, known_hosts or host (Runbook 5, s
 if [[ "$run_mode" == backup ]]; then
   remote "f=\$(mktemp) && cat >\"\$f\" && bash \"\$f\" $env_name $label; rc=\$?; rm -f \"\$f\"; exit \$rc" \
     <"$here/pre-deploy-backup.sh"
+  exit 0
+fi
+
+if [[ "$run_mode" == status ]]; then
+  remote "test -d $REPO/.git" || die "$REPO is not a clone of this repository (Runbook 5, section 4.3)"
+  # -a: a stopped container still names the tag it ran. compose.sh refuses nothing here: `ps` prints no value.
+  remote "bash $REPO/scripts/compose.sh $env_name ps -a --format '{{.Service}} {{.Image}} {{.State}}'" </dev/null
   exit 0
 fi
 

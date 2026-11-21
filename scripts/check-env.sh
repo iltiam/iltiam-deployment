@@ -6,7 +6,8 @@
 #   2. scripts/bootstrap-secrets.sh prints values of the right shape (they are checked, never shown).
 #   3. Render staging and production with dummy values, then `docker compose config --quiet` against compose.yml
 #      (Runbook 5, #2) with env/<env>.versions and every profile on.
-#   4. scripts/render-deploy-env.sh, as the deploy workflow runs it: from JSON, the files each environment needs.
+#   4. scripts/render-deploy-env.sh, as the deploy workflows run it: from JSON or from DEPLOY_SECRET_<NAME>
+#      variables, the files each environment needs.
 #   5. Negative cases: what must be refused is refused.
 #   6. The Authentica names (Runbook 12): the key stays a secret, the sender name a variable, staging runs without them.
 #   7. The web's ILTIAM_ENVIRONMENT (iltiam-web#63).
@@ -215,6 +216,19 @@ SECRETS_JSON="$secrets_json" VARS_JSON="$(deploy_json staging var)" \
   bash scripts/render-deploy-env.sh staging "$work/deploy-fcm" >/dev/null || fail "render-deploy-env.sh with FCM failed"
 [[ -s "$work/deploy-fcm/fcm-service-account.json" ]] || fail "FCM_SERVICE_ACCOUNT_JSON did not become a file"
 ok "FCM_SERVICE_ACCOUNT_JSON becomes fcm-service-account.json"
+# The workflows' way: each secret as DEPLOY_SECRET_<NAME> (never toJSON(secrets)). The same files, byte for byte, as
+# from SECRETS_JSON, and the DEPLOY_SECRET_ copies are gone before render-env.sh runs.
+from_named_vars() {
+  local name value
+  while IFS=$'\t' read -r name value; do
+    export "DEPLOY_SECRET_$name=$value"
+  done < <(jq -r 'to_entries[] | [.key, .value] | @tsv' <<<"$secrets_json" | tr -d '\r')
+  VARS_JSON="$(deploy_json staging var)" bash scripts/render-deploy-env.sh staging "$work/deploy-named" >/dev/null
+}
+(from_named_vars) || fail "render-deploy-env.sh from DEPLOY_SECRET_ variables failed"
+diff -rq "$work/deploy-fcm" "$work/deploy-named" >/dev/null \
+  || fail "DEPLOY_SECRET_ variables and SECRETS_JSON rendered different files"
+ok "DEPLOY_SECRET_<NAME> variables render the same files as SECRETS_JSON"
 unset secrets_json vars_json
 
 # --- 5. Negative cases -----------------------------------------------------------------------------------------------
@@ -254,6 +268,20 @@ deploy_without_service_token() {
     VARS_JSON="$(deploy_json staging var)" bash scripts/render-deploy-env.sh staging "$work/neg-deploy"
 }
 expect_fail "render-deploy-env.sh with AI_SERVICE_TOKEN missing from the Environment" deploy_without_service_token
+# The workflows' way: a secret that isn't set in the Environment arrives as an empty DEPLOY_SECRET_ variable.
+deploy_named_empty_service_token() {
+  local name value
+  while IFS=$'\t' read -r name value; do
+    export "DEPLOY_SECRET_$name=$value"
+  done < <(deploy_json staging secret | jq -r 'to_entries[] | [.key, .value] | @tsv' | tr -d '\r')
+  export DEPLOY_SECRET_AI_SERVICE_TOKEN=""
+  VARS_JSON="$(deploy_json staging var)" bash scripts/render-deploy-env.sh staging "$work/neg-named"
+}
+expect_fail "render-deploy-env.sh with DEPLOY_SECRET_AI_SERVICE_TOKEN empty" deploy_named_empty_service_token
+deploy_no_secrets() {
+  VARS_JSON="$(deploy_json staging var)" bash scripts/render-deploy-env.sh staging "$work/neg-none"
+}
+expect_fail "render-deploy-env.sh with neither SECRETS_JSON nor DEPLOY_SECRET_ variables" deploy_no_secrets
 # web.env's two values the image can't start without, with the web profile on.
 deploy_without_web_var() {
   SECRETS_JSON="$(deploy_json staging secret)" \
@@ -376,6 +404,23 @@ ok "ai: both AI images get the same tag, the file stays valid"
 bash "$auto/scripts/set-version.sh" staging backend "$sha_b" >/dev/null || fail "set-version.sh staging backend failed"
 grep -qx 'BACKEND_IMAGE=ghcr.io/iltiam/iltiam-backend:sha-2222222' "$versions" || fail "set-version.sh backend"
 ok "backend: BACKEND_IMAGE"
+# The automatic deploy (auto-deploy-staging.yml): --auto words the comment, --tag writes the base commit's tags.
+bash "$auto/scripts/set-version.sh" --auto staging web "$sha_b" >/dev/null || fail "set-version.sh --auto failed"
+[[ "$(grep -B1 '^WEB_IMAGE=' "$versions" | head -n 1)" == "# sha-2222222: iltiam-web main, commit $sha_b; deployed automatically"* ]] \
+  || fail "set-version.sh --auto: the line above WEB_IMAGE must say it was deployed automatically"
+out="$(bash "$auto/scripts/set-version.sh" --auto staging web --tag sha-1111111)" || fail "set-version.sh --tag failed"
+for expected_line in changed=true previous=sha-2222222 tag=sha-1111111; do
+  grep -qx "$expected_line" <<<"$out" || fail "set-version.sh --tag: expected $expected_line"
+done
+grep -qx 'WEB_IMAGE=ghcr.io/iltiam/iltiam-web:sha-1111111' "$versions" || fail "set-version.sh --tag did not set WEB_IMAGE"
+[[ "$(grep -B1 '^WEB_IMAGE=' "$versions" | head -n 1)" == "# sha-1111111: iltiam-web, what staging ran on "* ]] \
+  || fail "set-version.sh --tag: the line above WEB_IMAGE must say it is what staging ran"
+bash "$auto/scripts/set-version.sh" staging ai --tag 1.2.3 >/dev/null || fail "set-version.sh --tag X.Y.Z failed"
+grep -qx 'AI_WORKER_IMAGE=ghcr.io/iltiam/iltiam-ai-worker:1.2.3' "$versions" || fail "set-version.sh --tag ai: AI_WORKER_IMAGE"
+bash "$auto/scripts/deploy.sh" --check-versions staging >/dev/null || fail "the versions file is invalid after --tag"
+ok "--auto and --tag (sha-<7> and X.Y.Z): the right lines and comments, the file stays valid"
+expect_fail "set-version.sh --tag latest" bash "$auto/scripts/set-version.sh" staging web --tag latest
+expect_fail "set-version.sh --tag with a shell character" bash "$auto/scripts/set-version.sh" staging web --tag 'sha-1;x'
 expect_fail "set-version.sh for production" bash "$auto/scripts/set-version.sh" production web "$sha_a"
 expect_fail "set-version.sh with a short commit hash" bash "$auto/scripts/set-version.sh" staging web 1111111
 expect_fail "set-version.sh with an unknown service" bash "$auto/scripts/set-version.sh" staging mobile "$sha_a"
@@ -390,7 +435,11 @@ expect_fail "remote-deploy.sh --backup for production" bash scripts/remote-deplo
 expect_fail "remote-deploy.sh --backup with a malformed label" bash scripts/remote-deploy.sh --backup staging 'x;y'
 expect_fail "remote-deploy.sh --check for an unknown service" env DEPLOY_HOST=h DEPLOY_SHA="$sha_a" \
   bash scripts/remote-deploy.sh --check staging 'web;x'
-unset auto versions before snapshot out sha_a sha_b
+expect_fail "remote-deploy.sh --status for production" env DEPLOY_HOST=h bash scripts/remote-deploy.sh --status production
+expect_fail "remote-deploy.sh --status with an extra argument" env DEPLOY_HOST=h \
+  bash scripts/remote-deploy.sh --status staging web
+expect_fail "remote-deploy.sh --status without DEPLOY_HOST" env -u DEPLOY_HOST bash scripts/remote-deploy.sh --status staging
+unset auto versions before snapshot out sha_a sha_b expected_line
 # #16: a script that bash reads from SSH's stdin ends early when one of its commands reads stdin. remote-deploy.sh
 # copies the backup script to a file first; the backup's docker compose commands read nothing from stdin.
 ! grep -Eq 'bash[[:space:]]+(-s|/dev/stdin)' scripts/remote-deploy.sh \
