@@ -32,6 +32,7 @@ nav:
   - Home: index.md
   - Architecture (C4): architecture.md
   - Integration guide: integration.md
+  - Local development: dev-environment.md
   - ADR index: adr-index.md
   - SRS divergences: srs-divergences.md
   - Secrets: secrets.md
