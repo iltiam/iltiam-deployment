@@ -1,0 +1,304 @@
+# The whole ILTIAM system on a developer's machine (issue #5). docs/dev-environment.md explains every choice.
+#
+# Never run `docker compose` on this file by hand: use scripts/dev.sh (up, reset, seed, smoke, down). It passes
+#   -p iltiam-dev
+#   --env-file env/staging.versions   the same image tags staging runs (or .dev/images.env after `up --build`)
+#   --env-file .dev/dev.env           random development-only passwords and keys, made on the first `up`, gitignored
+#
+# Differences from compose.yml (staging and production), on purpose:
+#   - MinIO instead of OCI Object Storage, mailpit instead of SMTP, the console SMS and push backends.
+#   - The weight-free fake segmentation model by default (ILTIAM_SEG_MODEL=fake); `scripts/dev.sh up --real-model`
+#     downloads the real weights with your own WEIGHTS_READ_TOKEN.
+#   - Ports are published, on 127.0.0.1 only unless DEV_BIND says otherwise. Each one is different, so nothing
+#     clashes with the AI or backend repositories' own compose files:
+#       8000 backend API   8080 web app   8001 AI API (debugging)   9000 MinIO S3   9001 MinIO console
+#       8025 mailpit (the emails the backend sends)
+#   - The backend runs its production settings with ENVIRONMENT=staging, exactly like staging, so what works here
+#     works there. That is also why the fake delivery backends and demo seeding are allowed.
+#
+# Nothing here is a real secret. The passwords and keys in .dev/dev.env are random and never leave this machine.
+
+name: iltiam-dev
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+x-app: &app
+  logging: *logging
+  restart: unless-stopped
+  security_opt: ["no-new-privileges:true"]
+
+x-backend: &backend
+  <<: *app
+  image: ${BACKEND_IMAGE:?BACKEND_IMAGE is missing (run scripts/dev.sh, not docker compose)}
+  environment:
+    ENVIRONMENT: staging
+    SECRET_KEY: ${DEV_SECRET_KEY:?run scripts/dev.sh up}
+    JWT_SECRET_KEY: ${DEV_JWT_SECRET_KEY:?run scripts/dev.sh up}
+    FIELD_ENCRYPTION_KEY: ${DEV_FIELD_ENCRYPTION_KEY:?run scripts/dev.sh up}
+    # backend-web: the health check's Host header (first name). 10.0.2.2: the Android emulator's name for this machine.
+    ALLOWED_HOSTS: backend-web,localhost,127.0.0.1,10.0.2.2,${DEV_PUBLIC_HOST:-localhost}
+    CORS_ALLOWED_ORIGINS: http://localhost:8080,http://localhost:5173
+    CSRF_TRUSTED_ORIGINS: http://localhost:8080,http://localhost:5173
+    SECURE_SSL_REDIRECT: "False"
+    SECURE_HSTS_SECONDS: "0"
+    NUM_PROXIES: "0"
+    LOG_FORMAT: text
+    DATABASE_URL: postgres://iltiam:${DEV_BACKEND_DB_PASSWORD:?run scripts/dev.sh up}@postgres:5432/iltiam
+    REDIS_URL: redis://redis:6379/0
+    CELERY_BROKER_URL: redis://redis:6379/0
+    CELERY_RESULT_BACKEND: redis://redis:6379/0
+    CACHE_URL: redis://redis:6379/2
+    WEB_CONCURRENCY: "2"
+    CELERY_CONCURRENCY: "2"
+    FORWARDED_ALLOW_IPS: "*"
+    # Object storage: MinIO. Download and upload links are signed for the address your browser or phone uses.
+    STORAGE_ENDPOINT_URL: http://minio:9000
+    STORAGE_PUBLIC_ENDPOINT_URL: http://${DEV_PUBLIC_HOST:-localhost}:9000
+    STORAGE_REGION: us-east-1
+    STORAGE_ACCESS_KEY: iltiam-backend
+    STORAGE_SECRET_KEY: ${DEV_STORAGE_SECRET_KEY:?run scripts/dev.sh up}
+    AI_SERVICE_URL: http://ai-api:8000
+    AI_SERVICE_TOKEN: ${DEV_AI_SERVICE_TOKEN:?run scripts/dev.sh up}
+    # Delivery that never leaves this machine: SMS and push codes go to the log (scripts/dev.sh codes), email to
+    # mailpit (http://localhost:8025).
+    SMS_BACKEND: apps.notifications.sms.ConsoleSMSBackend
+    PUSH_BACKEND: apps.notifications.push.ConsolePushBackend
+    EMAIL_BACKEND: django.core.mail.backends.smtp.EmailBackend
+    EMAIL_HOST: mailpit
+    EMAIL_PORT: "1025"
+    EMAIL_USE_TLS: "False"
+    DEFAULT_FROM_EMAIL: ILTIAM Dev <no-reply@iltiam.local>
+    ACTIVATION_LINK_BASE_URL: http://localhost:8080/activate
+    TOTP_ISSUER: ILTIAM Dev
+    # The demo and staging seeds use the reserved test range +96659999xxxx: the login response carries their code
+    # (dev_otp_code), as on staging. Real numbers never get one.
+    OTP_DEV_ECHO_NUMBERS: ${DEV_OTP_ECHO_NUMBERS:?run scripts/dev.sh up}
+    DEMO_SEED_ENABLED: "True"
+    API_DOCS_ENABLED: "True"
+  depends_on: &backend-depends
+    backend-migrate: {condition: service_completed_successfully}
+    redis: {condition: service_healthy}
+    minio-init: {condition: service_completed_successfully}
+
+x-ai: &ai
+  <<: *app
+  environment:
+    DJANGO_SECRET_KEY: ${DEV_AI_DJANGO_SECRET_KEY:?run scripts/dev.sh up}
+    AI_SERVICE_TOKEN: ${DEV_AI_SERVICE_TOKEN:?run scripts/dev.sh up}
+    PGHOST: postgres
+    PGPORT: "5432"
+    PGDATABASE: iltiam_ai
+    PGUSER: iltiam_ai
+    PGPASSWORD: ${DEV_AI_DB_PASSWORD:?run scripts/dev.sh up}
+    CELERY_BROKER_URL: redis://redis:6379/3
+    CELERY_RESULT_BACKEND: redis://redis:6379/4
+    AI_CACHE_URL: redis://redis:6379/5
+    ALLOW_SYNC: "0"
+    AI_API_WORKERS: "1"
+    AI_WORKER_CONCURRENCY: "1"
+    ILTIAM_TORCH_THREADS: "2"
+    OMP_NUM_THREADS: "2"
+    # fake (default): weight-free, answers in milliseconds. segformer-b2: the real model (`up --real-model`).
+    ILTIAM_SEG_MODEL: ${DEV_SEG_MODEL:-fake}
+    ILTIAM_ALLOW_FAKE_MODEL: "1"
+    ILTIAM_TISSUE_ENABLED: "0"
+    ILTIAM_SERIES_TZ: Asia/Riyadh
+  volumes:
+    - weights:/app/models/weights:ro
+
+services:
+  # --- Data ----------------------------------------------------------------------------------------------------
+  postgres:
+    image: postgres:16.15-alpine
+    command: ["postgres", "-c", "shared_buffers=128MB", "-c", "max_connections=50"]
+    environment:
+      POSTGRES_PASSWORD: ${DEV_POSTGRES_PASSWORD:?run scripts/dev.sh up}
+      BACKEND_DB_PASSWORD: ${DEV_BACKEND_DB_PASSWORD:?run scripts/dev.sh up}
+      AI_DB_PASSWORD: ${DEV_AI_DB_PASSWORD:?run scripts/dev.sh up}
+    volumes:
+      - postgres:/var/lib/postgresql/data
+      # The same roles and databases as staging (iltiam, iltiam_ai).
+      - ./postgres/initdb:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "postgres", "-d", "postgres"]
+      interval: 3s
+      timeout: 3s
+      start_period: 30s
+      retries: 20
+    stop_signal: SIGINT
+    logging: *logging
+    restart: unless-stopped
+
+  redis:
+    image: redis:7.4.12-alpine
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "128mb", "--maxmemory-policy", "noeviction"]
+    volumes:
+      - redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    logging: *logging
+    restart: unless-stopped
+
+  # Chainguard's maintained build of the open-source MinIO, pinned by digest (the iltiam-backend compose file uses
+  # the same digests; apps/storage/README.md there says how to update them).
+  minio:
+    image: cgr.dev/chainguard/minio@sha256:4cf4831a2bbcf13ddca09c1cbcc9faff716dd3c4247e0babc32864b8ee8e0034
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: iltiam-minio-admin
+      MINIO_ROOT_PASSWORD: ${DEV_MINIO_ROOT_PASSWORD:?run scripts/dev.sh up}
+      # Encryption at rest with MinIO's built-in static key (development only, as in iltiam-backend).
+      MINIO_KMS_SECRET_KEY: iltiam-dev-key:${DEV_MINIO_KMS_KEY:?run scripts/dev.sh up}
+    ports:
+      - "${DEV_BIND:-127.0.0.1}:9000:9000"
+      - "127.0.0.1:9001:9001"
+    volumes:
+      - minio:/data
+    logging: *logging
+    restart: unless-stopped
+
+  minio-init:
+    # One-shot, idempotent: the five buckets (private, encrypted, versioned) and the backend's own user.
+    image: cgr.dev/chainguard/minio-client@sha256:b056b795d31828015aea061e3168267b0ba80590ba2d8f869e72ff77153a68e8
+    entrypoint: ["/bin/sh", "/dev-minio/init.sh"]
+    environment:
+      MINIO_ROOT_USER: iltiam-minio-admin
+      MINIO_ROOT_PASSWORD: ${DEV_MINIO_ROOT_PASSWORD:?run scripts/dev.sh up}
+      STORAGE_ACCESS_KEY: iltiam-backend
+      STORAGE_SECRET_KEY: ${DEV_STORAGE_SECRET_KEY:?run scripts/dev.sh up}
+      MC_CONFIG_DIR: /tmp/.mc
+    volumes:
+      - ./dev/minio:/dev-minio:ro
+    depends_on:
+      - minio
+    restart: "no"
+    logging: *logging
+
+  mailpit:
+    # Catches every email the backend sends; read them at http://localhost:8025.
+    image: axllent/mailpit:v1.27.11
+    ports:
+      - "127.0.0.1:8025:8025"
+    logging: *logging
+    restart: unless-stopped
+
+  # --- AI service ----------------------------------------------------------------------------------------------
+  weights-init:
+    # Only with `scripts/dev.sh up --real-model`: downloads the real weights with your WEIGHTS_READ_TOKEN.
+    <<: *app
+    image: ${AI_WORKER_IMAGE:?AI_WORKER_IMAGE is missing (run scripts/dev.sh, not docker compose)}
+    profiles: [real-model]
+    command: ["python", "scripts/download_weights.py"]
+    environment:
+      GITHUB_TOKEN: ${WEIGHTS_READ_TOKEN:-}
+    volumes:
+      - weights:/app/models/weights
+    restart: "no"
+
+  ai-api:
+    <<: *ai
+    image: ${AI_API_IMAGE:?AI_API_IMAGE is missing (run scripts/dev.sh, not docker compose)}
+    ports:
+      - "127.0.0.1:8001:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:8000/ready', timeout=4)"]
+      interval: 5s
+      timeout: 5s
+      start_period: 60s
+      retries: 24
+    depends_on:
+      weights-init: {condition: service_completed_successfully, required: false}
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+
+  ai-worker:
+    <<: *ai
+    image: ${AI_WORKER_IMAGE:?AI_WORKER_IMAGE is missing (run scripts/dev.sh, not docker compose)}
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A workers.celery_app inspect ping -d celery@$$HOSTNAME -t 5"]
+      interval: 15s
+      timeout: 10s
+      start_period: 60s
+      retries: 6
+    stop_grace_period: 60s
+    depends_on:
+      ai-api: {condition: service_healthy}
+
+  ai-beat:
+    <<: *ai
+    image: ${AI_WORKER_IMAGE:?AI_WORKER_IMAGE is missing (run scripts/dev.sh, not docker compose)}
+    command: ["celery", "-A", "workers.celery_app", "beat", "-l", "info", "-s", "/tmp/celerybeat-schedule"]
+    depends_on:
+      ai-api: {condition: service_healthy}
+
+  # --- Backend ---------------------------------------------------------------------------------------------------
+  backend-migrate:
+    <<: *backend
+    command: ["migrate"]
+    restart: "no"
+    healthcheck: {disable: true}
+    depends_on:
+      postgres: {condition: service_healthy}
+
+  backend-web:
+    <<: *backend
+    command: ["web"]
+    ports:
+      - "${DEV_BIND:-127.0.0.1}:8000:8000"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - >-
+          import urllib.request as u;
+          u.urlopen(u.Request('http://127.0.0.1:8000/api/health/', headers={'Host': 'backend-web'}), timeout=5)
+      interval: 5s
+      timeout: 6s
+      start_period: 30s
+      retries: 24
+    stop_grace_period: 30s
+
+  backend-worker:
+    <<: *backend
+    command: ["worker"]
+    stop_grace_period: 60s
+
+  backend-beat:
+    <<: *backend
+    command: ["beat"]
+
+  # --- Web app ---------------------------------------------------------------------------------------------------
+  web:
+    <<: *app
+    image: ${WEB_IMAGE:?WEB_IMAGE is missing (run scripts/dev.sh, not docker compose)}
+    environment:
+      API_BASE_URL: http://localhost:8000
+      IMAGE_ORIGINS: http://localhost:9000
+      # staging: the sign-in page shows the test code the backend returns for the reserved numbers.
+      ILTIAM_ENVIRONMENT: staging
+    ports:
+      - "127.0.0.1:8080:8080"
+    read_only: true
+    tmpfs: ["/tmp"]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/healthz"]
+      interval: 5s
+      timeout: 5s
+      start_period: 10s
+      retries: 12
+    depends_on:
+      backend-web: {condition: service_healthy}
+
+volumes:
+  postgres: {}
+  redis: {}
+  minio: {}
+  weights: {}
