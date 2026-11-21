@@ -37,6 +37,7 @@ nav:
   - SRS divergences: srs-divergences.md
   - Secrets: secrets.md
   - Security:
+      - Security scanning: security/scanning.md
       - Threat model (STRIDE): security/threat-model.md
       - Incident response: security/incident-response.md
       - Breach runbook (72 hours): security/breach-runbook.md

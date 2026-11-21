@@ -20,6 +20,8 @@ Infrastructure for ILTIAM: hosting decisions, runbooks, environment templates an
   [`scripts/deploy.sh`](scripts/deploy.sh)). Day to day on the VM: [`scripts/compose.sh`](scripts/compose.sh).
 - **Domain check:** [`scripts/check-dns.sh`](scripts/check-dns.sh) checks the DNS, email records and HTTPS headers of `iltiamcare.com` (Runbook 2, section 12).
 - **SRS divergences:** [`docs/srs-divergences.md`](docs/srs-divergences.md) records every decision that differs from the SRS.
+- **Security scans:** [`docs/security/scanning.md`](docs/security/scanning.md): `scripts/security-scan.sh` runs gitleaks,
+  Trivy, pip-audit, npm audit, osv-scanner and an OWASP ZAP baseline against the local stack, from Docker.
 - **Security:** [threat model](docs/security/threat-model.md), [incident response](docs/security/incident-response.md)
   and the [72-hour breach runbook](docs/security/breach-runbook.md) (PDPL, FR-P-7.1).
 - **Secrets:** [`docs/secrets.md`](docs/secrets.md) lists every secret, its owner, rotation and revocation. Secrets
