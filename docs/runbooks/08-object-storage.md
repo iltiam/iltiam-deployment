@@ -36,6 +36,7 @@ Filled in when the steps are done. Names and dates only: never the namespace, an
 | Service policy (section 6) | `iltiam-objectstorage-key-policy`: `use keys` and `manage object-family` in compartment `iltiam` |
 | Buckets (section 7) | the 12 of section 7: private, Standard, the environment's Vault key, versioning on the 10 backend buckets and off on the two `-backups`, 2026-10-29 |
 | Lifecycle rules (section 8) | `delete-old-versions` (previous versions, 30 days) and `abort-unfinished-uploads` (1 day) on the 10 versioned buckets, 2026-10-29 |
+| Export rules (section 8.1) | `delete-exports` (objects, 7 days) and `delete-old-export-versions` (previous versions, 1 day), both prefix `exports/`, Enabled on `iltiam-staging-reports`, 2026-11-22. Production with #36 |
 | Staging access (section 9) | group `iltiam-staging-storage`; policy `iltiam-storage-staging` (exact bucket names); user `iltiam-staging-storage` |
 | Production access (section 9.6) | later, with the production backend |
 | Staging key in GitHub (section 11) | `STORAGE_ACCESS_KEY`, `STORAGE_SECRET_KEY` set 2026-10-29 |
@@ -181,7 +182,7 @@ For each one: **☰ → Storage → Object Storage & Archive Storage → Buckets
 
 **Why versioning on the backend's buckets:** the backend never overwrites or deletes a file, so versions cost almost nothing, and they protect against a bug that would. The backend's own `check_storage` expects it. The `-backups` buckets have no versioning, so that a deleted dump is really gone.
 
-**No exports bucket yet (decided 2026-11-12):** the backend has no setting for one. It comes with BE-13, with a rule that deletes exports after 7 days.
+**No exports bucket (decided 2026-11-12):** the backend (BE-13) writes data exports under `exports/` in the `-reports` bucket, so no bucket is added. Section 8.1 deletes them after 7 days (#65).
 
 **The `-backups` buckets stay on Standard (decided 2026-11-12):** the account is free-only, and Infrequent Access or Archive would add fees and minimum storage periods (section 2).
 
@@ -199,6 +200,28 @@ On each of the 10 versioned buckets: bucket **→ Lifecycle Policy Rules** (unde
 - **Why:** an overwritten or deleted object stays as a previous version until this rule removes it. That bounds the space it uses and how long deleted personal data lingers (PDPL): at most 30 days.
 - **If creating a rule fails** with a permissions message: section 6, line 2 is missing.
 - **The `-backups` buckets** get their rules from Runbook 6 (#8), which decides how many dumps to keep.
+
+### 8.1 Data exports: two more rules on `-reports` only (#65)
+
+A patient's data export (BE-13) is written to `exports/<patient id>/<job id>.<ext>` in `iltiam-<SHORT>-reports`. Each one is a full copy of that patient's data. The backend refuses a download after 7 days (`EXPORT_TTL_DAYS`), but its key can't delete, so these rules remove the file.
+
+On `iltiam-staging-reports` (and on `iltiam-prod-reports` when production storage exists, #36): bucket **→ Lifecycle Policy Rules → Create Rule**, twice:
+
+| Name | Target | Lifecycle action | Days | Object name filters → Include prefixes |
+|---|---|---|---|---|
+| `delete-exports` | **Objects** | Delete | **7** | `exports/` |
+| `delete-old-export-versions` | **Previous object versions** | Delete | **1** | `exports/` |
+
+1. ☰ **→ Storage → Object Storage & Archive Storage → Buckets**, compartment `iltiam` → `iltiam-staging-reports` → **Lifecycle Policy Rules** (under Resources) **→ Create Rule**.
+2. Fill in the first row of the table. Under **Object name filters**, add `exports/` to **Include prefixes** only: no other prefix, no exclude, no pattern. **Create.**
+3. Repeat for the second row.
+
+**What you should see:** four rules on `iltiam-staging-reports`, all **Enabled**: the two of section 8 and these two. The other 9 versioned buckets still have only the two of section 8.
+
+- **Why the prefix:** reports outside `exports/` are kept as long as their record (retention map, `docs/privacy/retention.md`). A rule without the prefix would delete them. Check the prefix twice before **Create**.
+- **Why the second rule:** the bucket is versioned, so `delete-exports` only turns an export into a previous version. Without the second rule, `delete-old-versions` removes it 30 days later: up to 37 days in all. With it, an export is gone from storage about 8 days after it was written. OCI runs lifecycle rules once a day, so allow a day more.
+- **Days count** from the object's last change, which for an export is when it was written.
+- **If creating a rule fails** with a permissions message: section 6, line 2 is missing.
 
 ## 9. Storage access per environment
 
@@ -525,6 +548,8 @@ The **Verified** column records the date each row last passed.
 | 19 | `check_storage` on production (AC 1) | section 13 with `production` | `All storage checks passed.` | later | moved to #36 |
 | 20 | No charges (AC 2) | **Billing & Cost Management → Cost Analysis**, a week after section 12 | $0.00 | console | 2026-11-12: 0.00 for 1 October to 12 November |
 | 21 | Key rotation reminder | section 15.1 | a calendar entry a year ahead | console | 2026-11-12: yearly reminder "Rotate OCI Vault keys and storage keys (Runbook 8)" from 2026-10-29 |
+| 22 | Export rules (#65) | section 8.1 | both rules Enabled on `iltiam-staging-reports`, prefix `exports/` only; the other buckets unchanged | console | 2026-11-22: both rules created, prefix `exports/`; all 4 rules on `iltiam-staging-reports` Enabled |
+| 23 | An export is removed (#65) | ask for an export on staging (app: Privacy → Export); note its date; 9 days later, open `exports/` in `iltiam-staging-reports` with **Show deleted objects** on | the file and its previous version are gone; objects outside `exports/` are still there | console, 9 days after the export | Not yet: needs an activated test patient account on staging (activation needs a real phone number) |
 
 **Record the results as a comment on issue #13:** pass or fail per row, with the date. **Never include** the namespace, an OCID, a key, an endpoint or a link. The probe's output may be pasted as it is.
 
@@ -536,6 +561,7 @@ The **Verified** column records the date each row last passed.
 - **Encryption at rest:** AES-256 with a Vault key per environment, rotated yearly (NFR-SEC-04). Software-protected keys are free; the key material stays inside OCI Vault.
 - **Secrets:** the Customer Secret Keys live only in the GitHub Environments and in `backend.env` on the VM (`docs/secrets.md`). The namespace is treated like an address: in GitHub secrets, never in the repository.
 - **Old versions:** kept 30 days, then removed by the lifecycle rule. So a file deleted for PDPL reasons is gone from storage within 30 days.
+- **Data exports:** removed about 8 days after they were written, old version included (section 8.1).
 - **PDPL:** every bucket and key is in the Riyadh region.
 
 ## 19. What comes next
@@ -544,5 +570,5 @@ The **Verified** column records the date each row last passed.
 - **Runbook 6 (#8):** a backup user per environment that can only write to its `-backups` bucket, the lifecycle rules for the dumps, and the weekly restore test.
 - **Runbook 7 (#10):** the Grafana panel for space and requests, and alerts to the same topic.
 - **Production** (section 9.6), when Runbook 5 turns production's backend on.
-- **BE-13:** an exports bucket per environment, with a rule that deletes exports after 7 days.
+- **#36:** the two export rules of section 8.1 on `iltiam-prod-reports`.
 - **BE-22:** retention jobs; the storage policy then gets `OBJECT_DELETE`.
