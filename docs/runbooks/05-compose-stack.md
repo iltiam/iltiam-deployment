@@ -500,7 +500,8 @@ Production runs `postgres`, `redis`, `weights-init`, the AI service and `cloudfl
 
 5. Cloudflare dashboard → **Networking → Tunnels:** `iltiam-prod` is **Healthy**. `https://api.iltiamcare.com/api/health/` answers **502**: the tunnel runs, but there is no backend behind it yet. That is expected.
 
-Releases after the first deploy, rollback and the split triggers: [Runbook 10](10-production-release.md).
+Everything production needs before this, in order: [Runbook 13](13-production-environment.md). Releases after the
+first deploy, rollback and the split triggers: [Runbook 10](10-production-release.md).
 
 **Later, turning the production backend on** (after DEP-13, DEP-14 and SMTP; Runbook 4, section 7):
 

@@ -17,11 +17,13 @@ Infrastructure for ILTIAM: hosting decisions, runbooks, environment templates an
   - [Runbook 4: secrets and environment files](docs/runbooks/04-secrets.md)
   - [Runbook 5: staging and production as two Compose projects](docs/runbooks/05-compose-stack.md)
   - [Runbook 10: production release with approval, rollback, and when to split](docs/runbooks/10-production-release.md)
+  - [Runbook 13: the production environment on the VM](docs/runbooks/13-production-environment.md)
   - [Runbook 12: Authentica account, default sender and API key for phone codes](docs/runbooks/12-authentica.md)
 - **The stack:** [`compose.yml`](compose.yml) (both environments), image tags in [`env/<env>.versions`](env/),
   deployed by **Actions → deploy** ([`.github/workflows/deploy.yml`](.github/workflows/deploy.yml),
   [`scripts/deploy.sh`](scripts/deploy.sh)). Day to day on the VM: [`scripts/compose.sh`](scripts/compose.sh).
 - **Domain check:** [`scripts/check-dns.sh`](scripts/check-dns.sh) checks the DNS, email records and HTTPS headers of `iltiamcare.com` (Runbook 2, section 12).
+- **Go-live:** [`docs/go-live-checklist.md`](docs/go-live-checklist.md), the last gate before real patients (#23).
 - **SRS divergences:** [`docs/srs-divergences.md`](docs/srs-divergences.md) records every decision that differs from the SRS.
 - **Security scans:** [`docs/security/scanning.md`](docs/security/scanning.md): `scripts/security-scan.sh` runs gitleaks,
   Trivy, pip-audit, npm audit, osv-scanner and an OWASP ZAP baseline against the local stack, from Docker.
