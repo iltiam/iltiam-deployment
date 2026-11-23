@@ -55,6 +55,7 @@ nav:
       - 5. Compose stack: runbooks/05-compose-stack.md
       - 8. Object storage: runbooks/08-object-storage.md
       - 9. Automatic staging deploys: runbooks/09-cd-staging.md
+      - 10. Production release and rollback: runbooks/10-production-release.md
       - 11. Firebase push: runbooks/11-firebase.md
       - 12. Authentica: runbooks/12-authentica.md
   - Privacy (PDPL):
