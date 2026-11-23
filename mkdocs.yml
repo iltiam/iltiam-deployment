@@ -33,6 +33,9 @@ nav:
   - Architecture (C4): architecture.md
   - Integration guide: integration.md
   - Local development: dev-environment.md
+  - Performance:
+      - Load tests: perf/README.md
+      - Report 2026-11-23 (local): perf/2026-11-23-local.md
   - ADR index: adr-index.md
   - SRS divergences: srs-divergences.md
   - Secrets: secrets.md
