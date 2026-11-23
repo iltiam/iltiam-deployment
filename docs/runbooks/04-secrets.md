@@ -271,7 +271,7 @@ GitHub can't show a secret again, so these also go into Bitwarden, organisation 
 | `FIELD_ENCRYPTION_KEY staging` | the staging value | right after section 6 |
 | `FIELD_ENCRYPTION_KEY production` | the production value | right after section 6 |
 | `Android upload keystore` | `base64 -w0 upload-keystore.jks` output, plus its store password, key alias and key password | when MOB-03 creates it (owner MYF25, TO CONFIRM) |
-| `age backup key` | the private `AGE-SECRET-KEY-…` line | when Runbook 6 (#8) creates it |
+| `age backup key staging`, `age backup key production` | the three lines `age-keygen` printed, private key included | when [Runbook 6](06-backups.md), section 7 creates each one |
 
 **Why:**
 - **`FIELD_ENCRYPTION_KEY`:** losing it makes every stored authenticator secret and message unreadable.

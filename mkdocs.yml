@@ -54,6 +54,8 @@ nav:
       - 3. Cloudflare Tunnels: runbooks/03-cloudflare-tunnels.md
       - 4. Secrets: runbooks/04-secrets.md
       - 5. Compose stack: runbooks/05-compose-stack.md
+      - 6. Backups and restore test: runbooks/06-backups.md
+      - 6. Restoring from a backup: runbooks/06-restore.md
       - 8. Object storage: runbooks/08-object-storage.md
       - 9. Automatic staging deploys: runbooks/09-cd-staging.md
       - 10. Production release and rollback: runbooks/10-production-release.md

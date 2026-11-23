@@ -14,7 +14,7 @@
 # The secrets and variables arrive in the environment, never as arguments. Only the names the
 # templates in env/ list are taken from them; scripts/render-env.sh then writes each file (mode 600) and refuses a
 # missing required value. The output directory gets:
-#   infra.env, ai.env                always
+#   infra.env, ai.env, backup.env    always (backup.env: Runbook 6, #8; staging may leave its names unset)
 #   backend.env                      when env/<env>.versions enables the backend profile
 #   web.env                          when env/<env>.versions enables the web profile
 #   fcm-service-account.json         when the secret FCM_SERVICE_ACCOUNT_JSON is set (Runbook 11, DEP-13)
@@ -49,7 +49,7 @@ fi
 cd "$(dirname "$0")/.."
 
 profiles="$(sed -n 's/^COMPOSE_PROFILES=//p' "env/$env_name.versions" | tr -d '\r' | tail -n 1)"
-templates=(env/infra.env.example env/ai.env.example)
+templates=(env/infra.env.example env/ai.env.example env/backup.env.example)
 if [[ ",$profiles," == *",backend,"* ]]; then
   templates+=(env/backend.env.example)
 fi

@@ -35,7 +35,7 @@ committed to are done. Copy sections 1 to 5 into a comment on #23 and tick them 
 | [ ] | Production deployed and healthy (#36) | Runbook 5, section 8; `iltiam production ps` | All services healthy |
 | [ ] | Released through Runbook 10 as v1.0.0 | [Runbook 10](runbooks/10-production-release.md), section 4 | The `prod-v1.0.0` tag, the release PR |
 | [ ] | Read-only smoke passes | `scripts/smoke-readonly.sh production` | `Smoke: all checks passed.` |
-| [ ] | Backups nightly, **restore tested** (#8) | Runbook 6: restore last night's backup into a throwaway project, count rows | Date and row counts. **No real patient data before this box** |
+| [ ] | Backups nightly, **restore tested** (#8) | [Runbook 6](runbooks/06-backups.md), section 11 for production; then two Friday restore tests in a row (section 14, row 8): `scripts/restore-test.sh production` restores last night's backup into a throwaway database and counts rows | The two dates and row counts. **No real patient data before this box** |
 | [ ] | Monitoring and alerts tested (#10) | Stop production's AI worker for 5 minutes on purpose: the alert email arrives | Time of the alert email |
 | [ ] | External uptime probe and status page live | The free pinger on `app.` and `api.` health; the status page URL | URL |
 | [ ] | Production secrets differ from staging | On the VM as `deploy`: `scripts/check-env-differ.sh` | `No secret is shared between staging and production.` |

@@ -58,7 +58,7 @@ OCI Vault "iltiam" (software keys, free)
 backend web and worker ──S3 API, the environment's own key──▶ its 5 backend buckets   (read, write; never delete)
 AI worker  ──presigned PUT, made by the backend────────────▶ <SHORT>-wound-masks     (the AI service has no key)
 phones and browsers ──presigned GET, valid ≤ 15 min───────▶ photos, masks, PDFs
-backup job (Runbook 6, #8) ──its own key, later───────────▶ <SHORT>-backups
+nightly backup (Runbook 6, #8) ──its own key──────────────▶ <SHORT>-backups   (create and read; no delete)
 ```
 
 - **The S3-compatible API.** The backend speaks S3 (boto3, django-storages) to OCI's S3-compatible endpoint, with path-style addressing (`…/<bucket>/<object>`) and region `me-riyadh-1`.
@@ -199,7 +199,7 @@ On each of the 10 versioned buckets: bucket **→ Lifecycle Policy Rules** (unde
 
 - **Why:** an overwritten or deleted object stays as a previous version until this rule removes it. That bounds the space it uses and how long deleted personal data lingers (PDPL): at most 30 days.
 - **If creating a rule fails** with a permissions message: section 6, line 2 is missing.
-- **The `-backups` buckets** get their rules from Runbook 6 (#8), which decides how many dumps to keep.
+- **The `-backups` buckets** get their own rules from [Runbook 6](06-backups.md), section 3: `delete-daily` (14 days), `delete-weekly` (56 days) and `abort-unfinished-uploads`.
 
 ### 8.1 Data exports: two more rules on `-reports` only (#65)
 
@@ -567,7 +567,7 @@ The **Verified** column records the date each row last passed.
 ## 19. What comes next
 
 - **#36:** production's storage user and key (section 9.6), the probe and `check_storage` on production (rows 18 and 19).
-- **Runbook 6 (#8):** a backup user per environment that can only write to its `-backups` bucket, the lifecycle rules for the dumps, and the weekly restore test.
+- **[Runbook 6](06-backups.md) (#8):** a backup user per environment that can only create and read in its `-backups` bucket, the lifecycle rules for the dumps, and the weekly restore test.
 - **Runbook 7 (#10):** the Grafana panel for space and requests, and alerts to the same topic.
 - **Production** (section 9.6), when Runbook 5 turns production's backend on.
 - **#36:** the two export rules of section 8.1 on `iltiam-prod-reports`.

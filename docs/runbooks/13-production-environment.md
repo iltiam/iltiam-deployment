@@ -14,7 +14,7 @@ with the staging the demo uses. Start section 6 after the demo.
 | Item | State |
 |---|---|
 | GitHub Environment `production` | Exists, with a required reviewer. Secrets set: the generated ones (`SECRET_KEY`, `JWT_SECRET_KEY`, `FIELD_ENCRYPTION_KEY`, `AI_SERVICE_TOKEN`, `DJANGO_SECRET_KEY`, the three database passwords), `CF_TUNNEL_TOKEN`, `TURNSTILE_SECRET_KEY`. **No variables yet** |
-| Missing secrets | `STORAGE_ENDPOINT_URL`, `STORAGE_ACCESS_KEY`, `STORAGE_SECRET_KEY`, `MASK_UPLOAD_ALLOWED_HOSTS` (section 3.1), `EMAIL_HOST_USER`, `EMAIL_HOST_PASSWORD` (3.2), `AUTHENTICA_API_KEY` (3.3), `WEIGHTS_READ_TOKEN` (3.5); and `FCM_SERVICE_ACCOUNT_JSON` (3.4, not in a template) |
+| Missing secrets | `STORAGE_ENDPOINT_URL`, `STORAGE_ACCESS_KEY`, `STORAGE_SECRET_KEY`, `MASK_UPLOAD_ALLOWED_HOSTS` (section 3.1), `EMAIL_HOST_USER`, `EMAIL_HOST_PASSWORD` (3.2), `AUTHENTICA_API_KEY` (3.3), `WEIGHTS_READ_TOKEN` (3.5); and `FCM_SERVICE_ACCOUNT_JSON` (3.4, not in a template). Since #8, also the backup settings (3.6) |
 | Variables | Ready in [`env/production.vars`](https://github.com/iltiam/iltiam-deployment/blob/main/env/production.vars), set with `scripts/set-env-vars.sh` (section 2). Two wait for you: `AUTHENTICA_SENDER_NAME` (decision) and `TURNSTILE_SITE_KEY` (the widget's site key) |
 | `env/production.versions` | AI `sha-0d1861e`; backend and web `to-confirm`; `COMPOSE_PROFILES=` empty (AI only) |
 | Tunnel `iltiam-prod`, DNS `app.` and `api.` | Runbook 3 |
@@ -74,7 +74,16 @@ Runbook 11 says). The deploy writes it next to the env files and `compose.fcm.ym
 
 A fine-grained token with read access to iltiam-ai-service's releases, production's own: `WEIGHTS_READ_TOKEN`.
 
-### 3.6 Check: nothing missing
+### 3.6 Backups (Runbook 6, #8)
+
+**The first production deploy needs these:** they are `prod-required` in `env/backup.env.example`, because production
+takes no real patient data before its backups work. [Runbook 6, section 11](06-backups.md): the lifecycle rules on
+`iltiam-prod-backups`, the backup user `iltiam-prod-backup` and its key, the two dead-man checks, the age key pair
+(escrowed), then `BACKUP_STORAGE_ACCESS_KEY`, `BACKUP_STORAGE_SECRET_KEY`, `BACKUP_AGE_IDENTITY`, `BACKUP_PING_URL`,
+`BACKUP_RESTORE_PING_URL` (secrets) and `BACKUP_AGE_RECIPIENT` (variable). After the first deploy, the timers:
+`sudo bash /srv/iltiam/repo/scripts/install-backup-timers.sh production`.
+
+### 3.7 Check: nothing missing
 
 Runbook 4, section 10.2 with `ENV=production`: both commands print nothing. Then `gh secret list --env production`
 lists `FCM_SERVICE_ACCOUNT_JSON` too.
