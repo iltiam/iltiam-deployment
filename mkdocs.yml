@@ -35,6 +35,7 @@ nav:
   - Local development: dev-environment.md
   - ADR index: adr-index.md
   - SRS divergences: srs-divergences.md
+  - Go-live checklist: go-live-checklist.md
   - Secrets: secrets.md
   - Security:
       - Security scanning: security/scanning.md
