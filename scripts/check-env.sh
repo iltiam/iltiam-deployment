@@ -13,6 +13,8 @@
 #   7. The web's ILTIAM_ENVIRONMENT (iltiam-web#63).
 #   8. Automatic staging deploys (Runbook 9): set-version.sh on a copy of the repository, and what the backup, health
 #      check and remote-deploy scripts refuse before they reach the VM.
+#   9. Backups (Runbook 6, #8): staging deploys without the backup settings, production doesn't; backup.env is read
+#      as data; object names, the status file, what the backup scripts refuse; no workflow touches a dump.
 #
 # Usage: bash scripts/check-env.sh
 # Needs bash, openssl, jq and the Docker Compose plugin. No image is pulled and no container started.
@@ -25,7 +27,7 @@ cd "$(dirname "$0")/.."
 
 RENDER=scripts/render-env.sh
 COMPOSE_FILE=compose.yml
-TEMPLATES=(env/backend.env.example env/ai.env.example env/web.env.example env/infra.env.example)
+TEMPLATES=(env/backend.env.example env/ai.env.example env/web.env.example env/infra.env.example env/backup.env.example)
 # A dummy with a `$` in it: Compose must keep it literal, not interpolate it.
 # shellcheck disable=SC2016  # the `$` is meant literally
 DOLLAR_DUMMY='dummy$literal-value'
@@ -61,7 +63,7 @@ export_dummies() {
   done < <(names_for "$env")
 }
 
-# Render all four templates into a directory.
+# Render all the templates into a directory.
 render_all() {
   local env="$1" dir="$2" template
   mkdir -p "$dir"
@@ -144,7 +146,7 @@ for env in staging production; do
   for file in "$work/$env"/*.env; do
     grep -Eq "^[A-Z][A-Z0-9_]*='" "$file" || fail "$file: no quoted NAME='value' lines"
   done
-  ok "4 env files rendered"
+  ok "${#TEMPLATES[@]} env files rendered"
   if [[ "$env" == production ]]; then
     ! grep -Eq '^(OTP_DEV_ECHO_NUMBERS|STAGING_TEST_PASSWORD|DEMO_SEED_ENABLED)=' "$work/$env/backend.env" \
       || fail "a staging-only variable reached the production backend.env"
@@ -179,7 +181,7 @@ for env in staging production; do
   profiles="$(sed -n 's/^COMPOSE_PROFILES=//p' "env/$env.versions" | tr -d '\r' | tail -n 1)"
   expected="ai.env"
   if [[ ",$profiles," == *",backend,"* ]]; then expected+=" backend.env"; fi
-  expected+=" infra.env"
+  expected+=" backup.env infra.env"
   if [[ ",$profiles," == *",web,"* ]]; then expected+=" web.env"; fi
   secrets_json="$(deploy_json "$env" secret)"
   vars_json="$(deploy_json "$env" var)"
@@ -197,9 +199,9 @@ SECRETS_JSON="$(deploy_json staging secret)" VARS_JSON="$(deploy_json staging va
   bash "$work/repo-backend/scripts/render-deploy-env.sh" staging "$work/deploy-backend" >/dev/null \
   || fail "render-deploy-env.sh staging with the backend profile on failed"
 got="$(cd "$work/deploy-backend" && printf '%s ' *)"
-[[ "${got% }" == "ai.env backend.env infra.env" ]] \
-  || fail "render-deploy-env.sh with the backend profile on wrote '$got', expected 'ai.env backend.env infra.env'"
-ok "staging, backend profile alone: ai.env backend.env infra.env"
+[[ "${got% }" == "ai.env backend.env backup.env infra.env" ]] \
+  || fail "render-deploy-env.sh with the backend profile on wrote '$got', expected 'ai.env backend.env backup.env infra.env'"
+ok "staging, backend profile alone: ai.env backend.env backup.env infra.env"
 # The web profile alone, from another copy: web.env, no backend.env.
 mkdir -p "$work/repo-web"
 cp -r scripts env "$work/repo-web/"
@@ -208,9 +210,9 @@ SECRETS_JSON="$(deploy_json staging secret)" VARS_JSON="$(deploy_json staging va
   bash "$work/repo-web/scripts/render-deploy-env.sh" staging "$work/deploy-web" >/dev/null \
   || fail "render-deploy-env.sh staging with the web profile on failed"
 got="$(cd "$work/deploy-web" && printf '%s ' *)"
-[[ "${got% }" == "ai.env infra.env web.env" ]] \
-  || fail "render-deploy-env.sh with the web profile on wrote '$got', expected 'ai.env infra.env web.env'"
-ok "staging, web profile alone: ai.env infra.env web.env"
+[[ "${got% }" == "ai.env backup.env infra.env web.env" ]] \
+  || fail "render-deploy-env.sh with the web profile on wrote '$got', expected 'ai.env backup.env infra.env web.env'"
+ok "staging, web profile alone: ai.env backup.env infra.env web.env"
 secrets_json="$(deploy_json staging secret | jq -c '. + {FCM_SERVICE_ACCOUNT_JSON: "{\"type\": \"service_account\"}"}' | tr -d '\r')"
 SECRETS_JSON="$secrets_json" VARS_JSON="$(deploy_json staging var)" \
   bash scripts/render-deploy-env.sh staging "$work/deploy-fcm" >/dev/null || fail "render-deploy-env.sh with FCM failed"
@@ -447,5 +449,86 @@ unset auto versions before snapshot out sha_a sha_b expected_line
 ! grep -E 'compose (exec|run)' scripts/pre-deploy-backup.sh | grep -v '^[[:space:]]*#' | grep -qv '</dev/null' \
   || fail "every compose exec/run in pre-deploy-backup.sh needs </dev/null (#16)"
 ok "no script runs from SSH's stdin; the backup's compose commands read no stdin"
+
+# --- 9. Backups (Runbook 6, issue #8) --------------------------------------------------------------------------------
+
+log "backups (Runbook 6)"
+# Staging deploys keep working before Runbook 6 is done: backup.env is written, with none of the backup names.
+no_backup_secrets="$(deploy_json staging secret | jq -c 'with_entries(select(.key | startswith("BACKUP_") | not))' | tr -d '\r')"
+SECRETS_JSON="$no_backup_secrets" VARS_JSON="$(deploy_json staging var | jq -c 'del(.BACKUP_AGE_RECIPIENT)' | tr -d '\r')" \
+  bash scripts/render-deploy-env.sh staging "$work/deploy-no-backup" >/dev/null \
+  || fail "a staging deploy without any backup setting failed"
+[[ -f "$work/deploy-no-backup/backup.env" ]] || fail "a staging deploy without backup settings wrote no backup.env"
+! grep -q '^BACKUP_' "$work/deploy-no-backup/backup.env" || fail "an unset backup name reached staging's backup.env"
+ok "staging deploys without the backup settings; backup.env then holds none of them"
+production_without_age_key() {
+  SECRETS_JSON="$(deploy_json production secret | jq -c 'del(.BACKUP_AGE_IDENTITY)' | tr -d '\r')" \
+    VARS_JSON="$(deploy_json production var)" bash scripts/render-deploy-env.sh production "$work/neg-backup"
+}
+expect_fail "a production deploy without BACKUP_AGE_IDENTITY" production_without_age_key
+unset no_backup_secrets
+
+# backup.env is read as data, never run: the names it may hold, single-quoted, nothing else.
+backup_lib() {
+  # shellcheck disable=SC2030,SC2031  # each call is its own subshell on purpose
+  export ILTIAM_ROOT="$work/backup-root"
+  # shellcheck source=scripts/lib/backup-common.sh
+  . scripts/lib/backup-common.sh
+  backup_env_name staging
+  "$@"
+}
+read_rendered() {
+  backup_load_env "$work/deploy-staging/backup.env"
+  [[ "$BACKUP_AGE_IDENTITY" == dummy-staging-backup_age_identity && "$STORAGE_REGION" == dummy-staging-storage_region ]]
+}
+(backup_lib read_rendered) || fail "the backup scripts can't read the backup.env render-deploy-env.sh writes"
+ok "the backup scripts read the rendered backup.env"
+mkdir -p "$work/backup-root/backups/status"
+# shellcheck disable=SC2016  # the `$(...)` must stay literal: it is what the reader must refuse
+printf '%s\n' 'BACKUP_PING_URL=$(touch '"$work"'/pwned)' >"$work/backup-code.env"
+printf '%s\n' "PATH='/tmp'" >"$work/backup-other-name.env"
+printf '%s\n' "BACKUP_PING_URL='a' # comment" >"$work/backup-trailing.env"
+expect_fail "a backup.env line that is not NAME='value'" backup_lib backup_load_env "$work/backup-code.env"
+[[ ! -e "$work/pwned" ]] || fail "reading backup.env ran a command from it"
+expect_fail "a name in backup.env that is not a backup setting" backup_lib backup_load_env "$work/backup-other-name.env"
+expect_fail "text after the quoted value in backup.env" backup_lib backup_load_env "$work/backup-trailing.env"
+expect_fail "a missing backup setting" backup_lib backup_require BACKUP_AGE_IDENTITY
+
+# Object names: <env>-<UTC time>.tar.age, and the time read back from them.
+names_and_times() {
+  local re
+  re="$(backup_name_re staging)"
+  [[ staging-20261123T023012Z.tar.age =~ $re ]] || return 1
+  [[ ! production-20261123T023012Z.tar.age =~ $re ]] || return 1
+  [[ ! staging-20261123T023012Z.tar.age.tmp =~ $re ]] || return 1
+  [[ "$(backup_name_epoch staging-20261123T023012Z.tar.age)" == "$(date -u -d '2026-11-23 02:30:12' +%s)" ]] || return 1
+  ! backup_name_epoch staging-latest.tar.age
+}
+(backup_lib names_and_times) || fail "backup object names or their times are read wrongly"
+ok "object names: <env>-<UTC time>.tar.age, the time read back"
+
+# The status file for Runbook 7 (#10): a failure keeps the time of the last success.
+status_file() {
+  local f="$BACKUP_DIR/status/staging-nightly.prom"
+  backup_status nightly 1 1234
+  grep -q '^iltiam_backup_last_success_timestamp_seconds{env="staging",job="nightly"} [0-9]*$' "$f" || return 1
+  grep -qx 'iltiam_backup_last_size_bytes{env="staging"} 1234' "$f" || return 1
+  backup_status nightly 0
+  grep -qx 'iltiam_backup_last_run_success{env="staging",job="nightly"} 0' "$f" || return 1
+  grep -q '^iltiam_backup_last_success_timestamp_seconds{env="staging",job="nightly"} [0-9]*$' "$f"
+}
+(backup_lib status_file) || fail "backup_status wrote a wrong status file"
+ok "status file: success, size, and a failure that keeps the last success"
+
+expect_fail "backup.sh for an unknown environment" bash scripts/backup.sh dev
+expect_fail "backup.sh with an extra argument" bash scripts/backup.sh staging x
+expect_fail "restore-test.sh for an unknown environment" bash scripts/restore-test.sh 'staging;x'
+expect_fail "install-backup-timers.sh for an unknown environment" bash scripts/install-backup-timers.sh dev
+expect_fail "backup-fetch.sh with a name of the other environment" bash scripts/backup-fetch.sh staging \
+  production-20261123T023012Z.tar.age
+expect_fail "backup-fetch.sh with a path in the name" bash scripts/backup-fetch.sh staging '../staging-20261123T023012Z.tar.age'
+# docs/privacy/restore-location.md: dumps are made and restored on the VM only, never on a runner.
+! grep -rnE 'pg_dump|pg_restore|scripts/backup\.sh|restore-test\.sh' .github/workflows/ >/dev/null || fail "a workflow dumps, restores or runs the backup scripts: they run on the VM only"
+ok "no workflow dumps or restores a database"
 
 log "all checks passed"

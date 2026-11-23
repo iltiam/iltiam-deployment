@@ -13,7 +13,8 @@
 | What | Where | Made by | Restored by |
 |---|---|---|---|
 | **Pre-deploy dumps** of the staging backend database | the VM, `/srv/iltiam/backups/pre-deploy/` (folder 700, files 600, owner `deploy`); the newest 5 kept | `scripts/pre-deploy-backup.sh`, which the deploy workflow copies to the VM and **runs there**, over SSH ([Runbook 9](../runbooks/09-cd-staging.md), section 6) | by hand, on the VM ([Runbook 9](../runbooks/09-cd-staging.md), section 7) |
-| **Scheduled backups** | `iltiam-<SHORT>-backups` (Riyadh, private, customer-managed key, [Runbook 8](../runbooks/08-object-storage.md)) | the backup job of #8 (Runbook 6), **not built yet** | the weekly restore test of #8, on the VM |
+| **Nightly backups** of both databases, age-encrypted | `iltiam-<SHORT>-backups` (Riyadh, private, customer-managed key, [Runbook 8](../runbooks/08-object-storage.md)): 14 daily, 8 weekly | `scripts/backup.sh`, a systemd timer **on the VM** ([Runbook 6](../runbooks/06-backups.md)). Its plain dumps live only during the run, in a 700 folder on the data volume | the weekly `scripts/restore-test.sh`, **on the VM**, into a throwaway container on the environment's internal network; a real restore with `scripts/backup-fetch.sh`, on the VM ([06-restore.md](../runbooks/06-restore.md)) |
+| **Volume backups** of the data and boot volumes | OCI Block Volume backups, home region (Riyadh), no cross-region copy | OCI backup policies ([Runbook 6](../runbooks/06-backups.md), section 10) | a new volume in Riyadh ([06-restore.md](../runbooks/06-restore.md), section 3) |
 
 The GitHub workflow only starts the dump on the VM. It prints the file name and size, never the content, and the dump never travels to the runner.
 
@@ -29,8 +30,10 @@ The GitHub workflow only starts the dump on the VM. It prints the file name and 
 
 | Check | How | Expected |
 |---|---|---|
+| No workflow dumps or restores (automated) | `scripts/check-env.sh`, section 9, in every `scripts/ci-local.sh` run | `ok: no workflow dumps or restores a database` |
 | No workflow touches a database | `grep -rnE 'pg_dump\|pg_restore\|psql\|upload-artifact' .github/workflows/` in this repository and the app repositories | no `pg_dump`, `pg_restore` or `psql` in any workflow; `upload-artifact` only for build outputs and test reports (checked 2026-11-13: the OpenAPI file, coverage, the web build, Playwright and Lighthouse reports, golden-test failures, the staging debug APK). The deploy workflow only runs `scripts/remote-deploy.sh` over SSH |
 | The pre-deploy folder | on the VM: `sudo -u deploy ls -l /srv/iltiam/backups/pre-deploy/` | at most 5 `.sql.gz` files, mode `-rw-------`, owner `deploy` |
-| Runbook 6 (#8) | review of its PR | it states this rule, and its restore test runs on the VM |
+| Runbook 6 (#8) | review of its PR | it states this rule (sections 1 and 16), and its restore test runs on the VM |
+| No plain dump left behind | on the VM: `sudo ls /srv/iltiam/backups/tmp/` | empty, except during a run or a restore by hand |
 
 **Review:** with every change to a workflow, a backup script or Runbook 6, and before production (#36).

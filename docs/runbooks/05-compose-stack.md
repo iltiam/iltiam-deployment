@@ -739,20 +739,20 @@ sudo -iu deploy bash -c 'iltiam() { bash /srv/iltiam/repo/scripts/compose.sh "$@
    **What you should see:** the second window prints `decision: ACCEPTED | area_cm2: …` after a few seconds. In the first window, write down the **highest** memory value of `iltiam-staging-ai-worker-1` while it ran. It must stay under the 1.5 GB limit with room to spare. If it comes within 200 MB of the limit, raise `ai-worker`'s `mem_limit` in `compose.yml` by a pull request.
    - Clean up: stop `docker stats` with **Ctrl+C**, then `rm /tmp/one-analysis.py`, and as `ubuntu` `rm /tmp/good_marker.jpg`. The copies inside `ai-api` disappear at its next restart. Run section 7.5 again: the worker's `torch intra-op threads` line now appears.
 
-## 12. Backups: not yet
+## 12. Backups
 
-**There are no backups until Runbook 6 (#8).** What lives where:
+**[Runbook 6](06-backups.md) (#8)** sets them up, and [06-restore.md](06-restore.md) restores from them. What lives where:
 
 | Data | Where | Backed up by |
 |---|---|---|
-| Postgres (`iltiam`, `iltiam_ai`) | `/srv/iltiam/<ENV>/postgres` | **#8**: nightly encrypted `pg_dump` to the Riyadh backup bucket, a weekly restore test |
+| Postgres (`iltiam`, `iltiam_ai`) | `/srv/iltiam/<ENV>/postgres` | **#8**: nightly encrypted `pg_dump` to the Riyadh backup bucket (`scripts/backup.sh`), a weekly restore test (`scripts/restore-test.sh`) |
 | Redis (queued jobs, cache) | `/srv/iltiam/<ENV>/redis` | nothing: it is rebuilt by itself |
 | Model weights | `/srv/iltiam/weights` | nothing: `weights-init` downloads them again |
 | Env files | `/srv/iltiam/env/<ENV>/` | nothing: the next deploy writes them from GitHub |
 | Photos, masks, PDFs | OCI Object Storage ([Runbook 8](08-object-storage.md), #13), never on the VM | versioning keeps overwritten or deleted files for 30 days (Runbook 8, section 8); nothing else |
 | The whole data volume | `iltiam-data` | **#8**: weekly block volume backups |
 
-**Rule until #8 is done:** staging holds only test data, and **production takes no real patient data before #8's restore test has passed** (DEP-11, the go-live checklist).
+**Rule:** staging holds only test data, and **production takes no real patient data before its restore test has passed twice** ([Runbook 6](06-backups.md), section 14, row 8; DEP-11, the go-live checklist).
 
 ## 13. Troubleshooting
 
