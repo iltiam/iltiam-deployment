@@ -71,6 +71,9 @@ nav:
       - Privacy notice: privacy/privacy-notice.md
       - Terms of use: privacy/terms-of-use.md
       - Play data safety: privacy/play-data-safety.md
+  - Store publishing:
+      - Checklist (Google Play, App Store): store/publishing-checklist.md
+      - Listing texts (draft): store/listing-texts.md
       - Backups stay in Riyadh: privacy/restore-location.md
   - Planning:
       - Overview: planning/README.md
