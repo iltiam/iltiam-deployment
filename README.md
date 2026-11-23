@@ -15,6 +15,7 @@ Infrastructure for ILTIAM: hosting decisions, runbooks, environment templates an
   - [Runbook 4: secrets and environment files](docs/runbooks/04-secrets.md)
   - [Runbook 5: staging and production as two Compose projects](docs/runbooks/05-compose-stack.md)
   - [Runbook 10: production release with approval, rollback, and when to split](docs/runbooks/10-production-release.md)
+  - [Runbook 13: the production environment on the VM](docs/runbooks/13-production-environment.md)
   - [Runbook 12: Authentica account, default sender and API key for phone codes](docs/runbooks/12-authentica.md)
 - **The stack:** [`compose.yml`](compose.yml) (both environments), image tags in [`env/<env>.versions`](env/),
   deployed by **Actions → deploy** ([`.github/workflows/deploy.yml`](.github/workflows/deploy.yml),
