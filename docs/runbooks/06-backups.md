@@ -120,7 +120,7 @@ The same steps as the backend's storage user ([Runbook 8](08-object-storage.md),
 
 ## 5. Dead-man checks (once, free)
 
-A dead-man check emails the team when an expected ping **doesn't** arrive: the backup didn't run, the VM is off, or the job failed. That is the "missing nightly backup" alert of this issue, until Runbook 7 (#10) adds its own alert on the status file.
+A dead-man check emails the team when an expected ping **doesn't** arrive: the backup didn't run, the VM is off, or the job failed. That is the "missing nightly backup" alert of this issue. [Runbook 7](07-monitoring.md) (#10) adds `BackupTooOld` on the status file too; both stay, because the dead-man check still works when the whole VM is down.
 
 We use [healthchecks.io](https://healthchecks.io) on its free plan (20 checks). It receives an HTTP request with nothing in it from the VM at the end of each run: no data, no names.
 
@@ -292,7 +292,7 @@ The acceptance criteria want proof that a missing backup raises an alert.
 | When do they run next? | `systemctl list-timers 'iltiam-*'` |
 | Which backups exist? | as `deploy`: `/srv/iltiam/repo/scripts/backup-fetch.sh staging --list` |
 | Space used | OCI console: the bucket's **Approximate size**. [Runbook 8](08-object-storage.md)'s 70 % alarm covers all buckets together |
-| Status for monitoring | `/srv/iltiam/backups/status/<env>-nightly.prom` and `<env>-restore-test.prom`; Runbook 7 (#10) mounts that folder into node-exporter |
+| Status for monitoring | `/srv/iltiam/backups/status/<env>-nightly.prom` and `<env>-restore-test.prom`; [Runbook 7](07-monitoring.md) mounts that folder into node-exporter: Grafana's **ILTIAM overview**, row *Backups* |
 | Pause backups (e.g. during a migration by hand) | `sudo systemctl stop iltiam-backup-staging.timer`; **start it again the same day**: the dead-man check emails otherwise |
 | Rotate the backup user's key (yearly, with the storage keys) | section 4, step 5 with a new name, then section 8 for the two key secrets, deploy, delete the old key ([docs/secrets.md](../secrets.md), section 6.4) |
 
@@ -345,6 +345,6 @@ The acceptance criteria want proof that a missing backup raises an alert.
 
 ## 17. What comes next
 
-- **Runbook 7 (#10):** node-exporter reads `/srv/iltiam/backups/status/`, with an alert when `iltiam_backup_last_success_timestamp_seconds{job="nightly"}` is older than 26 hours and a Grafana panel for backup age and size.
+- **[Runbook 7](07-monitoring.md) (#10):** node-exporter reads `/srv/iltiam/backups/status/` (the `job` label arrives as `backup`), with `BackupTooOld` when `iltiam_backup_last_success_timestamp_seconds{backup="nightly"}` is older than 26 hours, `BackupFailed`, `RestoreTestTooOld`, and Grafana panels for backup age and size.
 - **#36:** section 11 for production.
 - **#19 (Runbook 10):** a release takes its own database backup on the day. With this runbook done, that is a second copy, not the only one.

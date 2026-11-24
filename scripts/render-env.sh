@@ -3,8 +3,10 @@
 # Runbook: docs/runbooks/04-secrets.md. The deploy workflows (DEP-03, DEP-04) call it; CI calls it with dummies.
 #
 # Usage:
-#   render-env.sh <staging|production> <template> <output>   write the env file (mode 600)
-#   render-env.sh --list <staging|production> <template>      print "kind must|may NAME" for what that env takes
+#   render-env.sh <staging|production|monitoring> <template> <output>   write the env file (mode 600)
+#   render-env.sh --list <staging|production|monitoring> <template>      print "kind must|may NAME" for that env
+#
+# monitoring is the shared monitoring stack (Runbook 7, env/monitoring.env.example): it follows production's rules.
 #
 # Each value comes from the environment variable of the same name, never from an argument, so values don't show
 # up in `ps` or in an Actions log. This script prints names only, never a value.
@@ -30,11 +32,12 @@ die() {
 }
 
 usage() {
-  die "usage: $0 <staging|production> <template> <output>  |  $0 --list <staging|production> <template>"
+  die "usage: $0 <staging|production|monitoring> <template> <output>  |  $0 --list <env> <template>"
 }
 
 check_env_name() {
-  [[ "$1" == staging || "$1" == production ]] || die "environment must be staging or production, got '$1'"
+  [[ "$1" == staging || "$1" == production || "$1" == monitoring ]] \
+    || die "environment must be staging, production or monitoring, got '$1'"
 }
 
 # Print "kind need NAME" for each variable of the template; stop on anything malformed.
@@ -72,7 +75,7 @@ rule() {
   local env="$1" need="$2"
   case "$need" in
     required) echo must ;;
-    prod-required) [[ "$env" == production ]] && echo must || echo may ;;
+    prod-required) [[ "$env" == staging ]] && echo may || echo must ;;
     optional) echo may ;;
     staging-only) [[ "$env" == staging ]] && echo may || echo forbidden ;;
   esac

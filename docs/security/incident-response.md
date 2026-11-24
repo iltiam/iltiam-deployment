@@ -88,7 +88,7 @@ One document per incident in the team's private folder (never this repository), 
 |---|---|---|---|
 | Backend audit log (every sign-in, read of records, write, export, breach notice) | Super Admin: `GET /api/audit-logs/` with filters, or `GET /api/audit-logs/export/` (CSV) | Forever (append-only) | Exporting the incident's time window as CSV |
 | Container logs (requests with `request_id`, errors) | On the VM: `scripts/compose.sh <env> logs --since <time> <service>` | **About 50 MB per container** (5 × 10 MB, `compose.yml`): a busy day can push older lines out | Saving them to a file at once, on the VM, then copying to the private folder |
-| Central logs (Loki) | Grafana, once #10 is live | Per #10 | Exporting the query result |
+| Central logs (Loki) | Grafana → **Explore → Loki**, once #10 is live ([Runbook 7](../runbooks/07-monitoring.md), section 17.2) | **7 days**, then deleted | Exporting the query result (**Inspect → Data → Download**) at once |
 | Cloudflare: requests, firewall events, Access logins | Cloudflare dashboard → Security → Events; Zero Trust → Logs | Free plan: a short window (hours to days) | Screenshots or CSV export straight away |
 | OCI: console logins, API calls, bucket access | OCI Console → Observability → Audit | 365 days | Export of the time window |
 | GitHub: deploy runs, approvals, secret changes | Actions run logs; organisation audit log | Per GitHub plan | Saving the run log |

@@ -10,7 +10,7 @@
 #
 # It runs: docker compose -p iltiam-staging|iltiam-prod -f compose.yml [-f compose.fcm.yml]
 #          --env-file /srv/iltiam/env/<env>/infra.env --env-file env/<env>.versions <your arguments>
-# with ENV_DIR, DATA_DIR and COMPOSE_PROFILES set. compose.fcm.yml is added only when the environment's
+# with ENV_DIR, DATA_DIR, ILTIAM_ENV (the metrics network's name and aliases, Runbook 7) and COMPOSE_PROFILES set. compose.fcm.yml is added only when the environment's
 # fcm-service-account.json exists.
 #
 # `config` prints every secret Compose interpolates, and this repository's logs are public. So on the VM, `config` is
@@ -68,7 +68,8 @@ fi
 COMPOSE_PROFILES="$(sed -n 's/^COMPOSE_PROFILES=//p' "$versions" | tr -d '\r' | tail -n 1)"
 ENV_DIR="$(native "$env_dir")"
 DATA_DIR="$(native "$root/$env_name")"
-export COMPOSE_PROFILES ENV_DIR DATA_DIR
+ILTIAM_ENV="$env_name"
+export COMPOSE_PROFILES ENV_DIR DATA_DIR ILTIAM_ENV
 
 exec docker compose -p "$project" "${files[@]}" \
   --env-file "$(native "$infra")" --env-file "$(native "$versions")" "$@"

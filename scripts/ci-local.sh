@@ -2,8 +2,9 @@
 # Local CI for iltiam-deployment: replaces .github/workflows/env-check.yml and docs.yml (both kept, disabled), plus a
 # deploy preflight. deploy.yml is replaced by scripts/deploy-staging.sh / deploy-prod.sh (by hand, never automatic).
 # Policy: AGENTS.md.
-#   scripts/ci-local.sh --fast   shellcheck, check-env.sh, check-compose.sh, both versions files, gitleaks (history),
-#                                the public workflow rules (check-public-workflows.sh), actionlint
+#   scripts/ci-local.sh --fast   shellcheck, check-env.sh, check-compose.sh, check-monitoring.sh (#10), both versions
+#                                files, gitleaks (history), the public workflow rules (check-public-workflows.sh),
+#                                actionlint
 #   scripts/ci-local.sh --full   plus MkDocs strict and the deploy dry-runs' offline preflight
 #   scripts/ci-local.sh --fast   shellcheck, check-env.sh, check-compose.sh, both versions files, gitleaks (history)
 #   scripts/ci-local.sh --full   plus MkDocs strict, the deploy dry-runs' offline preflight and, when the local
@@ -106,6 +107,13 @@ EOF
   "$PYTHON" -m mkdocs build --strict --site-dir "$CI_LOG_DIR/site"
 }
 
+# Issue #10: the monitoring stack (promtool test rules, amtool, the Compose rules of compose.monitoring.yml), each
+# tool from the image the VM runs.
+run_check_monitoring() {
+  ci_docker_ready || { ci_blocked "no Docker daemon: scripts/check-monitoring.sh runs promtool and the others from their images"; return; }
+  bash scripts/check-monitoring.sh
+}
+
 # scripts/lib/rollout.sh on a throwaway Compose project of busybox containers (iltiam-ai-service#150).
 run_check_rollout() {
   ci_docker_ready || { ci_blocked "no Docker daemon: scripts/check-rollout.sh runs containers"; return; }
@@ -133,6 +141,7 @@ ci_check "Compose tools (jq, openssl, compose)" required -- compose_tools
 ci_check "check-env.sh (lint, dummy render, compose config)" required --needs "Compose tools (jq, openssl, compose)" -- bash scripts/check-env.sh
 ci_check "check-compose.sh (networks, ports, limits, secrets)" required --needs "Compose tools (jq, openssl, compose)" -- bash scripts/check-compose.sh
 ci_check "check-rollout.sh (no-downtime AI rollout, Docker)" required -- run_check_rollout
+ci_check "check-monitoring.sh (promtool test rules, configs, Docker)" required --needs "Compose tools (jq, openssl, compose)" -- run_check_monitoring
 ci_check "versions files (staging, production)" required -- bash -c 'bash scripts/deploy.sh --check-versions staging && bash scripts/deploy.sh --check-versions production'
 ci_check "gitleaks (full history, redacted)" required -- run_gitleaks
 ci_check "public workflow rules (+ self-test)" required -- bash scripts/check-public-workflows.sh --self-test

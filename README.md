@@ -16,12 +16,16 @@ Infrastructure for ILTIAM: hosting decisions, runbooks, environment templates an
   - [Runbook 3: Cloudflare Tunnels, cache and security rules](docs/runbooks/03-cloudflare-tunnels.md)
   - [Runbook 4: secrets and environment files](docs/runbooks/04-secrets.md)
   - [Runbook 5: staging and production as two Compose projects](docs/runbooks/05-compose-stack.md)
+  - [Runbook 7: monitoring, logs, alerts and uptime](docs/runbooks/07-monitoring.md)
   - [Runbook 10: production release with approval, rollback, and when to split](docs/runbooks/10-production-release.md)
   - [Runbook 13: the production environment on the VM](docs/runbooks/13-production-environment.md)
   - [Runbook 12: Authentica account, default sender and API key for phone codes](docs/runbooks/12-authentica.md)
 - **The stack:** [`compose.yml`](compose.yml) (both environments), image tags in [`env/<env>.versions`](env/),
   deployed by **Actions → deploy** ([`.github/workflows/deploy.yml`](.github/workflows/deploy.yml),
   [`scripts/deploy.sh`](scripts/deploy.sh)). Day to day on the VM: [`scripts/compose.sh`](scripts/compose.sh).
+- **Monitoring:** [`compose.monitoring.yml`](compose.monitoring.yml) and [`monitoring/`](monitoring/), one stack for both
+  environments, deployed by **Actions → deploy** with `environment=monitoring` ([`scripts/monitoring.sh`](scripts/monitoring.sh),
+  Runbook 7).
 - **Domain check:** [`scripts/check-dns.sh`](scripts/check-dns.sh) checks the DNS, email records and HTTPS headers of `iltiamcare.com` (Runbook 2, section 12).
 - **Go-live:** [`docs/go-live-checklist.md`](docs/go-live-checklist.md), the last gate before real patients (#23).
 - **Store publishing:** [checklist](docs/store/publishing-checklist.md) and draft [listing texts](docs/store/listing-texts.md) (#68).

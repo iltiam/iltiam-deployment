@@ -128,8 +128,8 @@ Then **Manage Account → Billing → Payment info**: the card on file must stil
 | `api.iltiamcare.com` | production API; the mobile base URL is `https://api.iltiamcare.com/api` | Runbook 3 (#9) |
 | `staging-app.iltiamcare.com` | staging web app | Runbook 3 (#9) |
 | `staging-api.iltiamcare.com` | staging API | Runbook 3 (#9) |
-| `grafana.iltiamcare.com` | monitoring, behind Cloudflare Access | Runbook 3 (#9) and #10 |
-| `status.iltiamcare.com` | uptime page | #10 |
+| `grafana.iltiamcare.com` | monitoring, behind Cloudflare Access, on its own tunnel `iltiam-monitoring` | Runbook 3 (#9) and [Runbook 7](07-monitoring.md) (#10), section 4 |
+| `status.iltiamcare.com` | uptime page (UptimeRobot), only if its free plan allows a custom domain | [Runbook 7](07-monitoring.md) (#10), section 14 |
 
 - **The AI service never gets a hostname.**
 - **Hostnames stay one level deep** (`staging-api`, never `api.staging`). The free Universal certificate covers `iltiamcare.com` and `*.iltiamcare.com` only, and a wildcard covers one level.

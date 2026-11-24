@@ -1,0 +1,313 @@
+# promtool test rules for the drift rules (iltiam-ai-service#151). Run from the repository root:
+#   docker run --rm -v "$PWD/monitoring:/m" --entrypoint promtool prom/prometheus:v3.5.0 \
+#     test rules /m/prometheus/tests/ai-drift.test.yml
+# (tests/unit/test_drift_monitoring.py runs it with a local promtool or Docker.)
+# Synthetic series: hourly samples of one staging worker. The clean-val shares come from
+# ai-drift-baseline.rules.yml; rebuild these numbers if it changes (the test then fails and says so).
+rule_files:
+  - ../rules/ai-drift-baseline.rules.yml
+  - ../rules/ai-drift.rules.yml
+evaluation_interval: 1h
+tests:
+  # 1. A week like clean val, plus retakes (left out of the mix): nothing fires.
+  - interval: 1h
+    input_series:
+      - series: 'iltiam_ai_segmentation_confidence_bucket{job="ai-worker", instance="ai-worker:9808", env="staging", model="segformer-b2@2.0.0+postprocess@2.0.0", le="0.5"}'
+        values: '0+0.1x192'
+      - series: 'iltiam_ai_segmentation_confidence_bucket{job="ai-worker", instance="ai-worker:9808", env="staging", model="segformer-b2@2.0.0+postprocess@2.0.0", le="0.6"}'
+        values: '0+0.1x192'
+      - series: 'iltiam_ai_segmentation_confidence_bucket{job="ai-worker", instance="ai-worker:9808", env="staging", model="segformer-b2@2.0.0+postprocess@2.0.0", le="0.7"}'
+        values: '0+0.1x192'
+      - series: 'iltiam_ai_segmentation_confidence_bucket{job="ai-worker", instance="ai-worker:9808", env="staging", model="segformer-b2@2.0.0+postprocess@2.0.0", le="0.8"}'
+        values: '0+0.1x192'
+      - series: 'iltiam_ai_segmentation_confidence_bucket{job="ai-worker", instance="ai-worker:9808", env="staging", model="segformer-b2@2.0.0+postprocess@2.0.0", le="0.85"}'
+        values: '0+0.16667x192'
+      - series: 'iltiam_ai_segmentation_confidence_bucket{job="ai-worker", instance="ai-worker:9808", env="staging", model="segformer-b2@2.0.0+postprocess@2.0.0", le="0.9"}'
+        values: '0+0.3x192'
+      - series: 'iltiam_ai_segmentation_confidence_bucket{job="ai-worker", instance="ai-worker:9808", env="staging", model="segformer-b2@2.0.0+postprocess@2.0.0", le="0.92"}'
+        values: '0+0.63333x192'
+      - series: 'iltiam_ai_segmentation_confidence_bucket{job="ai-worker", instance="ai-worker:9808", env="staging", model="segformer-b2@2.0.0+postprocess@2.0.0", le="0.94"}'
+        values: '0+1.33333x192'
+      - series: 'iltiam_ai_segmentation_confidence_bucket{job="ai-worker", instance="ai-worker:9808", env="staging", model="segformer-b2@2.0.0+postprocess@2.0.0", le="0.95"}'
+        values: '0+1.9x192'
+      - series: 'iltiam_ai_segmentation_confidence_bucket{job="ai-worker", instance="ai-worker:9808", env="staging", model="segformer-b2@2.0.0+postprocess@2.0.0", le="0.96"}'
+        values: '0+3.06667x192'
+      - series: 'iltiam_ai_segmentation_confidence_bucket{job="ai-worker", instance="ai-worker:9808", env="staging", model="segformer-b2@2.0.0+postprocess@2.0.0", le="0.97"}'
+        values: '0+5.13333x192'
+      - series: 'iltiam_ai_segmentation_confidence_bucket{job="ai-worker", instance="ai-worker:9808", env="staging", model="segformer-b2@2.0.0+postprocess@2.0.0", le="0.98"}'
+        values: '0+7.53333x192'
+      - series: 'iltiam_ai_segmentation_confidence_bucket{job="ai-worker", instance="ai-worker:9808", env="staging", model="segformer-b2@2.0.0+postprocess@2.0.0", le="0.99"}'
+        values: '0+9.53333x192'
+      - series: 'iltiam_ai_segmentation_confidence_bucket{job="ai-worker", instance="ai-worker:9808", env="staging", model="segformer-b2@2.0.0+postprocess@2.0.0", le="+Inf"}'
+        values: '0+10x192'
+      - series: 'iltiam_ai_segmentation_confidence_count{job="ai-worker", instance="ai-worker:9808", env="staging", model="segformer-b2@2.0.0+postprocess@2.0.0"}'
+        values: '0+10x192'
+      - series: 'iltiam_ai_decisions_total{job="ai-worker", instance="ai-worker:9808", env="staging", status="ACCEPTED"}'
+        values: '0+8.66667x192'
+      - series: 'iltiam_ai_decisions_total{job="ai-worker", instance="ai-worker:9808", env="staging", status="MANUAL_REVIEW"}'
+        values: '0+1.23333x192'
+      - series: 'iltiam_ai_decisions_total{job="ai-worker", instance="ai-worker:9808", env="staging", status="INSUFFICIENT"}'
+        values: '0+0.1x192'
+      - series: 'iltiam_ai_decisions_total{job="ai-worker", instance="ai-worker:9808", env="staging", status="RETAKE_REQUIRED"}'
+        values: '0+4x192'
+    promql_expr_test:
+      - expr: iltiam_ai:segmentation_confidence:ks_7d < bool 0.001
+        eval_time: 8d
+        exp_samples:
+          - labels: '{env="staging", model="segformer-b2@2.0.0+postprocess@2.0.0"}'
+            value: 1
+      - expr: iltiam_ai:decisions:tvd_7d < bool 0.001
+        eval_time: 8d
+        exp_samples:
+          - labels: '{env="staging"}'
+            value: 1
+    alert_rule_test:
+      - eval_time: 8d
+        alertname: AiConfidenceDrift
+        exp_alerts: []
+      - eval_time: 8d
+        alertname: AiDecisionMixDrift
+        exp_alerts: []
+
+  # 2. Synthetic drift: 30 % more low-confidence masks and 45 % MANUAL_REVIEW. Both alerts fire.
+  - interval: 1h
+    input_series:
+      - series: 'iltiam_ai_segmentation_confidence_bucket{job="ai-worker", instance="ai-worker:9808", env="staging", model="segformer-b2@2.0.0+postprocess@2.0.0", le="0.5"}'
+        values: '0+0.1x192'
+      - series: 'iltiam_ai_segmentation_confidence_bucket{job="ai-worker", instance="ai-worker:9808", env="staging", model="segformer-b2@2.0.0+postprocess@2.0.0", le="0.6"}'
+        values: '0+0.1x192'
+      - series: 'iltiam_ai_segmentation_confidence_bucket{job="ai-worker", instance="ai-worker:9808", env="staging", model="segformer-b2@2.0.0+postprocess@2.0.0", le="0.7"}'
+        values: '0+0.1x192'
+      - series: 'iltiam_ai_segmentation_confidence_bucket{job="ai-worker", instance="ai-worker:9808", env="staging", model="segformer-b2@2.0.0+postprocess@2.0.0", le="0.8"}'
+        values: '0+0.1x192'
+      - series: 'iltiam_ai_segmentation_confidence_bucket{job="ai-worker", instance="ai-worker:9808", env="staging", model="segformer-b2@2.0.0+postprocess@2.0.0", le="0.85"}'
+        values: '0+3.16667x192'
+      - series: 'iltiam_ai_segmentation_confidence_bucket{job="ai-worker", instance="ai-worker:9808", env="staging", model="segformer-b2@2.0.0+postprocess@2.0.0", le="0.9"}'
+        values: '0+3.3x192'
+      - series: 'iltiam_ai_segmentation_confidence_bucket{job="ai-worker", instance="ai-worker:9808", env="staging", model="segformer-b2@2.0.0+postprocess@2.0.0", le="0.92"}'
+        values: '0+3.63333x192'
+      - series: 'iltiam_ai_segmentation_confidence_bucket{job="ai-worker", instance="ai-worker:9808", env="staging", model="segformer-b2@2.0.0+postprocess@2.0.0", le="0.94"}'
+        values: '0+4.33333x192'
+      - series: 'iltiam_ai_segmentation_confidence_bucket{job="ai-worker", instance="ai-worker:9808", env="staging", model="segformer-b2@2.0.0+postprocess@2.0.0", le="0.95"}'
+        values: '0+4.9x192'
+      - series: 'iltiam_ai_segmentation_confidence_bucket{job="ai-worker", instance="ai-worker:9808", env="staging", model="segformer-b2@2.0.0+postprocess@2.0.0", le="0.96"}'
+        values: '0+6.06667x192'
+      - series: 'iltiam_ai_segmentation_confidence_bucket{job="ai-worker", instance="ai-worker:9808", env="staging", model="segformer-b2@2.0.0+postprocess@2.0.0", le="0.97"}'
+        values: '0+8.13333x192'
+      - series: 'iltiam_ai_segmentation_confidence_bucket{job="ai-worker", instance="ai-worker:9808", env="staging", model="segformer-b2@2.0.0+postprocess@2.0.0", le="0.98"}'
+        values: '0+10x192'
+      - series: 'iltiam_ai_segmentation_confidence_bucket{job="ai-worker", instance="ai-worker:9808", env="staging", model="segformer-b2@2.0.0+postprocess@2.0.0", le="0.99"}'
+        values: '0+10x192'
+      - series: 'iltiam_ai_segmentation_confidence_bucket{job="ai-worker", instance="ai-worker:9808", env="staging", model="segformer-b2@2.0.0+postprocess@2.0.0", le="+Inf"}'
+        values: '0+10x192'
+      - series: 'iltiam_ai_segmentation_confidence_count{job="ai-worker", instance="ai-worker:9808", env="staging", model="segformer-b2@2.0.0+postprocess@2.0.0"}'
+        values: '0+10x192'
+      - series: 'iltiam_ai_decisions_total{job="ai-worker", instance="ai-worker:9808", env="staging", status="ACCEPTED"}'
+        values: '0+5.4x192'
+      - series: 'iltiam_ai_decisions_total{job="ai-worker", instance="ai-worker:9808", env="staging", status="MANUAL_REVIEW"}'
+        values: '0+4.5x192'
+      - series: 'iltiam_ai_decisions_total{job="ai-worker", instance="ai-worker:9808", env="staging", status="INSUFFICIENT"}'
+        values: '0+0.1x192'
+    alert_rule_test:
+      # Checks in time order. Not before the shift has lasted 6 hours: 5 hours after the 50th analysis it
+      # is still pending.
+      - eval_time: 10h
+        alertname: AiConfidenceDrift
+        exp_alerts: []
+      - eval_time: 8d
+        alertname: AiConfidenceDrift
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              service: ai
+              env: staging
+              model: segformer-b2@2.0.0+postprocess@2.0.0
+            exp_annotations:
+              summary: "AI staging: segmentation confidence has drifted from clean val"
+              description: "Over the last 7 days the confidence distribution of segformer-b2@2.0.0+postprocess@2.0.0 differs from clean val by 0.30 (KS distance; alert above 0.15, with 50 analyses or more)."
+              runbook_url: https://github.com/iltiam/iltiam-ai-service/blob/main/docs/drift-monitoring.md
+      - eval_time: 8d
+        alertname: AiDecisionMixDrift
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              service: ai
+              env: staging
+            exp_annotations:
+              summary: "AI staging: the decision mix has drifted from clean val"
+              description: "Over the last 7 days the shares of ACCEPTED, MANUAL_REVIEW and INSUFFICIENT differ from clean val by 0.33 (total variation; alert above 0.15, with 50 analyses or more)."
+              runbook_url: https://github.com/iltiam/iltiam-ai-service/blob/main/docs/drift-monitoring.md
+
+  # 3. The same drift on too few analyses (under 50 a week): nothing fires.
+  - interval: 1h
+    input_series:
+      - series: 'iltiam_ai_segmentation_confidence_bucket{job="ai-worker", instance="ai-worker:9808", env="staging", model="segformer-b2@2.0.0+postprocess@2.0.0", le="0.5"}'
+        values: '0+0.0025x192'
+      - series: 'iltiam_ai_segmentation_confidence_bucket{job="ai-worker", instance="ai-worker:9808", env="staging", model="segformer-b2@2.0.0+postprocess@2.0.0", le="0.6"}'
+        values: '0+0.0025x192'
+      - series: 'iltiam_ai_segmentation_confidence_bucket{job="ai-worker", instance="ai-worker:9808", env="staging", model="segformer-b2@2.0.0+postprocess@2.0.0", le="0.7"}'
+        values: '0+0.0025x192'
+      - series: 'iltiam_ai_segmentation_confidence_bucket{job="ai-worker", instance="ai-worker:9808", env="staging", model="segformer-b2@2.0.0+postprocess@2.0.0", le="0.8"}'
+        values: '0+0.0025x192'
+      - series: 'iltiam_ai_segmentation_confidence_bucket{job="ai-worker", instance="ai-worker:9808", env="staging", model="segformer-b2@2.0.0+postprocess@2.0.0", le="0.85"}'
+        values: '0+0.079167x192'
+      - series: 'iltiam_ai_segmentation_confidence_bucket{job="ai-worker", instance="ai-worker:9808", env="staging", model="segformer-b2@2.0.0+postprocess@2.0.0", le="0.9"}'
+        values: '0+0.0825x192'
+      - series: 'iltiam_ai_segmentation_confidence_bucket{job="ai-worker", instance="ai-worker:9808", env="staging", model="segformer-b2@2.0.0+postprocess@2.0.0", le="0.92"}'
+        values: '0+0.090833x192'
+      - series: 'iltiam_ai_segmentation_confidence_bucket{job="ai-worker", instance="ai-worker:9808", env="staging", model="segformer-b2@2.0.0+postprocess@2.0.0", le="0.94"}'
+        values: '0+0.108333x192'
+      - series: 'iltiam_ai_segmentation_confidence_bucket{job="ai-worker", instance="ai-worker:9808", env="staging", model="segformer-b2@2.0.0+postprocess@2.0.0", le="0.95"}'
+        values: '0+0.1225x192'
+      - series: 'iltiam_ai_segmentation_confidence_bucket{job="ai-worker", instance="ai-worker:9808", env="staging", model="segformer-b2@2.0.0+postprocess@2.0.0", le="0.96"}'
+        values: '0+0.151667x192'
+      - series: 'iltiam_ai_segmentation_confidence_bucket{job="ai-worker", instance="ai-worker:9808", env="staging", model="segformer-b2@2.0.0+postprocess@2.0.0", le="0.97"}'
+        values: '0+0.203333x192'
+      - series: 'iltiam_ai_segmentation_confidence_bucket{job="ai-worker", instance="ai-worker:9808", env="staging", model="segformer-b2@2.0.0+postprocess@2.0.0", le="0.98"}'
+        values: '0+0.25x192'
+      - series: 'iltiam_ai_segmentation_confidence_bucket{job="ai-worker", instance="ai-worker:9808", env="staging", model="segformer-b2@2.0.0+postprocess@2.0.0", le="0.99"}'
+        values: '0+0.25x192'
+      - series: 'iltiam_ai_segmentation_confidence_bucket{job="ai-worker", instance="ai-worker:9808", env="staging", model="segformer-b2@2.0.0+postprocess@2.0.0", le="+Inf"}'
+        values: '0+0.25x192'
+      - series: 'iltiam_ai_segmentation_confidence_count{job="ai-worker", instance="ai-worker:9808", env="staging", model="segformer-b2@2.0.0+postprocess@2.0.0"}'
+        values: '0+0.25x192'
+      - series: 'iltiam_ai_decisions_total{job="ai-worker", instance="ai-worker:9808", env="staging", status="ACCEPTED"}'
+        values: '0+0.135x192'
+      - series: 'iltiam_ai_decisions_total{job="ai-worker", instance="ai-worker:9808", env="staging", status="MANUAL_REVIEW"}'
+        values: '0+0.1125x192'
+      - series: 'iltiam_ai_decisions_total{job="ai-worker", instance="ai-worker:9808", env="staging", status="INSUFFICIENT"}'
+        values: '0+0.0025x192'
+    alert_rule_test:
+      - eval_time: 8d
+        alertname: AiConfidenceDrift
+        exp_alerts: []
+      - eval_time: 8d
+        alertname: AiDecisionMixDrift
+        exp_alerts: []
+
+  # 4. Four steady weeks, then a steady week: no area or reason alert.
+  - interval: 1h
+    input_series:
+      - series: 'iltiam_ai_wound_area_cm2_bucket{job="ai-worker", instance="ai-worker:9808", env="staging", model="segformer-b2@2.0.0+postprocess@2.0.0", le="0.25"}'
+        values: '0+0x696 0+0x191'
+      - series: 'iltiam_ai_wound_area_cm2_bucket{job="ai-worker", instance="ai-worker:9808", env="staging", model="segformer-b2@2.0.0+postprocess@2.0.0", le="0.5"}'
+        values: '0+0x696 0+0x191'
+      - series: 'iltiam_ai_wound_area_cm2_bucket{job="ai-worker", instance="ai-worker:9808", env="staging", model="segformer-b2@2.0.0+postprocess@2.0.0", le="1.0"}'
+        values: '0+1x696 697+1x191'
+      - series: 'iltiam_ai_wound_area_cm2_bucket{job="ai-worker", instance="ai-worker:9808", env="staging", model="segformer-b2@2.0.0+postprocess@2.0.0", le="2.0"}'
+        values: '0+1x696 697+1x191'
+      - series: 'iltiam_ai_wound_area_cm2_bucket{job="ai-worker", instance="ai-worker:9808", env="staging", model="segformer-b2@2.0.0+postprocess@2.0.0", le="3.0"}'
+        values: '0+2x696 1394+2x191'
+      - series: 'iltiam_ai_wound_area_cm2_bucket{job="ai-worker", instance="ai-worker:9808", env="staging", model="segformer-b2@2.0.0+postprocess@2.0.0", le="5.0"}'
+        values: '0+3x696 2091+3x191'
+      - series: 'iltiam_ai_wound_area_cm2_bucket{job="ai-worker", instance="ai-worker:9808", env="staging", model="segformer-b2@2.0.0+postprocess@2.0.0", le="7.5"}'
+        values: '0+3x696 2091+3x191'
+      - series: 'iltiam_ai_wound_area_cm2_bucket{job="ai-worker", instance="ai-worker:9808", env="staging", model="segformer-b2@2.0.0+postprocess@2.0.0", le="10.0"}'
+        values: '0+4x696 2788+4x191'
+      - series: 'iltiam_ai_wound_area_cm2_bucket{job="ai-worker", instance="ai-worker:9808", env="staging", model="segformer-b2@2.0.0+postprocess@2.0.0", le="15.0"}'
+        values: '0+4x696 2788+4x191'
+      - series: 'iltiam_ai_wound_area_cm2_bucket{job="ai-worker", instance="ai-worker:9808", env="staging", model="segformer-b2@2.0.0+postprocess@2.0.0", le="20.0"}'
+        values: '0+4x696 2788+4x191'
+      - series: 'iltiam_ai_wound_area_cm2_bucket{job="ai-worker", instance="ai-worker:9808", env="staging", model="segformer-b2@2.0.0+postprocess@2.0.0", le="30.0"}'
+        values: '0+4x696 2788+4x191'
+      - series: 'iltiam_ai_wound_area_cm2_bucket{job="ai-worker", instance="ai-worker:9808", env="staging", model="segformer-b2@2.0.0+postprocess@2.0.0", le="50.0"}'
+        values: '0+4x696 2788+4x191'
+      - series: 'iltiam_ai_wound_area_cm2_bucket{job="ai-worker", instance="ai-worker:9808", env="staging", model="segformer-b2@2.0.0+postprocess@2.0.0", le="75.0"}'
+        values: '0+4x696 2788+4x191'
+      - series: 'iltiam_ai_wound_area_cm2_bucket{job="ai-worker", instance="ai-worker:9808", env="staging", model="segformer-b2@2.0.0+postprocess@2.0.0", le="100.0"}'
+        values: '0+4x696 2788+4x191'
+      - series: 'iltiam_ai_wound_area_cm2_bucket{job="ai-worker", instance="ai-worker:9808", env="staging", model="segformer-b2@2.0.0+postprocess@2.0.0", le="150.0"}'
+        values: '0+4x696 2788+4x191'
+      - series: 'iltiam_ai_wound_area_cm2_bucket{job="ai-worker", instance="ai-worker:9808", env="staging", model="segformer-b2@2.0.0+postprocess@2.0.0", le="200.0"}'
+        values: '0+4x696 2788+4x191'
+      - series: 'iltiam_ai_wound_area_cm2_bucket{job="ai-worker", instance="ai-worker:9808", env="staging", model="segformer-b2@2.0.0+postprocess@2.0.0", le="+Inf"}'
+        values: '0+4x696 2788+4x191'
+      - series: 'iltiam_ai_wound_area_cm2_count{job="ai-worker", instance="ai-worker:9808", env="staging", model="segformer-b2@2.0.0+postprocess@2.0.0"}'
+        values: '0+4x696 2788+4x191'
+      - series: 'iltiam_ai_decisions_total{job="ai-worker", instance="ai-worker:9808", env="staging", status="ACCEPTED"}'
+        values: '0+4x696 2788+4x191'
+      - series: 'iltiam_ai_decision_reasons_total{job="ai-worker", instance="ai-worker:9808", env="staging", reason="GLARE"}'
+        values: '0+0.4x696 278.8+0.4x191'
+      - series: 'iltiam_ai_decision_reasons_total{job="ai-worker", instance="ai-worker:9808", env="staging", reason="LOW_SHARPNESS"}'
+        values: '0+0.4x696 278.8+0.4x191'
+    alert_rule_test:
+      - eval_time: 36d
+        alertname: AiWoundAreaDrift
+        exp_alerts: []
+      - eval_time: 36d
+        alertname: AiDecisionReasonDrift
+        exp_alerts: []
+
+  # 5. Four steady weeks, then larger wounds and four times more GLARE: both fire, GLARE only.
+  - interval: 1h
+    input_series:
+      - series: 'iltiam_ai_wound_area_cm2_bucket{job="ai-worker", instance="ai-worker:9808", env="staging", model="segformer-b2@2.0.0+postprocess@2.0.0", le="0.25"}'
+        values: '0+0x696 0+0x191'
+      - series: 'iltiam_ai_wound_area_cm2_bucket{job="ai-worker", instance="ai-worker:9808", env="staging", model="segformer-b2@2.0.0+postprocess@2.0.0", le="0.5"}'
+        values: '0+0x696 0+0x191'
+      - series: 'iltiam_ai_wound_area_cm2_bucket{job="ai-worker", instance="ai-worker:9808", env="staging", model="segformer-b2@2.0.0+postprocess@2.0.0", le="1.0"}'
+        values: '0+1x696 696+0x191'
+      - series: 'iltiam_ai_wound_area_cm2_bucket{job="ai-worker", instance="ai-worker:9808", env="staging", model="segformer-b2@2.0.0+postprocess@2.0.0", le="2.0"}'
+        values: '0+1x696 696+0x191'
+      - series: 'iltiam_ai_wound_area_cm2_bucket{job="ai-worker", instance="ai-worker:9808", env="staging", model="segformer-b2@2.0.0+postprocess@2.0.0", le="3.0"}'
+        values: '0+2x696 1392+0x191'
+      - series: 'iltiam_ai_wound_area_cm2_bucket{job="ai-worker", instance="ai-worker:9808", env="staging", model="segformer-b2@2.0.0+postprocess@2.0.0", le="5.0"}'
+        values: '0+3x696 2089+1x191'
+      - series: 'iltiam_ai_wound_area_cm2_bucket{job="ai-worker", instance="ai-worker:9808", env="staging", model="segformer-b2@2.0.0+postprocess@2.0.0", le="7.5"}'
+        values: '0+3x696 2090+2x191'
+      - series: 'iltiam_ai_wound_area_cm2_bucket{job="ai-worker", instance="ai-worker:9808", env="staging", model="segformer-b2@2.0.0+postprocess@2.0.0", le="10.0"}'
+        values: '0+4x696 2786+2x191'
+      - series: 'iltiam_ai_wound_area_cm2_bucket{job="ai-worker", instance="ai-worker:9808", env="staging", model="segformer-b2@2.0.0+postprocess@2.0.0", le="15.0"}'
+        values: '0+4x696 2787+3x191'
+      - series: 'iltiam_ai_wound_area_cm2_bucket{job="ai-worker", instance="ai-worker:9808", env="staging", model="segformer-b2@2.0.0+postprocess@2.0.0", le="20.0"}'
+        values: '0+4x696 2788+4x191'
+      - series: 'iltiam_ai_wound_area_cm2_bucket{job="ai-worker", instance="ai-worker:9808", env="staging", model="segformer-b2@2.0.0+postprocess@2.0.0", le="30.0"}'
+        values: '0+4x696 2788+4x191'
+      - series: 'iltiam_ai_wound_area_cm2_bucket{job="ai-worker", instance="ai-worker:9808", env="staging", model="segformer-b2@2.0.0+postprocess@2.0.0", le="50.0"}'
+        values: '0+4x696 2788+4x191'
+      - series: 'iltiam_ai_wound_area_cm2_bucket{job="ai-worker", instance="ai-worker:9808", env="staging", model="segformer-b2@2.0.0+postprocess@2.0.0", le="75.0"}'
+        values: '0+4x696 2788+4x191'
+      - series: 'iltiam_ai_wound_area_cm2_bucket{job="ai-worker", instance="ai-worker:9808", env="staging", model="segformer-b2@2.0.0+postprocess@2.0.0", le="100.0"}'
+        values: '0+4x696 2788+4x191'
+      - series: 'iltiam_ai_wound_area_cm2_bucket{job="ai-worker", instance="ai-worker:9808", env="staging", model="segformer-b2@2.0.0+postprocess@2.0.0", le="150.0"}'
+        values: '0+4x696 2788+4x191'
+      - series: 'iltiam_ai_wound_area_cm2_bucket{job="ai-worker", instance="ai-worker:9808", env="staging", model="segformer-b2@2.0.0+postprocess@2.0.0", le="200.0"}'
+        values: '0+4x696 2788+4x191'
+      - series: 'iltiam_ai_wound_area_cm2_bucket{job="ai-worker", instance="ai-worker:9808", env="staging", model="segformer-b2@2.0.0+postprocess@2.0.0", le="+Inf"}'
+        values: '0+4x696 2788+4x191'
+      - series: 'iltiam_ai_wound_area_cm2_count{job="ai-worker", instance="ai-worker:9808", env="staging", model="segformer-b2@2.0.0+postprocess@2.0.0"}'
+        values: '0+4x696 2788+4x191'
+      - series: 'iltiam_ai_decisions_total{job="ai-worker", instance="ai-worker:9808", env="staging", status="ACCEPTED"}'
+        values: '0+4x696 2788+4x191'
+      - series: 'iltiam_ai_decision_reasons_total{job="ai-worker", instance="ai-worker:9808", env="staging", reason="GLARE"}'
+        values: '0+0.4x696 280+1.6x191'
+      - series: 'iltiam_ai_decision_reasons_total{job="ai-worker", instance="ai-worker:9808", env="staging", reason="LOW_SHARPNESS"}'
+        values: '0+0.4x696 278.8+0.4x191'
+    alert_rule_test:
+      - eval_time: 36d
+        alertname: AiWoundAreaDrift
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              service: ai
+              env: staging
+            exp_annotations:
+              summary: "AI staging: the wound area distribution has drifted"
+              description: "This week's measured wound areas differ from the 28 days before by 0.50 (KS distance; alert above 0.15, with 50 measured wounds or more in each window)."
+              runbook_url: https://github.com/iltiam/iltiam-ai-service/blob/main/docs/drift-monitoring.md
+      - eval_time: 36d
+        alertname: AiDecisionReasonDrift
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              service: ai
+              env: staging
+              reason: GLARE
+            exp_annotations:
+              summary: "AI staging: reason GLARE is given more or less often than before"
+              description: "The share of analyses giving GLARE moved by 0.30 between the 28 days before this week and this week (alert above 0.15, with 50 analyses or more in each window)."
+              runbook_url: https://github.com/iltiam/iltiam-ai-service/blob/main/docs/drift-monitoring.md
+      # Too little history: without 4 earlier weeks (retention < 35 days, or a new environment) nothing fires.
+      - eval_time: 9d
+        alertname: AiWoundAreaDrift
+        exp_alerts: []

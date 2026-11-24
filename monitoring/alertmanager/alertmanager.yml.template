@@ -1,0 +1,62 @@
+# Alertmanager (Runbook 7, issue #10). A TEMPLATE: scripts/monitoring.sh fills the @@NAME@@ values from
+# /srv/iltiam/env/monitoring/monitoring.env and writes /srv/iltiam/env/monitoring/alertmanager.yml (mode 600). Every
+# value is a secret or an address and this repository is public, so none is written here.
+# Lines between "# begin NAME" and "# end NAME" are dropped when the optional value NAME is not set.
+#
+# Where alerts go: email through OCI Email Delivery (the approved sender of Runbook 2, section 11.4) and the team's
+# Discord channel. Nothing pages anyone: the team reads both during the day. Every message holds the alert's name,
+# environment and summary only: never a log line, a value of a request or anything about a patient.
+global:
+  smtp_smarthost: smtp.email.me-riyadh-1.oci.oraclecloud.com:587
+  smtp_from: ILTIAM monitoring <no-reply@iltiamcare.com>
+  smtp_hello: iltiamcare.com
+  smtp_require_tls: true
+  smtp_auth_username: '@@ALERT_SMTP_USERNAME@@'
+  smtp_auth_password: '@@ALERT_SMTP_PASSWORD@@'
+  resolve_timeout: 5m
+
+route:
+  receiver: team
+  group_by: [alertname, env]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 12h
+  routes:
+    # Always firing while Prometheus and Alertmanager work: a dead-man check (healthchecks.io) emails the team when
+    # it stops arriving, i.e. when monitoring itself is down.
+    - matchers: [alertname="Watchdog"]
+      receiver: heartbeat
+      group_wait: 0s
+      group_interval: 1m
+      repeat_interval: 5m
+    # Something is down: remind every 4 hours until it is fixed.
+    - matchers: [severity="critical"]
+      receiver: team
+      repeat_interval: 4h
+    # The AI drift alerts (iltiam-ai-service#151) and the other warnings: once a day is enough.
+    - matchers: [severity="warning"]
+      receiver: team
+      repeat_interval: 24h
+
+inhibit_rules:
+  # When a whole environment is unreachable, its narrower alerts only add noise.
+  - source_matchers: [alertname="TargetDown"]
+    target_matchers: [alertname=~"HighErrorRate|AiJobFailures|BackendTaskFailures"]
+    equal: [env]
+
+receivers:
+  - name: team
+    email_configs:
+      - to: '@@ALERT_EMAIL_TO@@'
+        send_resolved: true
+# begin ALERT_DISCORD_WEBHOOK_URL
+    discord_configs:
+      - webhook_url: '@@ALERT_DISCORD_WEBHOOK_URL@@'
+        send_resolved: true
+# end ALERT_DISCORD_WEBHOOK_URL
+  - name: heartbeat
+# begin ALERT_HEARTBEAT_URL
+    webhook_configs:
+      - url: '@@ALERT_HEARTBEAT_URL@@'
+        send_resolved: false
+# end ALERT_HEARTBEAT_URL

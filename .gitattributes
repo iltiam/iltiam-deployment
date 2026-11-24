@@ -6,3 +6,7 @@
 *.versions text eol=lf
 *.yml text eol=lf
 *.yaml text eol=lf
+# The monitoring stack's configuration, read on the VM (Runbook 7): the Alertmanager template is rendered line by line.
+*.alloy text eol=lf
+*.template text eol=lf
+monitoring/AI_SOURCE text eol=lf

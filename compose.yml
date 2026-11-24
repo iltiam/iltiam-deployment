@@ -17,6 +17,11 @@
 #   internal  internal: true, no route out of the VM. Postgres, Redis, the AI service and the backend.
 #   egress    outbound only, for what must call the internet: weights-init (GitHub), ai-worker (mask upload to
 #             object storage), backend-worker (storage, Authentica, FCM, SMTP). backend-web goes out through edge.
+#   metrics   iltiam-metrics-<env>, internal, made by scripts/deploy.sh and scripts/monitoring.sh (Runbook 7, #10).
+#             Only the four scrape targets and the monitoring project's Prometheus and blackbox exporter are on it:
+#             monitoring never reaches Postgres or Redis, and the two environments never reach each other. Each
+#             target has the alias <env>-<service> there (staging-ai-api, ...), because Prometheus is on both
+#             environments' networks and a bare `ai-api` would be ambiguous. ILTIAM_ENV comes from scripts/compose.sh.
 #
 # Profiles, enabled by env/<env>.versions:
 #   backend   migrate, web, worker, beat. On in staging. Production leaves it off until DEP-13, DEP-14 and SMTP exist,
@@ -24,7 +29,7 @@
 #   web       the web app. On in staging. Production leaves it off until #36.
 
 x-logging: &logging
-  # Capped, or the logs of two environments fill the disk. Runbook 7 (#10) reads these files.
+  # Capped, or the logs of two environments fill the disk. Runbook 7's Alloy reads them through the Docker API.
   driver: json-file
   options:
     max-size: "10m"
@@ -180,7 +185,10 @@ services:
     # The image's command runs the migrations, then gunicorn with AI_API_WORKERS (1, from ai.env) processes.
     <<: *ai
     image: ${AI_API_IMAGE:?AI_API_IMAGE is missing from env/<env>.versions}
-    networks: [internal]
+    networks:
+      internal: {}
+      # /metrics and /ready on 8000, for Prometheus and the blackbox exporter (Runbook 7).
+      metrics: {aliases: ["${ILTIAM_ENV:?set ILTIAM_ENV; use scripts/compose.sh}-ai-api"]}
     healthcheck:
       # The image's own check: 200 once the models are loaded and Redis answers.
       test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:8000/ready', timeout=4)"]
@@ -199,7 +207,11 @@ services:
     # AI_WORKER_CONCURRENCY (1, from ai.env) Celery processes, each loading its own models.
     <<: *ai
     image: ${AI_WORKER_IMAGE:?AI_WORKER_IMAGE is missing from env/<env>.versions}
-    networks: [internal, egress]
+    networks:
+      internal: {}
+      egress: {}
+      # /metrics on 9808 (AI_WORKER_METRICS_PORT).
+      metrics: {aliases: ["${ILTIAM_ENV:?set ILTIAM_ENV; use scripts/compose.sh}-ai-worker"]}
     healthcheck:
       test: ["CMD-SHELL", "celery -A workers.celery_app inspect ping -d celery@$$HOSTNAME -t 5"]
       interval: 30s
@@ -238,7 +250,11 @@ services:
   backend-web:
     <<: *backend
     command: ["web"]
-    networks: [edge, internal]
+    networks:
+      edge: {}
+      internal: {}
+      # /metrics on 9100 (METRICS_PORT; 404 on 8000, the port the tunnel reaches) and /api/health/ on 8000.
+      metrics: {aliases: ["${ILTIAM_ENV:?set ILTIAM_ENV; use scripts/compose.sh}-backend-web"]}
     # The image's own check asks http://127.0.0.1:8000/api/health/, which production settings answer with 400
     # (127.0.0.1 is not in ALLOWED_HOSTS) or a redirect to https. So send the real host name and the header
     # Cloudflare sends.
@@ -266,7 +282,11 @@ services:
     # The image's health check: this worker answers a Celery ping.
     <<: *backend
     command: ["worker"]
-    networks: [internal, egress]
+    networks:
+      internal: {}
+      egress: {}
+      # Task metrics on 9101 (WORKER_METRICS_PORT).
+      metrics: {aliases: ["${ILTIAM_ENV:?set ILTIAM_ENV; use scripts/compose.sh}-backend-worker"]}
     stop_grace_period: 60s
     mem_limit: 640m
     depends_on:
@@ -288,3 +308,8 @@ networks:
   internal:
     internal: true
   egress: {}
+  metrics:
+    # Made outside Compose (docker network create --internal), so this project and iltiam-monitoring can both use
+    # it, in either start order, without one of them owning it.
+    external: true
+    name: iltiam-metrics-${ILTIAM_ENV:?set ILTIAM_ENV; use scripts/compose.sh}

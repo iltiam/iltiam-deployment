@@ -1,0 +1,194 @@
+# ILTIAM's own alerts (Runbook 7, issue #10). The AI drift alerts are in ai-drift.rules.yml, copied from
+# iltiam-ai-service (monitoring/AI_SOURCE). Tests: monitoring/prometheus/tests/iltiam.test.yml (promtool test rules,
+# scripts/check-monitoring.sh). What to do when one fires: docs/runbooks/07-monitoring.md, section 12.
+#
+# Labels: severity critical (something is down: reminded every 4 h) or warning (reminded daily); service backend,
+# ai, web, vm, backup or monitoring; env staging or production where it applies. Annotations hold names and
+# numbers only, never a log line or anything about a patient.
+#
+# Not here, because Prometheus can't see it:
+#   - object storage above 70 % of the free 20 GB: OCI alarm iltiam-object-storage-70pct (Runbook 8, section 12);
+#   - the VM stopped or reclaimed: OCI alarm iltiam-instance-down (Runbook 7, section 10), and UptimeRobot;
+#   - monitoring itself down: the Watchdog below stops reaching its dead-man check.
+groups:
+  - name: iltiam-availability
+    rules:
+      # "Readiness failing for 2 minutes". The backend's /api/ready/ is never polled (5 object storage requests per
+      # call, Runbook 8, section 2), so its parts are watched one by one: the containers answer (TargetDown), the
+      # backend's /api/health/ and the AI service's /ready (ServiceNotReady), Redis (RedisDown) and Postgres
+      # (DatabaseErrors).
+      - alert: TargetDown
+        expr: up{job=~"ai-api|ai-worker"} == 0
+        for: 2m
+        labels: {severity: critical, service: ai}
+        annotations: &target_down
+          summary: "{{ $labels.env }}: {{ $labels.job }} has not answered /metrics for 2 minutes"
+          description: "The container is down, restarting or out of memory. Runbook 7, section 12."
+      - alert: TargetDown
+        expr: up{job=~"backend-web|backend-worker"} == 0
+        for: 2m
+        labels: {severity: critical, service: backend}
+        annotations: *target_down
+      - alert: ServiceNotReady
+        expr: probe_success{job="probe-internal"} == 0
+        for: 2m
+        labels: {severity: critical}
+        annotations:
+          summary: "{{ $labels.env }}: {{ $labels.check }} has failed for 2 minutes"
+          description: "Probed inside the VM ({{ $labels.instance }}). Runbook 7, section 12."
+      - alert: PublicEndpointDown
+        expr: probe_success{job="probe-public"} == 0
+        for: 3m
+        labels: {severity: critical}
+        annotations:
+          summary: "{{ $labels.env }}: {{ $labels.instance }} has failed from the internet for 3 minutes"
+          description: "Through Cloudflare and the tunnel. If the same check inside the VM passes, look at the tunnel (Runbook 3). Runbook 7, section 12."
+      - alert: RedisDown
+        expr: iltiam_celery_broker_up == 0
+        for: 2m
+        labels: {severity: critical, service: backend}
+        annotations:
+          summary: "{{ $labels.env }}: the backend can't read Redis (the job queue) for 2 minutes"
+          description: "Uploads are not analysed while this lasts. Runbook 7, section 12."
+      - alert: DatabaseErrors
+        expr: sum by (env) (increase(django_db_errors_total[5m])) > 3
+        labels: {severity: critical, service: backend}
+        annotations:
+          summary: "{{ $labels.env }}: {{ $value | printf \"%.0f\" }} database errors in 5 minutes"
+          description: "The backend's queries fail: is Postgres up and below max_connections? Runbook 7, section 12."
+
+  - name: iltiam-errors
+    rules:
+      # "5xx rate": more than 5 % of the answers in 5 minutes, and at least 5 of them (a single error at night is
+      # not an incident).
+      - alert: HighErrorRate
+        expr: |
+          (
+            sum by (env) (rate(django_http_responses_total_by_status_view_method_total{status=~"5.."}[5m]))
+              / sum by (env) (rate(django_http_responses_total_by_status_view_method_total[5m]))
+            > 0.05
+          )
+          and sum by (env) (increase(django_http_responses_total_by_status_view_method_total{status=~"5.."}[5m])) >= 5
+        for: 5m
+        labels: {severity: critical, service: backend}
+        annotations:
+          summary: "{{ $labels.env }}: {{ $value | humanizePercentage }} of the backend's answers are 5xx"
+          description: "Grafana, ILTIAM overview, Errors; the backend's logs in Loki. Runbook 7, section 12."
+      - alert: HighErrorRate
+        expr: |
+          (
+            sum by (env) (rate(iltiam_ai_http_requests_total{status=~"5.."}[5m]))
+              / sum by (env) (rate(iltiam_ai_http_requests_total[5m]))
+            > 0.05
+          )
+          and sum by (env) (increase(iltiam_ai_http_requests_total{status=~"5.."}[5m])) >= 5
+        for: 5m
+        labels: {severity: critical, service: ai}
+        annotations:
+          summary: "{{ $labels.env }}: {{ $value | humanizePercentage }} of the AI api's answers are 5xx"
+          description: "Grafana, ILTIAM overview, Errors; ai-api's logs in Loki. Runbook 7, section 12."
+      # "AI job failures": any analysis that ended FAILED, by its reason (a fixed list, never a message).
+      - alert: AiJobFailures
+        expr: sum by (env, reason) (increase(iltiam_ai_job_failures_total[15m])) > 0
+        labels: {severity: warning, service: ai}
+        annotations:
+          summary: "{{ $labels.env }}: AI analyses failed in the last 15 minutes ({{ $labels.reason }})"
+          description: "The patient sees no result for these photos. Runbook 7, section 12."
+      - alert: BackendTaskFailures
+        expr: sum by (env, task) (increase(iltiam_celery_tasks_total{state="FAILURE"}[15m])) > 0
+        labels: {severity: warning, service: backend}
+        annotations:
+          summary: "{{ $labels.env }}: the backend task {{ $labels.task }} failed in the last 15 minutes"
+          description: "Runbook 7, section 12."
+      - alert: AiQueueSlow
+        expr: |
+          histogram_quantile(0.95, sum by (env, le) (rate(iltiam_ai_queue_wait_seconds_bucket[15m]))) > 120
+        for: 15m
+        labels: {severity: warning, service: ai}
+        annotations:
+          summary: "{{ $labels.env }}: photos wait {{ $value | humanizeDuration }} (p95) before the AI service starts"
+          description: "The AI worker is stopped, slow or busy (Runbook 5, section 9.6 stops staging's on purpose). Runbook 7, section 12."
+
+  - name: iltiam-resources
+    rules:
+      - alert: HostMemoryHigh
+        expr: (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) > 0.85
+        for: 10m
+        labels: {severity: warning, service: vm}
+        annotations:
+          summary: "iltiam-1: {{ $value | humanizePercentage }} of the memory in use for 10 minutes"
+          description: "Stop staging's AI worker first, never production's (Runbook 5, section 9.6). Runbook 7, section 12."
+      - alert: ContainerNearMemoryLimit
+        expr: |
+          container_memory_working_set_bytes{project!=""} / (container_spec_memory_limit_bytes{project!=""} > 0) > 0.9
+        for: 15m
+        labels: {severity: warning}
+        annotations:
+          summary: "{{ $labels.project }}/{{ $labels.service }} uses {{ $value | humanizePercentage }} of its mem_limit"
+          description: "Near the limit, the kernel stops it (OOMKilled) and Docker restarts it. Runbook 7, section 12."
+      - alert: ContainerOomKilled
+        expr: sum by (project, service) (increase(container_oom_events_total{project!=""}[15m])) > 0
+        labels: {severity: warning}
+        annotations:
+          summary: "{{ $labels.project }}/{{ $labels.service }} was stopped for going over its mem_limit"
+          description: "Runbook 5, section 2 has the limits; Runbook 7, section 12."
+      - alert: DiskSpaceHigh
+        expr: |
+          (1 - node_filesystem_avail_bytes{mountpoint=~"/|/srv/iltiam", fstype!~"tmpfs|overlay"}
+                / node_filesystem_size_bytes{mountpoint=~"/|/srv/iltiam", fstype!~"tmpfs|overlay"}) > 0.80
+        for: 10m
+        labels: {severity: warning, service: vm}
+        annotations:
+          summary: "iltiam-1: {{ $labels.mountpoint }} is {{ $value | humanizePercentage }} full"
+          description: "Runbook 7, section 12: docker system df, old images, then the logs."
+
+  - name: iltiam-backups
+    rules:
+      # Runbook 6 writes the status files (scripts/lib/backup-common.sh); node-exporter reads them. Their own `job`
+      # label (nightly, restore-test) arrives as `backup` (prometheus.yml).
+      - alert: BackupTooOld
+        expr: time() - iltiam_backup_last_success_timestamp_seconds{backup="nightly"} > 26 * 3600
+        labels: {severity: critical, service: backup}
+        annotations:
+          summary: "{{ $labels.env }}: the last good nightly backup is {{ $value | humanizeDuration }} old"
+          description: "More than 26 hours. journalctl -u iltiam-backup@{{ $labels.env }} (Runbook 6, section 15)."
+      # An environment that is monitored but has never written a backup status (Runbook 6 not done yet, or the
+      # status folder missing).
+      - alert: BackupNeverSucceeded
+        expr: |
+          group by (env) (up{job="ai-api"})
+            unless on (env) group by (env) (iltiam_backup_last_success_timestamp_seconds{backup="nightly"})
+        for: 1h
+        labels: {severity: critical, service: backup}
+        annotations:
+          summary: "{{ $labels.env }}: no nightly backup has ever succeeded"
+          description: "No status file, or no success in it. Runbook 6, sections 6 to 9."
+      - alert: BackupFailed
+        expr: iltiam_backup_last_run_success == 0
+        labels: {severity: warning, service: backup}
+        annotations:
+          summary: "{{ $labels.env }}: the last {{ $labels.backup }} run failed"
+          description: "journalctl -u 'iltiam-*@{{ $labels.env }}' on the VM (Runbook 6, section 15)."
+      - alert: RestoreTestTooOld
+        expr: time() - iltiam_backup_last_success_timestamp_seconds{backup="restore-test"} > 8 * 86400
+        labels: {severity: warning, service: backup}
+        annotations:
+          summary: "{{ $labels.env }}: the last good restore test is {{ $value | humanizeDuration }} old"
+          description: "It runs every Friday. Runbook 6, section 13."
+
+  - name: iltiam-monitoring
+    rules:
+      - alert: MonitoringTargetDown
+        expr: up{job=~"node|cadvisor|monitoring"} == 0
+        for: 5m
+        labels: {severity: warning, service: monitoring}
+        annotations:
+          summary: "monitoring: {{ $labels.job }} {{ $labels.component }} has not answered for 5 minutes"
+          description: "scripts/monitoring.sh ps on the VM. Runbook 7, section 12."
+      # Always firing. Alertmanager sends it every 5 minutes to the dead-man check of Runbook 7, section 8, which
+      # emails the team when it stops: Prometheus, Alertmanager or the VM is down.
+      - alert: Watchdog
+        expr: vector(1)
+        labels: {severity: none, service: monitoring}
+        annotations:
+          summary: "Monitoring works: this alert always fires (dead-man check)."

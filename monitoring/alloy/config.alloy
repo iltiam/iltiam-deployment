@@ -1,0 +1,88 @@
+// Grafana Alloy: the containers' logs into Loki (Runbook 7, issue #10). promtail's successor; promtail reached its
+// end of life in March 2026.
+//
+// It asks the read-only Docker API proxy (compose.monitoring.yml, docker-proxy) for the containers and their logs.
+// Only the three ILTIAM projects are read. Labels: env, project, service, container, stream and, for the AI
+// service's JSON lines (AI_LOG_FORMAT=json), level. request_id stays in the line: one value per request would make
+// a label Loki can't index.
+
+discovery.docker "containers" {
+  host             = "tcp://docker-proxy:2375"
+  refresh_interval = "30s"
+}
+
+discovery.relabel "containers" {
+  targets = []
+
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_project"]
+    regex         = "iltiam-(staging|prod|monitoring)"
+    action        = "keep"
+  }
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_project"]
+    target_label  = "project"
+  }
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+    target_label  = "service"
+  }
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/(.*)"
+    target_label  = "container"
+  }
+  rule {
+    source_labels = ["__meta_docker_container_log_stream"]
+    target_label  = "stream"
+  }
+  rule {
+    source_labels = ["project"]
+    regex         = "iltiam-staging"
+    target_label  = "env"
+    replacement   = "staging"
+  }
+  rule {
+    source_labels = ["project"]
+    regex         = "iltiam-prod"
+    target_label  = "env"
+    replacement   = "production"
+  }
+  rule {
+    source_labels = ["project"]
+    regex         = "iltiam-monitoring"
+    target_label  = "env"
+    replacement   = "monitoring"
+  }
+}
+
+loki.source.docker "containers" {
+  host             = "tcp://docker-proxy:2375"
+  targets          = discovery.docker.containers.targets
+  relabel_rules    = discovery.relabel.containers.rules
+  refresh_interval = "30s"
+  forward_to       = [loki.process.containers.receiver]
+}
+
+loki.process "containers" {
+  // The AI service's JSON lines (iltiam-ai-service docs/observability.md): their level as a label. Other lines,
+  // and the AI service's few non-JSON lines, pass unchanged.
+  stage.match {
+    selector = "{service=~\"ai-.*\"} |~ \"^\\\\{\""
+
+    stage.json {
+      expressions = {level = "level"}
+    }
+    stage.labels {
+      values = {level = ""}
+    }
+  }
+
+  forward_to = [loki.write.local.receiver]
+}
+
+loki.write "local" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}
