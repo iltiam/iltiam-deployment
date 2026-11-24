@@ -1,5 +1,5 @@
 # The AI drift monitoring files here are copies from iltiam/iltiam-ai-service, never edited in this repository
 # (Runbook 7, section 17.4). scripts/sync-ai-monitoring.sh copies them again and rewrites this file.
-commit=9584de2cdc74534c56c3023cf70a707fcb0bb79d
-pr=iltiam/iltiam-ai-service#171
+commit=55aeb8fc05317cd8bb1b74656b7d31ef6b16338c
+pr=iltiam/iltiam-ai-service#171, #176 (the drift test at evaluation_interval 1m)
 files=monitoring/prometheus/rules/ai-drift.rules.yml monitoring/prometheus/rules/ai-drift-baseline.rules.yml monitoring/prometheus/tests/ai-drift.test.yml monitoring/grafana/dashboards/ai-drift.json

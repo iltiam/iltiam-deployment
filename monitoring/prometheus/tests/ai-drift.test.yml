@@ -7,7 +7,7 @@
 rule_files:
   - ../rules/ai-drift-baseline.rules.yml
   - ../rules/ai-drift.rules.yml
-evaluation_interval: 1h
+evaluation_interval: 1m
 tests:
   # 1. A week like clean val, plus retakes (left out of the mix): nothing fires.
   - interval: 1h
