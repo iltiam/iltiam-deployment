@@ -1,0 +1,50 @@
+# Blackbox exporter modules (Runbook 7, issue #10). The targets and the module each one uses: targets/probe-*.json,
+# written by scripts/monitoring.sh. Every probe is a GET of a health URL that reads no personal data.
+modules:
+  # Inside the VM, over the metrics network: the AI api's /ready (200 once its models are loaded and Redis answers).
+  http_internal:
+    prober: http
+    timeout: 5s
+    http:
+      method: GET
+      valid_status_codes: [200]
+      preferred_ip_protocol: ip4
+      no_follow_redirects: true
+
+  # The backend's /api/health/ inside the VM. Its production settings refuse a Host that isn't in ALLOWED_HOSTS and
+  # redirect plain HTTP, so the probe sends what Cloudflare sends (as compose.yml's own health check does).
+  backend_internal_staging:
+    prober: http
+    timeout: 5s
+    http:
+      method: GET
+      valid_status_codes: [200]
+      preferred_ip_protocol: ip4
+      no_follow_redirects: true
+      headers:
+        Host: staging-api.iltiamcare.com
+        X-Forwarded-Proto: https
+  backend_internal_production:
+    prober: http
+    timeout: 5s
+    http:
+      method: GET
+      valid_status_codes: [200]
+      preferred_ip_protocol: ip4
+      no_follow_redirects: true
+      headers:
+        Host: api.iltiamcare.com
+        X-Forwarded-Proto: https
+
+  # The public hostnames, through Cloudflare and the environment's tunnel. HTTPS only.
+  https_public:
+    prober: http
+    timeout: 10s
+    http:
+      method: GET
+      valid_status_codes: [200]
+      preferred_ip_protocol: ip4
+      fail_if_not_ssl: true
+      no_follow_redirects: true
+      headers:
+        User-Agent: iltiam-monitoring (blackbox exporter; Runbook 7)

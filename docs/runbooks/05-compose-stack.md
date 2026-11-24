@@ -78,6 +78,7 @@ The two projects share only the weights folder. Each has its own containers, net
 | `edge` | `cloudflared`, `backend-web`, `web` | The tunnel reaches only what is here. The AI service, Postgres and Redis are not, so `cloudflared` can't even resolve their names |
 | `internal` | everything except `cloudflared`, `web` and `weights-init` | `internal: true`: no route out of the VM. The services talk to each other here |
 | `egress` | `weights-init` (GitHub), `ai-worker` (mask upload to object storage), `backend-worker` (storage, Authentica, FCM, SMTP) | Outbound only, for what must call the internet. `backend-web` goes out through `edge` |
+| `metrics` | `ai-api`, `ai-worker`, `backend-web`, `backend-worker`, as `<env>-<service>`; and the monitoring project's Prometheus and blackbox exporter | `iltiam-metrics-<env>`, external and internal, made by `scripts/deploy.sh`: monitoring scrapes `/metrics` here and never reaches Postgres or Redis ([Runbook 7](07-monitoring.md), #10) |
 
 **No `ports:`.** Nothing listens on the VM's public address except SSH. The internet reaches the apps only through the tunnel ([Runbook 3](03-cloudflare-tunnels.md), section 10).
 
@@ -140,7 +141,7 @@ All figures in MiB and GiB, the units `docker stats` shows. **Idle** is measured
 
 The measured figures are from iltiam-ai-service#154 (native arm64, after `/ready` and one analysis, 1 process each); section 9.5 measures them on the VM. **On the VM, 2026-10-31** (staging AI-only, before any analysis): `ai-api` 608 MiB, `ai-worker` 663 MiB, `ai-beat` 297 MiB, `postgres` 26 MiB, `redis` 5 MiB, `cloudflared` 16 MiB, **1615 MiB** in all. The worker loads its models at its first analysis, so it is still below #154's 1004 MiB. With the backend on (same day): `backend-web` 234 MiB, `backend-worker` 204 MiB, `backend-beat` 114 MiB, `postgres` 32 MiB, **2173 MiB** for the whole staging project, under the 2713 MiB expected for a complete environment. `ai-beat` already uses 77 % of its 384 MiB limit: watch it in section 9.5, and raise its `mem_limit` by a pull request if it nears 350 MiB.
 
-- **Budget, both environments complete:** 2 × 3.2 GiB, plus monitoring (about 1 GiB, #10) and the system (about 0.5 GiB): **about 7.9 GiB** of 11.2. Issue #2's first budget said 3.8 per environment and about 9 in total, with 1.2 for the AI api, 1.3 for the worker and no line for the beat; the measurements came in lower.
+- **Budget, both environments complete:** 2 × 3.2 GiB, plus monitoring (its limits add up to 1168 MiB, [Runbook 7](07-monitoring.md)) and the system (about 0.5 GiB): **about 7.9 GiB** of 11.2. Issue #2's first budget said 3.8 per environment and about 9 in total, with 1.2 for the AI api, 1.3 for the worker and no line for the beat; the measurements came in lower.
 - **Peak:** the AI worker's peak during an analysis isn't measured yet (section 11.4). Its `mem_limit` caps it at 1.5 GiB, so both workers analysing at once add at most about 1 GiB: **about 8.9 GiB**.
 - **Idle, both environments complete:** about 5.3 GiB of containers (section 9.5 measures it), under the 10 GiB the issue allows.
 - **Limits are ceilings, not reservations.** Their total for two complete environments (10112 MiB, 9.9 GiB), plus monitoring and the system, is more than the 11.2 GiB of RAM. It is only reached if everything peaks at once; swap absorbs the rest.
@@ -857,7 +858,7 @@ The **Verified** column records the date each row last passed.
 - **The web app** (#41): runs on staging since 2026-11-07, and section 7.6 and row 26 of section 14 pass. Section 10 row 8 (HSTS) passed on staging on 2026-11-07 (#35).
 - **DEP-13, DEP-14 and SMTP:** production's backend (section 8, "later").
 - **Runbook 6** (#8): backups and the weekly restore test (section 12).
-- **Runbook 7** (#10): monitoring on a network shared with both projects, memory and disk alerts, Redis memory.
+- **[Runbook 7](07-monitoring.md)** (#10): monitoring on each environment's metrics network, memory and disk alerts, per-container memory against `mem_limit` (Redis included).
 - **[Runbook 9](09-cd-staging.md)** (DEP-03, #16): starts this deploy automatically for staging after a merge to an app's `main`, with a health check, a database backup before backend deploys, and rollback on failure. Still to come: the end-to-end smoke test (DEP-10, #17) and the forced-command guard for the deploy keys.
 - **Runbook 10** (DEP-04, #19): production releases with approval and rollback.
 - **#5:** the local development stack, from the same images.

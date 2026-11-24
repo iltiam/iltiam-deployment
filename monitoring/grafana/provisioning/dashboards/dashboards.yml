@@ -1,0 +1,16 @@
+# The dashboards in monitoring/grafana/dashboards (Runbook 7, issue #10), read from the VM's clone of this repository.
+# A change is a pull request to that folder: edits in the UI can't be saved over them (allowUiUpdates: false).
+#   iltiam-overview.json   both environments: latency, AI queue and job time, errors, the VM, backups
+#   ai-drift.json          the AI drift dashboard, copied from iltiam-ai-service (monitoring/AI_SOURCE)
+apiVersion: 1
+
+providers:
+  - name: iltiam
+    folder: ILTIAM
+    type: file
+    disableDeletion: true
+    allowUiUpdates: false
+    updateIntervalSeconds: 60
+    options:
+      path: /var/lib/grafana-dashboards
+      foldersFromFilesStructure: false

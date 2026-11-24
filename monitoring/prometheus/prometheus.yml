@@ -1,0 +1,103 @@
+# Prometheus for both environments (Runbook 7, issue #10). Mounted read-only from the VM's clone of this repository.
+#
+# The environments' targets are not listed here: scripts/monitoring.sh writes them into targets/*.json (file_sd) from
+# MONITORED_ENVIRONMENTS and each env/<env>.versions, so a profile that is off, or an environment that doesn't run
+# yet, has no target and raises no alert. Prometheus rereads those files by itself.
+#
+# Names on the metrics networks are <env>-<service> (compose.yml), e.g. staging-ai-api:8000. Every application
+# series gets an `env` label (staging, production): the AI drift rules and the dashboards group by it.
+global:
+  scrape_interval: 30s
+  scrape_timeout: 10s
+  evaluation_interval: 30s
+
+rule_files:
+  - /etc/prometheus/rules/*.yml
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ["alertmanager:9093"]
+
+scrape_configs:
+  # --- The applications (file_sd, written by scripts/monitoring.sh) -------------------------------------------------
+  # AI service: iltiam-ai-service docs/observability.md. The job names are part of the drift rules' contract.
+  - job_name: ai-api
+    metrics_path: /metrics
+    file_sd_configs: [{files: [/etc/prometheus-targets/ai-api.json]}]
+  - job_name: ai-worker
+    metrics_path: /metrics
+    file_sd_configs: [{files: [/etc/prometheus-targets/ai-worker.json]}]
+  # Backend: iltiam-backend docs/deployment.md, "Metrics for Prometheus". /metrics answers on 9100 only.
+  - job_name: backend-web
+    metrics_path: /metrics
+    file_sd_configs: [{files: [/etc/prometheus-targets/backend-web.json]}]
+  - job_name: backend-worker
+    metrics_path: /metrics
+    file_sd_configs: [{files: [/etc/prometheus-targets/backend-worker.json]}]
+
+  # --- Probes through the blackbox exporter (monitoring/blackbox/blackbox.yml) ------------------------------------
+  # Each target carries its `module` and `check` labels. Never /api/ready/ of the backend: each call costs five
+  # object storage requests (Runbook 8, section 2). Its parts are watched one by one instead (rules: readiness).
+  - job_name: probe-internal
+    metrics_path: /probe
+    file_sd_configs: [{files: [/etc/prometheus-targets/probe-internal.json]}]
+    relabel_configs: &probe_relabel
+      - {source_labels: [__address__], target_label: __param_target}
+      - {source_labels: [module], target_label: __param_module}
+      - {source_labels: [__param_target], target_label: instance}
+      - {target_label: __address__, replacement: "blackbox:9115"}
+  - job_name: probe-public
+    # Through Cloudflare and the environment's tunnel, as a phone would; once a minute is plenty.
+    scrape_interval: 60s
+    metrics_path: /probe
+    file_sd_configs: [{files: [/etc/prometheus-targets/probe-public.json]}]
+    relabel_configs: *probe_relabel
+
+  # --- The VM ----------------------------------------------------------------------------------------------------
+  - job_name: node
+    static_configs: [{targets: ["node-exporter:9100"], labels: {host: iltiam-1}}]
+    metric_relabel_configs:
+      # The backup status files (Runbook 6) label their series job="nightly" or job="restore-test", which arrives as
+      # exported_job next to this job's own label: call it `backup`.
+      - source_labels: [exported_job]
+        regex: (.+)
+        target_label: backup
+      - regex: exported_job
+        action: labeldrop
+  - job_name: cadvisor
+    static_configs: [{targets: ["cadvisor:8080"], labels: {host: iltiam-1}}]
+    metric_relabel_configs:
+      # Short labels for the Compose project and service, and none of cAdvisor's long ones.
+      - source_labels: [container_label_com_docker_compose_project]
+        target_label: project
+      - source_labels: [container_label_com_docker_compose_service]
+        target_label: service
+      - regex: container_label_com_docker_compose_(project|service)
+        action: labeldrop
+      - regex: id
+        action: labeldrop
+      # Only the containers of the three projects.
+      - source_labels: [project]
+        regex: iltiam-(staging|prod|monitoring)
+        action: keep
+      # The same `env` label as the applications' series.
+      - {source_labels: [project], regex: iltiam-staging, target_label: env, replacement: staging}
+      - {source_labels: [project], regex: iltiam-prod, target_label: env, replacement: production}
+      - {source_labels: [project], regex: iltiam-monitoring, target_label: env, replacement: monitoring}
+
+  # --- The monitoring stack itself ----------------------------------------------------------------------------
+  - job_name: monitoring
+    static_configs:
+      - targets: ["127.0.0.1:9090"]
+        labels: {component: prometheus}
+      - targets: ["alertmanager:9093"]
+        labels: {component: alertmanager}
+      - targets: ["blackbox:9115"]
+        labels: {component: blackbox}
+      - targets: ["loki:3100"]
+        labels: {component: loki}
+      - targets: ["alloy:12345"]
+        labels: {component: alloy}
+      - targets: ["grafana:3000"]
+        labels: {component: grafana}

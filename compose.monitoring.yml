@@ -1,0 +1,298 @@
+# The monitoring stack of iltiam-1: one Compose project, iltiam-monitoring, for both environments (Runbook 7,
+# docs/runbooks/07-monitoring.md, issue #10). About 1 GB in total (ADR-0004, Decision 3): every mem_limit below adds
+# up to 1168 MiB, under the 1.2 GB the issue allows, and scripts/check-monitoring.sh fails CI above 1228 MiB.
+#
+# Never run `docker compose` on this file by hand: use scripts/monitoring.sh (on the VM as deploy). It passes the
+# project name, the env file and the paths, makes the metrics networks, renders the targets and Alertmanager's
+# configuration, and refuses a `config` that would print a secret. The deploy workflow runs it
+# (`-f environment=monitoring`); this repository is public, so `config` only ever with --quiet.
+#
+#   -p iltiam-monitoring
+#   --env-file /srv/iltiam/env/monitoring/monitoring.env   the tunnel token and Grafana's admin password
+#   ENV_DIR=/srv/iltiam/env/monitoring  MON_DIR=/srv/iltiam/monitoring  MONITORING_UID/GID=deploy's
+#
+# Networks (no `ports:` anywhere; nothing listens on the VM's public address):
+#   monitoring              internal. Every component, so Prometheus scrapes them and Grafana reads Prometheus/Loki.
+#   tunnel                  internal. Only cloudflared and Grafana: the tunnel reaches Grafana and nothing else.
+#   docker-api              internal. Only the read-only Docker API proxy, Alloy and cAdvisor: no other container
+#                           can ask Docker anything.
+#   outbound                the way out: cloudflared (Cloudflare), Alertmanager (SMTP, Discord), the blackbox exporter
+#                           (the public health URLs), Grafana (its OCI plugin and OCI Monitoring).
+#   metrics-staging,        iltiam-metrics-<env>, external and internal (scripts/lib/metrics-network.sh). Only
+#   metrics-production      Prometheus and the blackbox exporter join them; on the environment's side only its four
+#                           scrape targets, under the aliases <env>-ai-api, <env>-ai-worker, <env>-backend-web and
+#                           <env>-backend-worker (compose.yml). Never Postgres or Redis.
+#
+# Root: only docker-proxy (it opens the Docker socket and passes on read-only API calls) and cAdvisor (it reads
+# /var/lib/docker and containerd's socket, see below); every host mount is read-only. Everything that writes data runs as deploy, into
+# /srv/iltiam/monitoring, and every service has a mem_limit, capped logs and no-new-privileges.
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+x-base: &base
+  logging: *logging
+  restart: unless-stopped
+  security_opt: ["no-new-privileges:true"]
+  cap_drop: [ALL]
+
+# Containers that write data run as deploy (scripts/monitoring.sh passes its uid and gid), so their folders under
+# /srv/iltiam/monitoring belong to deploy and no root step is needed.
+x-as-deploy: &as-deploy
+  user: "${MONITORING_UID:?use scripts/monitoring.sh}:${MONITORING_GID:?use scripts/monitoring.sh}"
+
+services:
+  # --- Metrics and alerts ---------------------------------------------------------------------------------------
+  prometheus:
+    <<: [*base, *as-deploy]
+    image: prom/prometheus:v3.15.1
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      # 35 days, not 7: the AI drift rules compare this week with the 4 weeks before (iltiam-ai-service#151).
+      - --storage.tsdb.retention.time=35d
+      # A ceiling on the data volume, whatever the series count does.
+      - --storage.tsdb.retention.size=6GB
+      # POST /-/reload, used by scripts/monitoring.sh after the rules change. Only on the internal networks.
+      - --web.enable-lifecycle
+    volumes:
+      - ./monitoring/prometheus:/etc/prometheus:ro
+      - ${MON_DIR:?use scripts/monitoring.sh}/targets:/etc/prometheus-targets:ro
+      - ${MON_DIR:?use scripts/monitoring.sh}/prometheus:/prometheus
+    networks: [monitoring, metrics-staging, metrics-production]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:9090/-/ready"]
+      interval: 30s
+      timeout: 5s
+      start_period: 60s
+      retries: 3
+    mem_limit: 288m
+
+  alertmanager:
+    <<: [*base, *as-deploy]
+    image: prom/alertmanager:v0.34.2
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+      - --storage.path=/alertmanager
+      # One Alertmanager: no cluster, so no gossip port.
+      - --cluster.listen-address=
+    volumes:
+      # Rendered by scripts/monitoring.sh from monitoring/alertmanager/alertmanager.yml.template (mode 600, deploy):
+      # it holds the SMTP password, the recipients and the Discord webhook. The folder, not the file, so a new
+      # render is seen without recreating the container.
+      - ${ENV_DIR:?use scripts/monitoring.sh}/alertmanager:/etc/alertmanager:ro
+      - ${MON_DIR:?use scripts/monitoring.sh}/alertmanager:/alertmanager
+    networks: [monitoring, outbound]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:9093/-/ready"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+    mem_limit: 48m
+
+  blackbox:
+    # Probes the readiness and health URLs (monitoring/blackbox/blackbox.yml): inside the VM over the metrics
+    # networks, and the public ones over the internet, as a phone would.
+    <<: *base
+    image: prom/blackbox-exporter:v0.29.1
+    command: ["--config.file=/etc/blackbox/blackbox.yml"]
+    volumes:
+      - ./monitoring/blackbox:/etc/blackbox:ro
+    networks: [monitoring, outbound, metrics-staging, metrics-production]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:9115/-/healthy"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    mem_limit: 32m
+
+  # --- The VM and its containers --------------------------------------------------------------------------------
+  node-exporter:
+    # The VM's memory, CPU, disks and network, read from the host's /proc and /sys through a read-only mount of /.
+    # The textfile collector reads the backup status files (Runbook 6, scripts/lib/backup-common.sh).
+    <<: [*base, *as-deploy]
+    image: prom/node-exporter:v1.12.1
+    command:
+      - --path.rootfs=/host
+      - --collector.textfile.directory=/textfile
+      - --collector.filesystem.mount-points-exclude=^/(dev|proc|run|sys|var/lib/docker/.+|var/snap/.+)($|/)
+      - --collector.netdev.device-exclude=^(veth.*|br-.*|docker.*|lo)$
+      # Collectors this VM has no use for.
+      - --no-collector.arp
+      - --no-collector.bcache
+      - --no-collector.bonding
+      - --no-collector.btrfs
+      - --no-collector.fibrechannel
+      - --no-collector.infiniband
+      - --no-collector.ipvs
+      - --no-collector.nfs
+      - --no-collector.nfsd
+      - --no-collector.tapestats
+      - --no-collector.zfs
+    volumes:
+      # Recursive, so /srv/iltiam (mounted at boot, before Docker starts) is seen too.
+      - /:/host:ro
+      - /srv/iltiam/backups/status:/textfile:ro
+    networks: [monitoring]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:9100/metrics"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    mem_limit: 48m
+
+  cadvisor:
+    # Memory and CPU per container, against its mem_limit (what `docker stats` shows). Names and Compose labels come
+    # from the read-only Docker API proxy. Docker 29 keeps images in containerd, and cAdvisor 0.55 and later read a
+    # container's layers from containerd: without its socket cAdvisor sees no container at all (tested: 0.52 can't
+    # read Docker 29's image store, 0.55 and 0.61 refuse to start the Docker factory). The socket is mounted
+    # read-only, but that doesn't limit its API: cAdvisor can control containerd, as root. It is on internal
+    # networks only and its port is published nowhere. Without cAdvisor (remove this service) everything else works;
+    # only the per-container memory panels and alerts go.
+    <<: *base
+    image: ghcr.io/google/cadvisor:0.61.1
+    command:
+      - --docker=tcp://docker-proxy:2375
+      - --docker_only=true
+      - --housekeeping_interval=30s
+      - --store_container_labels=false
+      - --whitelisted_container_labels=com.docker.compose.project,com.docker.compose.service
+      # Only memory, CPU and the network: the rest costs memory here and series in Prometheus.
+      - --enable_metrics=cpu,memory,network,oom_event
+    volumes:
+      - /sys:/sys:ro
+      - /var/lib/docker:/var/lib/docker:ro
+      - /dev/disk:/dev/disk:ro
+      - /run/containerd/containerd.sock:/run/containerd/containerd.sock:ro
+    networks: [monitoring, docker-api]
+    mem_limit: 64m
+    depends_on:
+      docker-proxy: {condition: service_started}
+
+  docker-proxy:
+    # Docker's API, read-only and cut down to what Alloy and cAdvisor need: list and inspect containers and
+    # networks, read container logs and events, the daemon's info and version. Every POST, and everything else
+    # (images, exec, volumes, secrets...), is refused. The one container with the socket; on docker-api only.
+    logging: *logging
+    restart: unless-stopped
+    security_opt: ["no-new-privileges:true"]
+    image: tecnativa/docker-socket-proxy:v0.4.2
+    environment:
+      CONTAINERS: "1"
+      # Alloy's Docker discovery lists the networks to label each container.
+      NETWORKS: "1"
+      INFO: "1"
+      VERSION: "1"
+      POST: "0"
+      EVENTS: "1"
+      PING: "1"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks: [docker-api]
+    mem_limit: 32m
+
+  # --- Logs -----------------------------------------------------------------------------------------------------
+  alloy:
+    # Reads every container's logs of the three projects through the proxy and sends them to Loki (promtail's
+    # successor; promtail reached its end of life in March 2026).
+    <<: [*base, *as-deploy]
+    image: grafana/alloy:v1.21.3
+    command:
+      - run
+      - --server.http.listen-addr=0.0.0.0:12345
+      - --storage.path=/var/lib/alloy
+      - --disable-reporting
+      - /etc/alloy/config.alloy
+    volumes:
+      - ./monitoring/alloy:/etc/alloy:ro
+      - ${MON_DIR:?use scripts/monitoring.sh}/alloy:/var/lib/alloy
+    networks: [monitoring, docker-api]
+    mem_limit: 112m
+    depends_on:
+      loki: {condition: service_started}
+      docker-proxy: {condition: service_started}
+
+  loki:
+    <<: [*base, *as-deploy]
+    image: grafana/loki:3.7.9
+    command: ["-config.file=/etc/loki/loki.yml"]
+    volumes:
+      - ./monitoring/loki:/etc/loki:ro
+      - ${MON_DIR:?use scripts/monitoring.sh}/loki:/loki
+    networks: [monitoring]
+    mem_limit: 192m
+
+  # --- Dashboards, behind Cloudflare Access -----------------------------------------------------------------------
+  grafana:
+    <<: [*base, *as-deploy]
+    image: grafana/grafana:12.4.15
+    environment:
+      GF_SERVER_ROOT_URL: https://grafana.iltiamcare.com/
+      GF_SERVER_ENFORCE_DOMAIN: "false"
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD is missing from monitoring.env}
+      GF_SECURITY_COOKIE_SECURE: "true"
+      GF_SECURITY_DISABLE_GRAVATAR: "true"
+      GF_SECURITY_DISABLE_INITIAL_ADMIN_CREATION: "false"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_AUTH_DISABLE_SIGNOUT_MENU: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: "false"
+      GF_NEWS_NEWS_FEED_ENABLED: "false"
+      GF_DATE_FORMATS_DEFAULT_TIMEZONE: Asia/Riyadh
+      # Oracle's signed OCI Metrics plugin, pinned: the object storage panel (Runbook 7, section 9). It signs in
+      # with the VM's instance principal (an OCI dynamic group allowed to read metrics only), so no key is stored.
+      GF_PLUGINS_PREINSTALL: oci-metrics-datasource@6.5.6
+      GF_LOG_MODE: console
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana-dashboards:ro
+      - ${MON_DIR:?use scripts/monitoring.sh}/grafana:/var/lib/grafana
+    networks: [monitoring, tunnel, outbound]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:3000/api/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 60s
+      retries: 3
+    # Measured on Docker 29: about 145 MiB idle with the OCI plugin, up to 190 MiB while it starts.
+    mem_limit: 256m
+
+  cloudflared:
+    # The monitoring tunnel (Runbook 7, section 4): its only public hostname is grafana.iltiamcare.com, behind the
+    # Cloudflare Access application `grafana` (Runbook 3, section 9.3). Independent of the environments' tunnels, so
+    # Grafana stays up while staging or production is redeployed or down.
+    <<: *base
+    image: cloudflare/cloudflared:2026.10.0
+    command: ["tunnel", "--metrics", "127.0.0.1:20241", "run"]
+    environment:
+      TUNNEL_TOKEN: ${MONITORING_TUNNEL_TOKEN:?MONITORING_TUNNEL_TOKEN is missing from monitoring.env}
+    networks: [tunnel, outbound]
+    healthcheck:
+      test: ["CMD", "cloudflared", "tunnel", "--metrics", "127.0.0.1:20241", "ready"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+    mem_limit: 96m
+
+networks:
+  monitoring:
+    internal: true
+  tunnel:
+    internal: true
+  docker-api:
+    internal: true
+  outbound: {}
+  metrics-staging:
+    external: true
+    name: iltiam-metrics-staging
+  metrics-production:
+    external: true
+    name: iltiam-metrics-production

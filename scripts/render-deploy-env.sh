@@ -3,7 +3,7 @@
 #
 # Usage, in the deploy workflows only:
 #   DEPLOY_SECRET_<NAME>='${{ secrets.<NAME> }}' (one per secret, by name)  VARS_JSON='${{ toJSON(vars) }}' \
-#     bash scripts/render-deploy-env.sh <staging|production> <output directory>
+#     bash scripts/render-deploy-env.sh <staging|production|monitoring> <output directory>
 # or, from a laptop's dry run (scripts/lib/deploy-local.sh) and scripts/check-env.sh, SECRETS_JSON='{...}' in place of
 # the DEPLOY_SECRET_ variables.
 #
@@ -18,6 +18,7 @@
 #   backend.env                      when env/<env>.versions enables the backend profile
 #   web.env                          when env/<env>.versions enables the web profile
 #   fcm-service-account.json         when the secret FCM_SERVICE_ACCOUNT_JSON is set (Runbook 11, DEP-13)
+# For `monitoring` (the shared monitoring stack, Runbook 7, #10): monitoring.env only.
 #
 # Prints file names and counts only, never a value: the workflow's log is public.
 
@@ -28,8 +29,8 @@ die() {
   exit 1
 }
 
-[[ $# -eq 2 && ("$1" == staging || "$1" == production) ]] \
-  || die "usage: $0 <staging|production> <output directory>"
+[[ $# -eq 2 && ("$1" == staging || "$1" == production || "$1" == monitoring) ]] \
+  || die "usage: $0 <staging|production|monitoring> <output directory>"
 env_name="$1"
 out="$2"
 command -v jq >/dev/null 2>&1 || die "jq not found"
@@ -48,13 +49,18 @@ fi
 
 cd "$(dirname "$0")/.."
 
-profiles="$(sed -n 's/^COMPOSE_PROFILES=//p' "env/$env_name.versions" | tr -d '\r' | tail -n 1)"
-templates=(env/infra.env.example env/ai.env.example env/backup.env.example)
-if [[ ",$profiles," == *",backend,"* ]]; then
-  templates+=(env/backend.env.example)
-fi
-if [[ ",$profiles," == *",web,"* ]]; then
-  templates+=(env/web.env.example)
+if [[ "$env_name" == monitoring ]]; then
+  # The shared monitoring stack (Runbook 7): its own file only, never an environment's.
+  templates=(env/monitoring.env.example)
+else
+  profiles="$(sed -n 's/^COMPOSE_PROFILES=//p' "env/$env_name.versions" | tr -d '\r' | tail -n 1)"
+  templates=(env/infra.env.example env/ai.env.example env/backup.env.example)
+  if [[ ",$profiles," == *",backend,"* ]]; then
+    templates+=(env/backend.env.example)
+  fi
+  if [[ ",$profiles," == *",web,"* ]]; then
+    templates+=(env/web.env.example)
+  fi
 fi
 
 # The value of NAME from SECRETS_JSON (kind secret) or VARS_JSON (kind var); empty when not set. jq reads the JSON
@@ -81,7 +87,8 @@ for template in "${templates[@]}"; do
   ) || die "rendering $template for $env_name failed (see above; Runbook 4, section 10.2 lists what is missing)"
 done
 
-fcm="$(value_of secret FCM_SERVICE_ACCOUNT_JSON)"
+fcm=""
+[[ "$env_name" == monitoring ]] || fcm="$(value_of secret FCM_SERVICE_ACCOUNT_JSON)"
 if [[ -n "$fcm" ]]; then
   printf '%s\n' "$fcm" >"$out/fcm-service-account.json"
   jq -e 'type == "object"' "$out/fcm-service-account.json" >/dev/null \

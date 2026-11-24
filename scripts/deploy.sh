@@ -10,7 +10,8 @@
 #   1. Guards: arm64, not root, /srv/iltiam is the mounted data volume, the env files are there (600 in a 700
 #      directory), env/<env>.versions is well formed and names no unpublished image for a service that will run.
 #      One deploy at a time on the VM, whatever the environment (flock).
-#   2. The Docker Compose version, printed; 2.20 or newer.
+#   2. The Docker Compose version, printed; 2.20 or newer. The metrics network iltiam-metrics-<env>, made if missing
+#      (Runbook 7, #10).
 #   3. Pull the images of the services this environment runs.
 #   4. postgres and redis, healthy.
 #   5. The one-shots, each with `docker compose run --rm` and its exit code checked: weights-init, then
@@ -53,6 +54,8 @@ usage() {
 repo="$(cd "$(dirname "$0")/.." && pwd)"
 # shellcheck source=scripts/lib/rollout.sh
 source "$repo/scripts/lib/rollout.sh"
+# shellcheck source=scripts/lib/metrics-network.sh
+source "$repo/scripts/lib/metrics-network.sh"
 
 # --- versions file ---------------------------------------------------------------------------------------------
 
@@ -185,6 +188,10 @@ lowest="$(printf '%s\n%s\n' "$MIN_COMPOSE" "$version" | sort -V | head -n 1)"
 # Validates the files and the interpolated values without printing them.
 compose config --quiet
 ok "compose files valid"
+
+# compose.yml's metrics network is external: made here when missing (Runbook 7, scripts/lib/metrics-network.sh).
+log "metrics network"
+metrics_network_ensure "$env_name" || die "can't make the metrics network iltiam-metrics-$env_name"
 
 log "free memory for the AI rollout"
 ROLLOUT_TIMEOUT_S="$WAIT_TIMEOUT"

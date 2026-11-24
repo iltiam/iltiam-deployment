@@ -11,7 +11,8 @@
 #      - exactly the expected services (none of a profile that is off);
 #      - no published port, no host network, no privileged container;
 #      - every service on exactly its networks: only cloudflared, backend-web and web on edge; internal is
-#        internal: true;
+#        internal: true; only the four scrape targets on metrics, the external network iltiam-metrics-<env>, each
+#        with its alias <env>-<service> there (Runbook 7, #10);
 #      - mem_limit, capped json-file logs, the restart policy and no-new-privileges everywhere; cap_drop ALL on our
 #        own images and cloudflared;
 #      - web: read-only, a tmpfs on /tmp, a limit of exactly 64 MiB, a health check on /healthz at port 8080;
@@ -68,10 +69,11 @@ ALL_SERVICES="$(expected_services backend,web)"
 # The rules, as one jq program over `docker compose config --format json`. Prints one line per broken rule.
 cat >"$work/rules.jq" <<'JQ'
 def networks_of: {
-  "cloudflared": ["edge"], "backend-web": ["edge", "internal"], "web": ["edge"],
+  "cloudflared": ["edge"], "backend-web": ["edge", "internal", "metrics"], "web": ["edge"],
   "postgres": ["internal"], "redis": ["internal"],
-  "ai-api": ["internal"], "ai-beat": ["internal"], "ai-worker": ["egress", "internal"], "weights-init": ["egress"],
-  "backend-migrate": ["internal"], "backend-beat": ["internal"], "backend-worker": ["egress", "internal"]
+  "ai-api": ["internal", "metrics"], "ai-beat": ["internal"], "ai-worker": ["egress", "internal", "metrics"],
+  "weights-init": ["egress"],
+  "backend-migrate": ["internal"], "backend-beat": ["internal"], "backend-worker": ["egress", "internal", "metrics"]
 };
 def one_shots: ["weights-init", "backend-migrate"];
 def no_capabilities: ["cloudflared", "weights-init", "ai-api", "ai-worker", "ai-beat",
@@ -95,6 +97,11 @@ def fcm_target: "/run/secrets/fcm-service-account.json";
      else empty end),
     (["edge", "egress"][] | select($c.networks[.].internal == true) | "network \(.): must not be internal"),
     (if $c.networks.internal.internal != true then "network internal: must be internal: true" else empty end),
+    (if $c.networks.metrics.external != true or $c.networks.metrics.name != "iltiam-metrics-\($env)"
+     then "network metrics: must be the external network iltiam-metrics-\($env)" else empty end),
+    ($c.services | to_entries[] | select(.value.networks.metrics != null) | .key as $s
+      | select(((.value.networks.metrics.aliases // []) | index("\($env)-\($s)")) == null)
+      | "\($s): needs the alias \($env)-\($s) on the metrics network"),
     ($c.services | to_entries[] | .key as $s | .value as $v | (
       (if ($v.ports // []) | length > 0 then "\($s): publishes ports" else empty end),
       (if ($v.network_mode // "") != "" then "\($s): network_mode \($v.network_mode)" else empty end),
@@ -160,7 +167,7 @@ JQ
 # Broken rules of one config file, one per line (empty when all hold).
 broken() {
   local cfg="$1" expected="$2" fcm="$3"
-  jq -r --arg root "$(native "$root")" --argjson expected "$expected" --argjson fcm "$fcm" \
+  jq -r --arg root "$(native "$root")" --arg env "$cfg_env" --argjson expected "$expected" --argjson fcm "$fcm" \
     --argjson dummies "$(cat "$work/dummies.json")" \
     --argjson never_created "$never_created" --argjson created "$created" \
     -f "$work/rules.jq" "$cfg" | tr -d '\r'
@@ -250,6 +257,7 @@ for env in staging production; do
       cfg="$work/$env-$label-$fcm.json"
       ILTIAM_ROOT="$root" bash "$dir/scripts/compose.sh" "$env" config --format json >"$cfg" 2>"$work/err" \
         || { cat "$work/err" >&2; fail "docker compose config failed for $env"; }
+      cfg_env="$env"
       problems="$(broken "$cfg" "$expected" "$fcm")"
       [[ -z "$problems" ]] || { printf '    %s\n' "$problems" >&2; fail "$env: compose.yml breaks the rules above"; }
       ok "$(jq '.services | length' "$cfg" | tr -d '\r') services, every rule holds"
@@ -262,6 +270,7 @@ done
 
 log "negative cases"
 # Staging with every profile on: every service is there. Without and with the FCM file.
+cfg_env=staging
 base="$work/staging-all-false.json"
 base_fcm="$work/staging-all-true.json"
 jq '.services["ai-api"].ports = [{"target": 8000, "published": "8000"}]' "$base" >"$work/neg-ports.json"
@@ -269,7 +278,7 @@ broken "$work/neg-ports.json" "$ALL_SERVICES" false | grep -q "ai-api: publishes
   || fail "a published port was not caught"
 ok "caught: a published port"
 jq '.services["ai-api"].networks.edge = null' "$base" >"$work/neg-edge.json"
-broken "$work/neg-edge.json" "$ALL_SERVICES" false | grep -q "ai-api: networks edge,internal" \
+broken "$work/neg-edge.json" "$ALL_SERVICES" false | grep -q "ai-api: networks edge,internal,metrics" \
   || fail "the AI api on edge was not caught"
 ok "caught: the AI api on edge"
 jq '.services["ai-api"].environment.X = "dummy-cf_tunnel_token"' "$base" >"$work/neg-secret.json"
@@ -294,6 +303,23 @@ jq "$fcm_mount then .read_only = false else . end)" "$base_fcm" >"$work/neg-fcm-
 broken "$work/neg-fcm-rw.json" "$ALL_SERVICES" true | grep -q "backend-web: the FCM file must be mounted" \
   || fail "a writable FCM mount was not caught"
 ok "caught: a writable FCM mount"
+
+jq '.services.postgres.networks.metrics = {"aliases": ["staging-postgres"]}' "$base" >"$work/neg-metrics-pg.json"
+broken "$work/neg-metrics-pg.json" "$ALL_SERVICES" false | grep -q "postgres: networks internal,metrics" \
+  || fail "Postgres on the metrics network was not caught"
+ok "caught: Postgres on the metrics network (monitoring must never reach the database)"
+jq '.networks.metrics = {"name": "iltiam-metrics-staging"}' "$base" >"$work/neg-metrics-owned.json"
+broken "$work/neg-metrics-owned.json" "$ALL_SERVICES" false | grep -q "network metrics: must be the external" \
+  || fail "a metrics network owned by the project was not caught"
+ok "caught: a metrics network that is not external"
+jq '.networks.metrics.name = "iltiam-metrics-production"' "$base" >"$work/neg-metrics-other.json"
+broken "$work/neg-metrics-other.json" "$ALL_SERVICES" false | grep -q "network metrics: must be the external" \
+  || fail "staging on production's metrics network was not caught"
+ok "caught: staging on production's metrics network"
+jq '.services["ai-api"].networks.metrics.aliases = ["ai-api"]' "$base" >"$work/neg-metrics-alias.json"
+broken "$work/neg-metrics-alias.json" "$ALL_SERVICES" false | grep -q "ai-api: needs the alias staging-ai-api" \
+  || fail "a scrape target without its <env>- alias was not caught"
+ok "caught: a scrape target without its <env>- alias"
 
 # must_catch <what> <the rule's line> <jq edit of the staging config>
 must_catch() {

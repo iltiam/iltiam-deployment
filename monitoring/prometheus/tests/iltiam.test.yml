@@ -1,0 +1,240 @@
+# promtool test rules for ILTIAM's own alerts (Runbook 7, issue #10). scripts/check-monitoring.sh runs it:
+#   promtool test rules monitoring/prometheus/tests/iltiam.test.yml
+# Each alert: it fires when it should, after its `for`, and not on the case it must leave alone.
+rule_files:
+  - ../rules/iltiam.rules.yml
+evaluation_interval: 30s
+tests:
+  # --- Availability ---------------------------------------------------------------------------------------------
+  - name: a scrape target down for 2 minutes
+    interval: 1m
+    input_series:
+      - series: 'up{job="ai-api", instance="staging-ai-api:8000", env="staging"}'
+        values: '1 1 0 0 0 0 0'
+      - series: 'up{job="backend-web", instance="staging-backend-web:9100", env="staging"}'
+        values: '1 1 1 1 1 1 1'
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: TargetDown
+        exp_alerts: []
+      - eval_time: 5m
+        alertname: TargetDown
+        exp_alerts:
+          - exp_labels: {severity: critical, service: ai, job: ai-api, instance: "staging-ai-api:8000", env: staging}
+            exp_annotations:
+              summary: "staging: ai-api has not answered /metrics for 2 minutes"
+              description: "The container is down, restarting or out of memory. Runbook 7, section 12."
+
+  - name: readiness failing inside the VM, and a public endpoint down
+    interval: 1m
+    input_series:
+      - series: 'probe_success{job="probe-internal", instance="http://staging-ai-api:8000/ready", env="staging", check="ai-ready", module="http_internal"}'
+        values: '1 0 0 0 0'
+      - series: 'probe_success{job="probe-public", instance="https://staging-api.iltiamcare.com/api/health/", env="staging", check="api-public", module="https_public"}'
+        values: '0 0 0 0 0'
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: ServiceNotReady
+        exp_alerts: []
+      - eval_time: 4m
+        alertname: ServiceNotReady
+        exp_alerts:
+          - exp_labels: {severity: critical, job: probe-internal, instance: "http://staging-ai-api:8000/ready", env: staging, check: ai-ready, module: http_internal}
+            exp_annotations:
+              summary: "staging: ai-ready has failed for 2 minutes"
+              description: "Probed inside the VM (http://staging-ai-api:8000/ready). Runbook 7, section 12."
+      - eval_time: 4m
+        alertname: PublicEndpointDown
+        exp_alerts:
+          - exp_labels: {severity: critical, job: probe-public, instance: "https://staging-api.iltiamcare.com/api/health/", env: staging, check: api-public, module: https_public}
+            exp_annotations:
+              summary: "staging: https://staging-api.iltiamcare.com/api/health/ has failed from the internet for 3 minutes"
+              description: "Through Cloudflare and the tunnel. If the same check inside the VM passes, look at the tunnel (Runbook 3). Runbook 7, section 12."
+
+  - name: Redis unreadable from the backend
+    interval: 1m
+    input_series:
+      - series: 'iltiam_celery_broker_up{job="backend-web", instance="staging-backend-web:9100", env="staging"}'
+        values: '1 0 0 0 0'
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: RedisDown
+        exp_alerts:
+          - exp_labels: {severity: critical, service: backend, job: backend-web, instance: "staging-backend-web:9100", env: staging}
+            exp_annotations:
+              summary: "staging: the backend can't read Redis (the job queue) for 2 minutes"
+              description: "Uploads are not analysed while this lasts. Runbook 7, section 12."
+
+  # --- Errors ---------------------------------------------------------------------------------------------------
+  - name: the backend's 5xx above 5 %, and a quiet night with two errors
+    interval: 1m
+    input_series:
+      # Staging: 2 errors and 10 good answers a minute (17 %).
+      - series: 'django_http_responses_total_by_status_view_method_total{job="backend-web", instance="staging-backend-web:9100", env="staging", status="500", view="x", method="GET"}'
+        values: '0+2x20'
+      - series: 'django_http_responses_total_by_status_view_method_total{job="backend-web", instance="staging-backend-web:9100", env="staging", status="200", view="x", method="GET"}'
+        values: '0+10x20'
+      # Production: every answer an error, but only 2 in 20 minutes: no alert.
+      - series: 'django_http_responses_total_by_status_view_method_total{job="backend-web", instance="production-backend-web:9100", env="production", status="500", view="x", method="GET"}'
+        values: '0+0.1x20'
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: HighErrorRate
+        exp_alerts:
+          - exp_labels: {severity: critical, service: backend, env: staging}
+            exp_annotations:
+              summary: "staging: 16.67% of the backend's answers are 5xx"
+              description: "Grafana, ILTIAM overview, Errors; the backend's logs in Loki. Runbook 7, section 12."
+
+  - name: an AI analysis that failed
+    interval: 1m
+    input_series:
+      - series: 'iltiam_ai_job_failures_total{job="ai-worker", instance="staging-ai-worker:9808", env="staging", reason="TimeoutError"}'
+        values: '0 0 0 1 1 1'
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: AiJobFailures
+        exp_alerts: []
+      - eval_time: 5m
+        alertname: AiJobFailures
+        exp_alerts:
+          - exp_labels: {severity: warning, service: ai, env: staging, reason: TimeoutError}
+            exp_annotations:
+              summary: "staging: AI analyses failed in the last 15 minutes (TimeoutError)"
+              description: "The patient sees no result for these photos. Runbook 7, section 12."
+
+  # --- Resources ------------------------------------------------------------------------------------------------
+  - name: memory above 85 % and a disk above 80 %
+    interval: 1m
+    input_series:
+      - series: 'node_memory_MemAvailable_bytes{job="node", instance="node-exporter:9100", host="iltiam-1"}'
+        values: '1x15'
+      - series: 'node_memory_MemTotal_bytes{job="node", instance="node-exporter:9100", host="iltiam-1"}'
+        values: '10x15'
+      - series: 'node_filesystem_avail_bytes{job="node", instance="node-exporter:9100", host="iltiam-1", mountpoint="/srv/iltiam", fstype="ext4", device="/dev/sdb"}'
+        values: '15x15'
+      - series: 'node_filesystem_size_bytes{job="node", instance="node-exporter:9100", host="iltiam-1", mountpoint="/srv/iltiam", fstype="ext4", device="/dev/sdb"}'
+        values: '100x15'
+      # The boot disk at 50 %: no alert.
+      - series: 'node_filesystem_avail_bytes{job="node", instance="node-exporter:9100", host="iltiam-1", mountpoint="/", fstype="ext4", device="/dev/sda1"}'
+        values: '50x15'
+      - series: 'node_filesystem_size_bytes{job="node", instance="node-exporter:9100", host="iltiam-1", mountpoint="/", fstype="ext4", device="/dev/sda1"}'
+        values: '100x15'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: HostMemoryHigh
+        exp_alerts: []
+      - eval_time: 11m
+        alertname: HostMemoryHigh
+        exp_alerts:
+          - exp_labels: {severity: warning, service: vm, job: node, instance: "node-exporter:9100", host: iltiam-1}
+            exp_annotations:
+              summary: "iltiam-1: 90% of the memory in use for 10 minutes"
+              description: "Stop staging's AI worker first, never production's (Runbook 5, section 9.6). Runbook 7, section 12."
+      - eval_time: 11m
+        alertname: DiskSpaceHigh
+        exp_alerts:
+          - exp_labels: {severity: warning, service: vm, job: node, instance: "node-exporter:9100", host: iltiam-1, mountpoint: /srv/iltiam, fstype: ext4, device: /dev/sdb}
+            exp_annotations:
+              summary: "iltiam-1: /srv/iltiam is 85% full"
+              description: "Runbook 7, section 12: docker system df, old images, then the logs."
+
+  - name: a container near its mem_limit
+    interval: 1m
+    input_series:
+      - series: 'container_memory_working_set_bytes{job="cadvisor", instance="cadvisor:8080", host="iltiam-1", project="iltiam-staging", service="redis", env="staging", name="iltiam-staging-redis-1"}'
+        values: '190x20'
+      - series: 'container_spec_memory_limit_bytes{job="cadvisor", instance="cadvisor:8080", host="iltiam-1", project="iltiam-staging", service="redis", env="staging", name="iltiam-staging-redis-1"}'
+        values: '200x20'
+      # No limit (0): never divided by.
+      - series: 'container_memory_working_set_bytes{job="cadvisor", instance="cadvisor:8080", host="iltiam-1", project="iltiam-staging", service="other", env="staging", name="x"}'
+        values: '190x20'
+      - series: 'container_spec_memory_limit_bytes{job="cadvisor", instance="cadvisor:8080", host="iltiam-1", project="iltiam-staging", service="other", env="staging", name="x"}'
+        values: '0x20'
+    alert_rule_test:
+      - eval_time: 16m
+        alertname: ContainerNearMemoryLimit
+        exp_alerts:
+          - exp_labels: {severity: warning, job: cadvisor, instance: "cadvisor:8080", host: iltiam-1, project: iltiam-staging, service: redis, env: staging, name: iltiam-staging-redis-1}
+            exp_annotations:
+              summary: "iltiam-staging/redis uses 95% of its mem_limit"
+              description: "Near the limit, the kernel stops it (OOMKilled) and Docker restarts it. Runbook 7, section 12."
+
+  # --- Backups --------------------------------------------------------------------------------------------------
+  - name: the last good nightly backup 27 hours old, and a failed run
+    interval: 1h
+    input_series:
+      - series: 'iltiam_backup_last_success_timestamp_seconds{job="node", instance="node-exporter:9100", host="iltiam-1", env="staging", backup="nightly"}'
+        values: '0x30'
+      - series: 'iltiam_backup_last_run_success{job="node", instance="node-exporter:9100", host="iltiam-1", env="staging", backup="nightly"}'
+        values: '1x25 0x5'
+      - series: 'up{job="ai-api", instance="staging-ai-api:8000", env="staging"}'
+        values: '1x30'
+    alert_rule_test:
+      - eval_time: 25h
+        alertname: BackupTooOld
+        exp_alerts: []
+      - eval_time: 27h
+        alertname: BackupTooOld
+        exp_alerts:
+          - exp_labels: {severity: critical, service: backup, job: node, instance: "node-exporter:9100", host: iltiam-1, env: staging, backup: nightly}
+            exp_annotations:
+              summary: "staging: the last good nightly backup is 1d 3h 0m 0s old"
+              description: "More than 26 hours. journalctl -u iltiam-backup@staging (Runbook 6, section 15)."
+      - eval_time: 27h
+        alertname: BackupFailed
+        exp_alerts:
+          - exp_labels: {severity: warning, service: backup, job: node, instance: "node-exporter:9100", host: iltiam-1, env: staging, backup: nightly}
+            exp_annotations:
+              summary: "staging: the last nightly run failed"
+              description: "journalctl -u 'iltiam-*@staging' on the VM (Runbook 6, section 15)."
+      # Staging has a status file: not "never succeeded".
+      - eval_time: 27h
+        alertname: BackupNeverSucceeded
+        exp_alerts: []
+
+  - name: a monitored environment that has never had a backup
+    interval: 1m
+    input_series:
+      - series: 'up{job="ai-api", instance="production-ai-api:8000", env="production"}'
+        values: '1x80'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: BackupNeverSucceeded
+        exp_alerts: []
+      - eval_time: 70m
+        alertname: BackupNeverSucceeded
+        exp_alerts:
+          - exp_labels: {severity: critical, service: backup, env: production}
+            exp_annotations:
+              summary: "production: no nightly backup has ever succeeded"
+              description: "No status file, or no success in it. Runbook 6, sections 6 to 9."
+
+  - name: the weekly restore test 9 days old
+    interval: 1d
+    input_series:
+      - series: 'iltiam_backup_last_success_timestamp_seconds{job="node", instance="node-exporter:9100", host="iltiam-1", env="staging", backup="restore-test"}'
+        values: '0x10'
+    alert_rule_test:
+      - eval_time: 7d
+        alertname: RestoreTestTooOld
+        exp_alerts: []
+      - eval_time: 9d
+        alertname: RestoreTestTooOld
+        exp_alerts:
+          - exp_labels: {severity: warning, service: backup, job: node, instance: "node-exporter:9100", host: iltiam-1, env: staging, backup: restore-test}
+            exp_annotations:
+              summary: "staging: the last good restore test is 9d 0h 0m 0s old"
+              description: "It runs every Friday. Runbook 6, section 13."
+
+  # --- Monitoring itself ----------------------------------------------------------------------------------------
+  - name: the Watchdog always fires
+    interval: 1m
+    input_series: []
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: Watchdog
+        exp_alerts:
+          - exp_labels: {severity: none, service: monitoring}
+            exp_annotations:
+              summary: "Monitoring works: this alert always fires (dead-man check)."

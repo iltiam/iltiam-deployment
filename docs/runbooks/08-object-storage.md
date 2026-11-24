@@ -373,7 +373,7 @@ For production: `ENV=production; SHORT=prod`.
 2. The topic **→ Create Subscription:** Protocol **Email**, `<YOUR_EMAIL>` → **Create.** Again for `<TEAMMATE_EMAIL>`.
 3. Each address gets a confirmation email: open its link. The subscription turns **Active**.
 
-Always Free includes 1,000 notification emails a month. Runbook 7 (#10) sends its own alerts to the same topic.
+Always Free includes 1,000 notification emails a month. [Runbook 7](07-monitoring.md)'s OCI alarm `iltiam-instance-down` uses the same topic (section 10 there); its other alerts go through its own Alertmanager.
 
 ### 12.2 Two alarms
 
@@ -391,7 +391,7 @@ For both: **Destination: Notifications, topic `iltiam-alerts`**; **Repeat notifi
 
 **What you should see:** both alarms in **Alarm Definitions**, state **OK**.
 
-Runbook 7 (#10) adds the Grafana panel "object storage used vs 20 GB" next to these.
+[Runbook 7](07-monitoring.md), section 9 adds the Grafana dashboard *ILTIAM object storage* ("object storage used vs 20 GB"), from the same `StoredBytes` metric.
 
 ## 13. After the first staging deploy
 
@@ -568,7 +568,7 @@ The **Verified** column records the date each row last passed.
 
 - **#36:** production's storage user and key (section 9.6), the probe and `check_storage` on production (rows 18 and 19).
 - **[Runbook 6](06-backups.md) (#8):** a backup user per environment that can only create and read in its `-backups` bucket, the lifecycle rules for the dumps, and the weekly restore test.
-- **Runbook 7 (#10):** the Grafana panel for space and requests, and alerts to the same topic.
+- **[Runbook 7](07-monitoring.md) (#10):** the Grafana panel for space (section 9) and the instance alarm on the same topic (section 10).
 - **Production** (section 9.6), when Runbook 5 turns production's backend on.
 - **#36:** the two export rules of section 8.1 on `iltiam-prod-reports`.
 - **BE-22:** retention jobs; the storage policy then gets `OBJECT_DELETE`.

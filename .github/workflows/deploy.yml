@@ -12,6 +12,10 @@
 # /srv/iltiam/env/<env>/, log in to GHCR with this job's own token, run scripts/deploy.sh, log out
 # (scripts/remote-deploy.sh).
 #
+# environment=monitoring deploys the monitoring stack both environments share (Runbook 7, issue #10), from the GitHub
+# Environment `monitoring`: it renders monitoring.env only and runs scripts/monitoring.sh up instead of deploy.sh.
+# Its secrets are listed below with the others; the staging and production Environments leave them unset.
+#
 # Automatic staging deploys are a separate workflow, auto-deploy-staging.yml (Runbook 9, version 2): it builds the app
 # repositories' main here and deploys it from the auto/staging branch, in the same `deploy-staging` queue as this job.
 # While its AUTO_DEPLOY switch is on, a manual staging deploy sets staging back to the tags on main, and its next run
@@ -27,9 +31,9 @@ on:
   workflow_dispatch:
     inputs:
       environment:
-        description: Compose project to deploy on iltiam-1
+        description: Compose project to deploy on iltiam-1 (monitoring is the shared stack of Runbook 7)
         type: choice
-        options: [staging, production]
+        options: [staging, production, monitoring]
         required: true
 
 permissions:
@@ -53,6 +57,7 @@ jobs:
           persist-credentials: false
 
       - name: Check env/<env>.versions
+        if: inputs.environment != 'monitoring'
         env:
           DEPLOY_ENV: ${{ inputs.environment }}
         run: bash scripts/deploy.sh --check-versions "$DEPLOY_ENV"
@@ -65,6 +70,11 @@ jobs:
           # the env templates: one missing here and the render refuses, as for a secret missing in the Environment.
           DEPLOY_SECRET_AI_DB_PASSWORD: ${{ secrets.AI_DB_PASSWORD }}
           DEPLOY_SECRET_AI_SERVICE_TOKEN: ${{ secrets.AI_SERVICE_TOKEN }}
+          DEPLOY_SECRET_ALERT_DISCORD_WEBHOOK_URL: ${{ secrets.ALERT_DISCORD_WEBHOOK_URL }}
+          DEPLOY_SECRET_ALERT_EMAIL_TO: ${{ secrets.ALERT_EMAIL_TO }}
+          DEPLOY_SECRET_ALERT_HEARTBEAT_URL: ${{ secrets.ALERT_HEARTBEAT_URL }}
+          DEPLOY_SECRET_ALERT_SMTP_PASSWORD: ${{ secrets.ALERT_SMTP_PASSWORD }}
+          DEPLOY_SECRET_ALERT_SMTP_USERNAME: ${{ secrets.ALERT_SMTP_USERNAME }}
           DEPLOY_SECRET_AUTHENTICA_API_KEY: ${{ secrets.AUTHENTICA_API_KEY }}
           DEPLOY_SECRET_BACKEND_DB_PASSWORD: ${{ secrets.BACKEND_DB_PASSWORD }}
           DEPLOY_SECRET_BACKUP_AGE_IDENTITY: ${{ secrets.BACKUP_AGE_IDENTITY }}
@@ -78,8 +88,10 @@ jobs:
           DEPLOY_SECRET_EMAIL_HOST_USER: ${{ secrets.EMAIL_HOST_USER }}
           DEPLOY_SECRET_FCM_SERVICE_ACCOUNT_JSON: ${{ secrets.FCM_SERVICE_ACCOUNT_JSON }}
           DEPLOY_SECRET_FIELD_ENCRYPTION_KEY: ${{ secrets.FIELD_ENCRYPTION_KEY }}
+          DEPLOY_SECRET_GRAFANA_ADMIN_PASSWORD: ${{ secrets.GRAFANA_ADMIN_PASSWORD }}
           DEPLOY_SECRET_JWT_SECRET_KEY: ${{ secrets.JWT_SECRET_KEY }}
           DEPLOY_SECRET_MASK_UPLOAD_ALLOWED_HOSTS: ${{ secrets.MASK_UPLOAD_ALLOWED_HOSTS }}
+          DEPLOY_SECRET_MONITORING_TUNNEL_TOKEN: ${{ secrets.MONITORING_TUNNEL_TOKEN }}
           DEPLOY_SECRET_POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
           DEPLOY_SECRET_SECRET_KEY: ${{ secrets.SECRET_KEY }}
           DEPLOY_SECRET_STAGING_TEST_PASSWORD: ${{ secrets.STAGING_TEST_PASSWORD }}

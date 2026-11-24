@@ -6,6 +6,9 @@
 # Usage, in the deploy workflow only:
 #   bash scripts/remote-deploy.sh <staging|production> <directory written by scripts/render-deploy-env.sh>
 #       The deploy. With DEPLOY_CHECK_SERVICE=ai|backend|web set, scripts/health-check.sh for that service after it.
+#   bash scripts/remote-deploy.sh monitoring <directory written by scripts/render-deploy-env.sh>
+#       The shared monitoring stack (Runbook 7, #10): the same checkout and copy into /srv/iltiam/env/monitoring/,
+#       then scripts/monitoring.sh up. Its images are public, so no GHCR login.
 #   bash scripts/remote-deploy.sh --backup staging backend-sha-<7>
 #       Only scripts/pre-deploy-backup.sh, copied to a temporary file on the VM and run from it: it runs before the
 #       VM's clone or anything else moves.
@@ -42,11 +45,12 @@ case "${1:-}" in
 esac
 
 if [[ "$run_mode" == deploy ]]; then
-  [[ $# -eq 2 && ("$1" == staging || "$1" == production) ]] \
-    || die "usage: $0 <staging|production> <rendered directory>  |  --backup staging backend-sha-<7>  |  --check staging <service>  |  --status staging"
+  [[ $# -eq 2 && ("$1" == staging || "$1" == production || "$1" == monitoring) ]] \
+    || die "usage: $0 <staging|production|monitoring> <rendered directory>  |  --backup staging backend-sha-<7>  |  --check staging <service>  |  --status staging"
   env_name="$1"
   rendered="$2"
   [[ -d "$rendered" ]] || die "$rendered not found"
+  [[ "$env_name" != monitoring || -z "${DEPLOY_CHECK_SERVICE:-}" ]] || die "DEPLOY_CHECK_SERVICE is for staging only"
   check_service="${DEPLOY_CHECK_SERVICE:-}"
 elif [[ "$run_mode" == status ]]; then
   [[ $# -eq 1 && "$1" == staging ]] || die "usage: $0 --status staging"
@@ -67,7 +71,7 @@ env_dir="/srv/iltiam/env/$env_name"
 if [[ "$run_mode" != backup && "$run_mode" != status ]]; then
   [[ "${DEPLOY_SHA:-}" =~ ^[0-9a-f]{40}$ ]] || die "DEPLOY_SHA must be a full commit hash"
 fi
-if [[ "$run_mode" == deploy ]]; then
+if [[ "$run_mode" == deploy && "$env_name" != monitoring ]]; then
   [[ "${GHCR_USER:-}" =~ ^[A-Za-z0-9][A-Za-z0-9-]*(\[bot\])?$ ]] || die "GHCR_USER is not a GitHub user name"
   [[ -n "${GHCR_TOKEN:-}" ]] || die "GHCR_TOKEN is not set"
 fi
@@ -123,6 +127,11 @@ for file in "$rendered"/*; do
     <"$file"
   printf '    %s (%s)\n' "$name" "$mode"
 done
+
+if [[ "$env_name" == monitoring ]]; then
+  remote "bash $REPO/scripts/monitoring.sh up" </dev/null
+  exit 0
+fi
 
 echo "==> GHCR"
 # The login lasts only for this deploy: logged out again on any exit.

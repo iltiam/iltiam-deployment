@@ -77,7 +77,7 @@ render_all() {
 compose_config() {
   local env="$1" dir="$2"
   shift 2
-  COMPOSE_PROFILES=backend,web ENV_DIR="$(native "$dir")" DATA_DIR="$(native "$work/data-$env")" \
+  COMPOSE_PROFILES=backend,web ENV_DIR="$(native "$dir")" DATA_DIR="$(native "$work/data-$env")" ILTIAM_ENV="$env" \
     docker compose -f "$COMPOSE_FILE" -p "iltiam-check-$env" \
     --env-file "$(native "$dir/infra.env")" --env-file "env/$env.versions" config "$@"
 }
