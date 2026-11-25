@@ -15,7 +15,7 @@ with the staging the demo uses. Start section 6 after the demo.
 |---|---|
 | GitHub Environment `production` | Exists, with a required reviewer. Secrets set: the generated ones (`SECRET_KEY`, `JWT_SECRET_KEY`, `FIELD_ENCRYPTION_KEY`, `AI_SERVICE_TOKEN`, `DJANGO_SECRET_KEY`, the three database passwords), `CF_TUNNEL_TOKEN`, `TURNSTILE_SECRET_KEY`. **No variables yet** |
 | Missing secrets | `STORAGE_ENDPOINT_URL`, `STORAGE_ACCESS_KEY`, `STORAGE_SECRET_KEY`, `MASK_UPLOAD_ALLOWED_HOSTS` (section 3.1), `EMAIL_HOST_USER`, `EMAIL_HOST_PASSWORD` (3.2), `AUTHENTICA_API_KEY` (3.3), `WEIGHTS_READ_TOKEN` (3.5); and `FCM_SERVICE_ACCOUNT_JSON` (3.4, not in a template). Since #8, also the backup settings (3.6) |
-| Variables | Ready in [`env/production.vars`](https://github.com/iltiam/iltiam-deployment/blob/main/env/production.vars), set with `scripts/set-env-vars.sh` (section 2). Two wait for you: `AUTHENTICA_SENDER_NAME` (decision) and `TURNSTILE_SITE_KEY` (the widget's site key) |
+| Variables | Ready in [`env/production.vars`](https://github.com/iltiam/iltiam-deployment/blob/main/env/production.vars), set with `scripts/set-env-vars.sh` (section 2). Three wait for you: `AUTHENTICA_SENDER_NAME` (decision), `TURNSTILE_SITE_KEY` (the widget's site key) and `RETENTION_ENFORCE` (section 9) |
 | `env/production.versions` | AI `sha-0d1861e`; backend and web `to-confirm`; `COMPOSE_PROFILES=` empty (AI only) |
 | Tunnel `iltiam-prod`, DNS `app.` and `api.` | Runbook 3 |
 | Production deployed | **No** |
@@ -39,7 +39,7 @@ scripts/set-env-vars.sh production env/production.vars            # dry run: lis
 scripts/set-env-vars.sh production env/production.vars --apply    # sets them
 ```
 
-**What you should see:** 28 `add` lines and 2 `skip` (the two `TO-...` values) on the first dry run; after `--apply`,
+**What you should see:** 28 `add` lines and 3 `skip` (the three `TO-...` values) on the first dry run; after `--apply`,
 the next dry run says `same` for each. When a `TO-...` value is decided, change it in `env/production.vars` in a PR,
 then `--apply` again.
 
@@ -141,7 +141,8 @@ Write each result in #36, with the date.
 
 ## 9. Gaps found while preparing this
 
-- `RETENTION_ENFORCE` (#66) is not in `env/backend.env.example` yet, so the deploy cannot set it in production. Add it
-  to the template with #66, as `var, optional`, then to `env/production.vars`.
+- `RETENTION_ENFORCE` (#66): in `env/backend.env.example` (`var, optional`) and in `env/production.vars` as
+  `TO-DECIDE`. Set it to `true` once the dry-run counts on production match the schedule
+  ([retention](../privacy/retention.md), "Checking it").
 - Production's Turnstile widget: its secret key is set, its site key must be copied into `env/production.vars`
   (Runbook 2, section 10).

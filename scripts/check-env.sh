@@ -531,4 +531,50 @@ expect_fail "backup-fetch.sh with a path in the name" bash scripts/backup-fetch.
 ! grep -rnE 'pg_dump|pg_restore|scripts/backup\.sh|restore-test\.sh' .github/workflows/ >/dev/null || fail "a workflow dumps, restores or runs the backup scripts: they run on the VM only"
 ok "no workflow dumps or restores a database"
 
+# --- 10. Retention (docs/privacy/retention.md, issue #66) -----------------------------------------------------------
+
+# The backend's retention job deletes only with RETENTION_ENFORCE true (env.bool, off by default). Optional: unset,
+# the variable is left out of backend.env and the job only counts. The renderer copies only listed names, so a value
+# set in the Environment must reach backend.env.
+log "RETENTION_ENFORCE"
+for env in staging production; do
+  grep -qx 'var may RETENTION_ENFORCE' <<<"$(bash "$RENDER" --list "$env" env/backend.env.example | tr -d '\r')" \
+    || fail "RETENTION_ENFORCE must be '# var, optional:' in env/backend.env.example ($env)"
+done
+ok "a variable, optional in both environments"
+# Staging with the backend profile on (the copy from section 4) and RETENTION_ENFORCE not in the Environment.
+VARS_JSON="$(deploy_json staging var | jq -c 'del(.RETENTION_ENFORCE)' | tr -d '\r')" \
+  SECRETS_JSON="$(deploy_json staging secret)" \
+  bash "$work/repo-backend/scripts/render-deploy-env.sh" staging "$work/deploy-retention-unset" >/dev/null \
+  || fail "render-deploy-env.sh staging without RETENTION_ENFORCE failed"
+[[ -f "$work/deploy-retention-unset/backend.env" ]] || fail "no backend.env with the backend profile on"
+! grep -q '^RETENTION_ENFORCE=' "$work/deploy-retention-unset/backend.env" \
+  || fail "RETENTION_ENFORCE reached backend.env while unset: staging must keep counting only"
+ok "unset: left out of backend.env (the job only counts)"
+# Production, from the template directly: its versions file may leave the backend profile off.
+production_retention() {
+  export_dummies production RETENTION_ENFORCE
+  RETENTION_ENFORCE="$1" bash "$RENDER" production env/backend.env.example "$work/production-retention-$1.env" >/dev/null
+}
+for value in true false; do
+  (production_retention "$value") || fail "production's backend.env with RETENTION_ENFORCE=$value failed to render"
+  grep -qx "RETENTION_ENFORCE='$value'" "$work/production-retention-$value.env" \
+    || fail "RETENTION_ENFORCE=$value did not reach production's backend.env"
+done
+VARS_JSON="$(deploy_json staging var | jq -c '. + {RETENTION_ENFORCE: "true"}' | tr -d '\r')" \
+  SECRETS_JSON="$(deploy_json staging secret)" \
+  bash "$work/repo-backend/scripts/render-deploy-env.sh" staging "$work/deploy-retention-staging" >/dev/null \
+  || fail "render-deploy-env.sh staging with RETENTION_ENFORCE set failed"
+grep -qx "RETENTION_ENFORCE='true'" "$work/deploy-retention-staging/backend.env" \
+  || fail "RETENTION_ENFORCE did not reach staging's backend.env"
+ok "set in the Environment: the value reaches backend.env"
+# env/production.vars (scripts/set-env-vars.sh): only true, false or TO-DECIDE (skipped until #36 decides). env.bool
+# reads anything else as false, so a typo would leave the job counting while the file says it deletes.
+retention_values="$(sed -n 's/^RETENTION_ENFORCE=//p' env/production.vars | tr -d '\r')"
+[[ "$(wc -l <<<"$retention_values")" -eq 1 && -n "$retention_values" ]] \
+  || fail "env/production.vars must list RETENTION_ENFORCE exactly once"
+[[ "$retention_values" =~ ^(true|false|TO-DECIDE)$ ]] \
+  || fail "env/production.vars: RETENTION_ENFORCE must be true, false or TO-DECIDE"
+ok "env/production.vars: RETENTION_ENFORCE is true, false or TO-DECIDE"
+
 log "all checks passed"

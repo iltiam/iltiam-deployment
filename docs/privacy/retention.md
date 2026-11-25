@@ -48,7 +48,8 @@ Every deleted row is operational. The events those rows took part in (sign-ins, 
 
 1. Leave `RETENTION_ENFORCE` unset and run `run_retention --dry-run` (command above).
 2. Compare each count with this table for the data on staging.
-3. When they match and these documents are approved: add `RETENTION_ENFORCE` (#66) to `env/backend.env.example` (a `var`; the deploy passes only listed names) and to `scripts/check-env.sh`, set the variable `RETENTION_ENFORCE=true` in the GitHub Environment, and deploy (production in #36).
+3. When they match and these documents are approved: set the variable `RETENTION_ENFORCE=true` in the GitHub Environment and deploy the backend. The deploy passes it through (`env/backend.env.example`, `var, optional`, since #66). For production, change `RETENTION_ENFORCE=TO-DECIDE` to `true` in `env/production.vars` in a PR, then `scripts/set-env-vars.sh production env/production.vars --apply` (#36). Use `true` or `false` only: the backend reads any other value as false.
+4. Check it: `GET /api/retention/` as Super Admin returns `"enforce": true`.
 
 ## Changing a period
 
