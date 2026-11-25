@@ -84,6 +84,6 @@ Facts found in the code on 2026-11-13, each with its issue:
 4. **The backend records when a consent changed, not which text version:** iltiam/iltiam-backend#130. **Fixed** in backend PR #134; the apps follow in iltiam/iltiam-web#75 and iltiam/iltiam-mobile#102.
 5. **Anonymisation keeps wound photos, notes and message text:** iltiam/iltiam-backend#129. **Decided** in backend PR #134: kept, as notice v1 says; the confirmation now says so.
 6. **No Super Admin web screens** for deletion requests and breach incidents: iltiam/iltiam-web#69.
-7. **`RETENTION_ENFORCE` isn't passed by the deploy:** #66.
+7. **`RETENTION_ENFORCE` isn't passed by the deploy:** #66. **Fixed:** it is in `env/backend.env.example` (optional, so unset it stays off); production's value is decided in #36 (`env/production.vars`).
 8. **Unused Android media permissions:** iltiam/iltiam-mobile#76.
 9. **Only "AI result viewed" is logged as a view.** Other reads of a record aren't logged, so the texts promise only what is logged: changes, and doctors' views of AI results.
