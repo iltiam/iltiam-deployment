@@ -471,7 +471,7 @@ bash scripts/check-monitoring.sh
 1. `gh variable set MONITORED_ENVIRONMENTS --env monitoring --body staging,production -R iltiam/iltiam-deployment`.
 2. Deploy monitoring (section 11). Production's targets appear as its profiles turn on (`env/production.versions`).
 3. UptimeRobot: unpause `ILTIAM API` (section 14).
-4. Section 13, rows 2 and 3, with `production`. The go-live checklist's monitoring row: stop production's AI worker for 5 minutes, on purpose, and record the alert email's time.
+4. Section 13, steps 2, 3 and 7, with `production` (section 18, row 13). The go-live checklist's monitoring row: stop production's AI worker for 5 minutes, on purpose, and record the alert email's time.
 
 ## 18. Verification checklist
 
